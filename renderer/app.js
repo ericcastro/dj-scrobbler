@@ -29,7 +29,6 @@ const btnSC              = document.getElementById('btn-sc')
 const btnBookmark        = document.getElementById('btn-bookmark')
 const btnDevtools        = document.getElementById('btn-devtools')
 const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
-const appIcon            = document.getElementById('app-icon')
 const sidebar            = document.getElementById('sidebar')
 const sidebarResizeHandle= document.getElementById('sidebar-resize-handle')
 const sidebarFooter      = document.getElementById('sidebar-footer')
@@ -70,8 +69,8 @@ function icon(paths, size = 14) {
 const ICON = {
   play:     '<polygon points="5 3 19 12 5 21 5 3"/>',
   pause:    '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
-  bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
-  bookmarkFilled: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" fill="currentColor"/>',
+  heart:       '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  heartFilled: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" fill="currentColor"/>',
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────────
@@ -214,8 +213,8 @@ function wireMainEvents() {
     state.currentSource   = url.includes('1001tracklists') ? '1001tl' : 'set79'
     npSet.textContent     = title
     npSource.textContent  = url.includes('1001tracklists')
-      ? 'Tracklist courtesy of 1001Tracklists'
-      : 'Tracklist courtesy of set79'
+      ? 'tracklist courtesy of 1001tracklists'
+      : 'tracklist courtesy of set79'
     updateBookmarkBtn()
     addToHistory({ title, url, source: state.currentSource })
   })
@@ -350,7 +349,7 @@ function isFavorited(url) {
 
 function updateBookmarkBtn() {
   const on = !!state.currentSetUrl && isFavorited(state.currentSetUrl)
-  btnBookmark.innerHTML = on ? icon(ICON.bookmarkFilled, 15) : icon(ICON.bookmark, 15)
+  btnBookmark.innerHTML = on ? icon(ICON.heartFilled, 15) : icon(ICON.heart, 15)
   btnBookmark.classList.toggle('active', on)
 }
 
@@ -396,7 +395,6 @@ function makeSetListItem(item, onRemove) {
 
 function applyTheme(theme, shouldPersist = true) {
   document.documentElement.setAttribute('data-theme', theme)
-  if (appIcon) appIcon.src = `../images/electron-icons/${theme}/icon.png`
   document.querySelectorAll('.theme-swatch').forEach(el => {
     el.classList.toggle('active', el.dataset.themeId === theme)
   })

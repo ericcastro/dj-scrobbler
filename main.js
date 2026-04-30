@@ -158,25 +158,28 @@ function lfmUpdateNowPlaying(artist, title) {
     .catch(() => setLfmStatus('error'))
 }
 
-function lfmScrobble(artist, title, startedAt) {
+function lfmScrobble(artist, title, startedAt, album) {
   if (!lfmSession?.key || !artist || !title) return
-  lfmPost({
+  const params = {
     method: 'track.scrobble',
     'artist[0]': artist,
     'track[0]': title,
     'timestamp[0]': String(Math.floor(startedAt / 1000)),
     sk: lfmSession.key,
-  })
+  }
+  if (album) params['album[0]'] = album
+  lfmPost(params)
     .then(res => setLfmStatus(res.error ? 'error' : 'ok'))
     .catch(() => setLfmStatus('error'))
 }
 
 // ── Now-playing polling ───────────────────────────────────────────────────────
 
-let monitorInterval = null
-let lastNowPlaying  = null
-let lastTrackData   = null
-let trackStartedAt  = null
+let monitorInterval  = null
+let lastNowPlaying   = null
+let lastTrackData    = null
+let trackStartedAt   = null
+let currentSetTitle  = null   // DJ set title used as album in Last.fm scrobbles
 
 function stopMonitoring() {
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null }
@@ -197,8 +200,9 @@ function emitNowPlaying(data) {
   if (data.raw === lastNowPlaying) return
 
   // Scrobble the track that just ended (must have played ≥30s)
+  // DJ set title is sent as album so it appears correctly in Last.fm history
   if (lastTrackData && trackStartedAt && (Date.now() - trackStartedAt) >= 30000) {
-    lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt)
+    lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt, currentSetTitle)
   }
 
   lastNowPlaying = data.raw
@@ -295,6 +299,7 @@ function wireWebview(wvContents) {
         const title = await wvContents.executeJavaScript(
           `document.querySelector('h1')?.textContent?.trim() || document.title`
         )
+        currentSetTitle = title || null
         mainWindow.webContents.send('tracklist-loaded', { url, title })
       } catch {}
       startMonitoring(wvContents, tlPlugin)
