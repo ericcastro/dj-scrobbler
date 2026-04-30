@@ -1,6 +1,8 @@
 /**
  * Renderer process — all UI logic.
  * window.api is exposed by preload.js via contextBridge.
+ *
+ * Icons: Lucide (MIT) — https://lucide.dev
  */
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -11,7 +13,7 @@ const state = {
   currentSetUrl: '',
   currentSource: '',
   nowPlaying: null,
-  lfmStatus: 'unconfigured',   // 'unconfigured' | 'ok' | 'error'
+  lfmStatus: 'unconfigured',
   isTrackPlaying: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
 }
@@ -20,13 +22,14 @@ const state = {
 
 const webview            = document.getElementById('webview')
 const searchInput        = document.getElementById('search-input')
-const searchSuggestions  = document.getElementById('search-suggestions')
+const searchDropdown     = document.getElementById('search-dropdown')
 const searchBtn          = document.getElementById('search-btn')
 const btnYT              = document.getElementById('btn-yt')
 const btnSC              = document.getElementById('btn-sc')
 const btnBookmark        = document.getElementById('btn-bookmark')
 const btnDevtools        = document.getElementById('btn-devtools')
 const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
+const appIcon            = document.getElementById('app-icon')
 const sidebar            = document.getElementById('sidebar')
 const sidebarResizeHandle= document.getElementById('sidebar-resize-handle')
 const sidebarFooter      = document.getElementById('sidebar-footer')
@@ -57,6 +60,19 @@ const lfmDisconnected    = document.getElementById('lfm-disconnected')
 const lfmUsername        = document.getElementById('lfm-username')
 const lfmConnectStatus   = document.getElementById('lfm-connect-status')
 const footerAppName      = document.getElementById('footer-app-name')
+
+// ── Icons (Lucide MIT) ────────────────────────────────────────────────────────
+
+function icon(paths, size = 14) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`
+}
+
+const ICON = {
+  play:     '<polygon points="5 3 19 12 5 21 5 3"/>',
+  pause:    '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
+  bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+  bookmarkFilled: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" fill="currentColor"/>',
+}
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 
@@ -90,16 +106,14 @@ async function init() {
   const version = await window.api.getVersion()
   footerAppName.textContent = `DJ Scrobbler v${version}`
 
-  // Pick a random greeting
   introGreeting.textContent = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
 
   renderFavorites()
   renderHistory()
-  renderSearchSuggestions()
-  await loadSettings()
 
   state.lfmStatus = await window.api.lfmStatusGet()
   refreshScrobbleBadge()
+  await loadSettings()
 
   webview.addEventListener('dom-ready', () => {
     webviewReady = true
@@ -108,7 +122,7 @@ async function init() {
 
   wireEvents()
   wireMainEvents()
-  // Don't navigate anywhere — show the intro screen instead
+  // No default navigation — show intro screen
 }
 
 // ── Intro screen ──────────────────────────────────────────────────────────────
@@ -131,11 +145,49 @@ function navigateToSearch(query = '') {
 
 function doSearch() {
   const q = searchInput.value.trim()
+  hideSearchDropdown()
   if (q) saveSearchQuery(q)
   navigateToSearch(q)
 }
 
-// ── Search history ───────────────────────────────────────────────────────────
+// ── Search autocomplete ───────────────────────────────────────────────────────
+
+let dropdownFocusIdx = -1
+
+function showSearchDropdown(matches) {
+  dropdownFocusIdx = -1
+  searchDropdown.innerHTML = ''
+  matches.forEach((q) => {
+    const item = document.createElement('div')
+    item.className = 'search-dropdown-item'
+    item.textContent = q
+    item.addEventListener('mousedown', (e) => {
+      e.preventDefault() // keep focus on input
+      searchInput.value = q
+      hideSearchDropdown()
+      doSearch()
+    })
+    searchDropdown.appendChild(item)
+  })
+  searchDropdown.classList.add('open')
+}
+
+function hideSearchDropdown() {
+  searchDropdown.classList.remove('open')
+  dropdownFocusIdx = -1
+}
+
+function updateDropdownFocus(delta) {
+  const items = searchDropdown.querySelectorAll('.search-dropdown-item')
+  if (!items.length) return
+  items[dropdownFocusIdx]?.classList.remove('focused')
+  dropdownFocusIdx = Math.max(-1, Math.min(items.length - 1, dropdownFocusIdx + delta))
+  const focused = items[dropdownFocusIdx]
+  if (focused) {
+    focused.classList.add('focused')
+    searchInput.value = focused.textContent
+  }
+}
 
 function saveSearchQuery(query) {
   if (!query) return
@@ -143,17 +195,6 @@ function saveSearchQuery(query) {
   const deduped = [query, ...queries.filter(q => q !== query)].slice(0, 50)
   state.store.searchQueries = deduped
   persist()
-  renderSearchSuggestions()
-}
-
-function renderSearchSuggestions() {
-  searchSuggestions.innerHTML = ''
-  const queries = state.store.searchQueries || []
-  queries.forEach(q => {
-    const opt = document.createElement('option')
-    opt.value = q
-    searchSuggestions.appendChild(opt)
-  })
 }
 
 // ── Messages from main process ────────────────────────────────────────────────
@@ -172,7 +213,9 @@ function wireMainEvents() {
     state.currentSetUrl   = url
     state.currentSource   = url.includes('1001tracklists') ? '1001tl' : 'set79'
     npSet.textContent     = title
-    npSource.textContent  = url.includes('1001tracklists') ? '1001Tracklists' : 'set79'
+    npSource.textContent  = url.includes('1001tracklists')
+      ? 'Tracklist courtesy of 1001Tracklists'
+      : 'Tracklist courtesy of set79'
     updateBookmarkBtn()
     addToHistory({ title, url, source: state.currentSource })
   })
@@ -183,7 +226,7 @@ function wireMainEvents() {
     npArtist.textContent   = data.artist || '—'
     npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
     const playing = data.isPlaying !== false
-    ppIcon.textContent = playing ? '⏸' : '▶'
+    ppIcon.innerHTML = playing ? icon(ICON.pause, 16) : icon(ICON.play, 16)
     btnPlayPause.classList.toggle('playing', playing)
     state.isTrackPlaying = playing
     refreshScrobbleBadge()
@@ -239,8 +282,8 @@ function restoreSidebarWidth() {
 function wireSidebarResize() {
   let isResizing = false
 
-  // A fixed full-screen overlay sits on top of everything (including the webview)
-  // during a drag so mouse events never get swallowed by the webview process boundary.
+  // Full-screen overlay prevents mouse events being swallowed by the webview
+  // (webview is an out-of-process iframe; events crossing into it vanish)
   const dragOverlay = document.createElement('div')
   dragOverlay.style.cssText =
     'position:fixed;inset:0;z-index:99999;cursor:col-resize;display:none'
@@ -256,8 +299,7 @@ function wireSidebarResize() {
 
   const onMove = (e) => {
     if (!isResizing) return
-    const w = Math.max(160, Math.min(480, e.clientX))
-    sidebar.style.width = w + 'px'
+    sidebar.style.width = Math.max(160, Math.min(480, e.clientX)) + 'px'
   }
 
   const onUp = () => {
@@ -274,12 +316,9 @@ function wireSidebarResize() {
     }
   }
 
-  // Attach to dragOverlay so events are never missed regardless of where the
-  // mouse travels (webview, other iframes, OS chrome, etc.)
   dragOverlay.addEventListener('mousemove', onMove)
   dragOverlay.addEventListener('mouseup', onUp)
-  // Also handle mouseup on document as a safety net
-  document.addEventListener('mouseup', onUp)
+  document.addEventListener('mouseup', onUp) // safety net
 }
 
 // ── Favorites ────────────────────────────────────────────────────────────────
@@ -311,8 +350,8 @@ function isFavorited(url) {
 
 function updateBookmarkBtn() {
   const on = !!state.currentSetUrl && isFavorited(state.currentSetUrl)
+  btnBookmark.innerHTML = on ? icon(ICON.bookmarkFilled, 15) : icon(ICON.bookmark, 15)
   btnBookmark.classList.toggle('active', on)
-  btnBookmark.textContent = on ? '★' : '☆'
 }
 
 // ── History ──────────────────────────────────────────────────────────────────
@@ -357,6 +396,7 @@ function makeSetListItem(item, onRemove) {
 
 function applyTheme(theme, shouldPersist = true) {
   document.documentElement.setAttribute('data-theme', theme)
+  if (appIcon) appIcon.src = `../images/electron-icons/${theme}/icon.png`
   document.querySelectorAll('.theme-swatch').forEach(el => {
     el.classList.toggle('active', el.dataset.themeId === theme)
   })
@@ -431,7 +471,40 @@ function wireEvents() {
   })
 
   searchBtn.addEventListener('click', doSearch)
-  searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch() })
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      doSearch() // hides dropdown inside doSearch()
+    } else if (e.key === 'Escape') {
+      hideSearchDropdown()
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      updateDropdownFocus(1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      updateDropdownFocus(-1)
+    }
+  })
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.trim().toLowerCase()
+    if (!q) { hideSearchDropdown(); return }
+    const matches = (state.store.searchQueries || [])
+      .filter(s => s.toLowerCase().includes(q))
+      .slice(0, 8)
+    if (matches.length === 0) { hideSearchDropdown(); return }
+    showSearchDropdown(matches)
+  })
+
+  searchInput.addEventListener('blur', () => {
+    // Small delay so mousedown on an item fires before blur hides the list
+    setTimeout(hideSearchDropdown, 150)
+  })
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#search-box')) hideSearchDropdown()
+  })
 
   btnDevtools.addEventListener('click', () => window.api.openDevTools())
   btnSidebarToggle.addEventListener('click', () => toggleSidebar())
@@ -476,7 +549,7 @@ function wireEvents() {
     const url = e.url || ''
     if (!url.includes('1001tracklists.com') && !url.includes('set79.com')) {
       hideOverlays()
-      ppIcon.textContent = '▶'
+      ppIcon.innerHTML = icon(ICON.play, 16)
       btnPlayPause.classList.remove('playing')
       npTracknum.textContent = ''
       state.isTrackPlaying = false

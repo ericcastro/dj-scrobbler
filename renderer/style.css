@@ -109,7 +109,11 @@ html, body {
   flex-shrink: 0;
 }
 
-.logo { font-size: 18px; color: var(--accent); }
+#app-icon {
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: block;
+}
 
 #search-area {
   flex: 1;
@@ -154,6 +158,7 @@ html, body {
   display: flex;
   gap: 6px;
   min-width: 0;
+  position: relative;
 }
 
 #search-input {
@@ -188,6 +193,38 @@ html, body {
 
 #search-btn:hover { background: var(--accent2); color: #000; }
 
+/* ── Search autocomplete dropdown ── */
+#search-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  z-index: 200;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+}
+
+#search-dropdown.open { display: block; }
+
+.search-dropdown-item {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background .1s;
+}
+
+.search-dropdown-item:hover,
+.search-dropdown-item.focused { background: var(--bg3); color: var(--accent2); }
+
 #header-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
 .icon-btn {
@@ -195,14 +232,16 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text2);
-  padding: 5px 10px;
+  padding: 6px 8px;
   cursor: pointer;
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all .15s;
 }
 
 .icon-btn:hover { color: var(--text); border-color: var(--accent); }
-.icon-btn.active { color: gold; border-color: gold; }
+.icon-btn.active { color: var(--accent); border-color: var(--accent); }
 
 /* ── Layout ── */
 #layout {
@@ -283,6 +322,9 @@ html, body {
   cursor: pointer;
   font-size: 12px;
   transition: all .15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .nav-btn:hover { background: var(--bg3); color: var(--text); }
@@ -614,7 +656,7 @@ webview {
 }
 
 #no-tracklist-msg.hidden { display: none; }
-.big-icon { font-size: 48px; }
+.big-icon { opacity: .4; }
 
 /* ── Now-playing footer ── */
 #now-playing-bar {
@@ -646,6 +688,8 @@ webview {
 .play-btn:hover { background: var(--accent); color: #000; }
 .play-btn.playing { border-color: var(--accent2); color: var(--accent2); }
 .play-btn.playing:hover { background: var(--accent2); color: #000; }
+
+#pp-icon { display: flex; align-items: center; justify-content: center; }
 
 #np-tracknum {
   font-size: 10px;
@@ -680,8 +724,8 @@ webview {
 
 #np-right {
   text-align: right;
-  flex-shrink: 0;
-  max-width: 260px;
+  flex: 1;
+  min-width: 0;
 }
 
 #np-set {
@@ -696,8 +740,10 @@ webview {
   font-size: 10px;
   color: var(--accent);
   margin-top: 2px;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: .03em;
 }
 
 /* ── Scrobble badge ── */

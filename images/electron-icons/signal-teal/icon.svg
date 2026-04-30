@@ -45,7 +45,7 @@
       <circle cx="154" cy="326" r="32" fill="#a9b7b8"/>
       <circle cx="154" cy="326" r="23" fill="#ffe66d"/>
       <circle cx="154" cy="326" r="9" fill="#14b8a6"/>
-      <path d="M202 218l-32 75" fill="none" stroke="#f4fffb" stroke-linecap="round" stroke-width="8"/>
+      <path d="M197.4 216 206.6 220 174.6 295 165.4 291Z" fill="#fbfffd"/>
       <rect x="187" y="210" width="30" height="16" rx="4" fill="#45636a"/>
       <circle cx="170" cy="293" r="8" fill="#d8ece9"/>
     </g>
@@ -56,7 +56,7 @@
       <circle cx="358" cy="326" r="32" fill="#a9b7b8"/>
       <circle cx="358" cy="326" r="23" fill="#ffe66d"/>
       <circle cx="358" cy="326" r="9" fill="#14b8a6"/>
-      <path d="M406 218l-32 75" fill="none" stroke="#f4fffb" stroke-linecap="round" stroke-width="8"/>
+      <path d="M401.4 216 410.6 220 378.6 295 369.4 291Z" fill="#fbfffd"/>
       <rect x="391" y="210" width="30" height="16" rx="4" fill="#45636a"/>
       <circle cx="374" cy="293" r="8" fill="#d8ece9"/>
     </g>
