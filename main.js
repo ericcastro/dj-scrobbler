@@ -3,7 +3,8 @@ const path   = require('path')
 const https  = require('https')
 const crypto = require('crypto')
 const fs     = require('fs')
-const plugins = require('./plugins')
+const plugins  = require('./plugins')
+const overlay  = require('./plugins/overlay')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -311,6 +312,15 @@ function wireWebview(wvContents) {
       } catch {}
       startMonitoring(wvContents, tlPlugin)
 
+      // Inject overlay to hide page noise and surface the player full-width
+      if (tlPlugin.playerSelectors) {
+        const store   = readStore()
+        const theme   = store.settings?.theme || 'neon-night'
+        const bgColor = overlay.bgForTheme(theme)
+        const script  = overlay.buildOverlayScript(tlPlugin.playerSelectors, bgColor)
+        wvContents.executeJavaScript(script).catch(() => {})
+      }
+
       if (tlPlugin.autoplayScript) {
         setTimeout(
           () => wvContents.executeJavaScript(tlPlugin.autoplayScript).catch(() => {}),
@@ -532,7 +542,7 @@ ipcMain.handle('open-external', (_event, url) => {
   } catch {}
 })
 
-// Theme change — update dock icon and persist
+// Theme change — update dock icon, persist, and live-update overlay color
 ipcMain.handle('set-theme', (_event, theme) => {
   setDockIcon(theme)
   const store = readStore()
@@ -540,4 +550,9 @@ ipcMain.handle('set-theme', (_event, theme) => {
   store.settings.theme = theme
   if (lfmSession) store.settings.lfmSession = lfmSession
   writeStore(store)
+  if (currentWvContents) {
+    currentWvContents.executeJavaScript(
+      overlay.buildColorUpdateScript(overlay.bgForTheme(theme))
+    ).catch(() => {})
+  }
 })

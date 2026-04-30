@@ -17,6 +17,9 @@ module.exports = {
     return [{ url: `https://set79.com/tracklist/soundcloud.com${u.pathname}`, title: '' }]
   },
 
+  // set79 embeds SoundCloud's own player widget
+  playerSelectors: ['iframe[src*="soundcloud.com/player"]', 'iframe[src*="soundcloud"]'],
+
   autoplayDelay: 0,
   autoplayScript: null,
 

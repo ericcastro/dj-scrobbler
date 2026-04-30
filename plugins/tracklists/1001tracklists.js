@@ -67,6 +67,10 @@ module.exports = {
     return searchHttp(meta.url)
   },
 
+  // Ordered selectors tried in sequence; first rendered match wins.
+  // #playerWidget is the outer container; iframe fallback catches edge cases.
+  playerSelectors: ['#playerWidget', 'iframe[src*="youtube"]', 'iframe[src*="youtube-nocookie"]'],
+
   autoplayDelay: 3000,
   autoplayScript: `
     if (typeof ytPlayer !== 'undefined' && ytPlayer.idPlayer) {
