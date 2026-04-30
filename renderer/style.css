@@ -262,7 +262,13 @@ html, body {
   transition: width .2s;
   min-width: 160px;
   max-width: 480px;
+  -webkit-app-region: drag;
 }
+
+/* Keep interactive and scrollable areas non-draggable */
+#sidebar button,
+.sidebar-panel,
+.sidebar-footer-link { -webkit-app-region: no-drag; }
 
 #sidebar.collapsed { width: 0 !important; min-width: 0; }
 
