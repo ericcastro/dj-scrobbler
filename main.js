@@ -336,6 +336,14 @@ function createWindow() {
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
   mainWindow.webContents.on('did-attach-webview', (_event, wvContents) => wireWebview(wvContents))
+
+  // Spotify-style close: hide the window instead of quitting
+  mainWindow.on('close', (e) => {
+    if (process.platform === 'darwin') {
+      e.preventDefault()
+      mainWindow.hide()
+    }
+  })
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
@@ -347,8 +355,10 @@ app.whenReady().then(() => {
     lfmStatus  = 'ok'
   }
   createWindow()
+  // Clicking the dock icon shows the window if it's hidden
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (mainWindow) mainWindow.show()
+    else createWindow()
   })
 })
 
