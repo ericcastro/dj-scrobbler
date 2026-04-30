@@ -395,7 +395,7 @@ html, body {
 }
 
 /* Marquee state — li clips, title slides */
-.set-item-title.marquee {
+.set-list li .set-item-title.marquee {
   overflow: visible;
   text-overflow: clip;
   animation: marquee-ping-pong var(--marquee-dur, 3s) linear 0.3s infinite alternate;
