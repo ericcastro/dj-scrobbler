@@ -30,6 +30,8 @@ const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
 const sidebar            = document.getElementById('sidebar')
 const sidebarResizeHandle= document.getElementById('sidebar-resize-handle')
 const sidebarFooter      = document.getElementById('sidebar-footer')
+const introScreen        = document.getElementById('intro-screen')
+const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
 const loadingMsg         = document.getElementById('loading-msg')
 const noTracklistMsg     = document.getElementById('no-tracklist-msg')
@@ -60,10 +62,21 @@ const footerAppName      = document.getElementById('footer-app-name')
 
 const DEFAULT_SIDEBAR_W = 220
 
+const GREETINGS = [
+  'Welcome back.',
+  'Good to see you.',
+  'Ready to dig in?',
+  "Let's find something good.",
+  'Time to get lost.',
+  'The decks are ready.',
+  'What will it be tonight?',
+]
+
 let webviewReady = false
 let pendingNav = null
 
 function navigateTo(url) {
+  hideIntro()
   if (webviewReady) webview.loadURL(url)
   else pendingNav = url
 }
@@ -74,9 +87,11 @@ async function init() {
   applyTheme(state.store.settings?.theme || 'neon-night', false)
   restoreSidebarWidth()
 
-  // Footer version from main process
   const version = await window.api.getVersion()
   footerAppName.textContent = `DJ Scrobbler v${version}`
+
+  // Pick a random greeting
+  introGreeting.textContent = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
 
   renderFavorites()
   renderHistory()
@@ -93,7 +108,13 @@ async function init() {
 
   wireEvents()
   wireMainEvents()
-  navigateToSearch()
+  // Don't navigate anywhere — show the intro screen instead
+}
+
+// ── Intro screen ──────────────────────────────────────────────────────────────
+
+function hideIntro() {
+  introScreen.classList.add('hidden')
 }
 
 // ── Search ──────────────────────────────────────────────────────────────────
@@ -181,7 +202,7 @@ function wireMainEvents() {
 
 const BADGE = {
   unconfigured: { label: 'Scrobbling not configured', cls: '' },
-  enabled:      { label: 'Scrobbling enabled',        cls: '' },  // muted, same as unconfigured
+  enabled:      { label: 'Scrobbling enabled',        cls: '' },
   scrobbling:   { label: 'Scrobbling',                cls: 'ok' },
   error:        { label: 'Error',                     cls: 'error' },
 }
@@ -218,35 +239,47 @@ function restoreSidebarWidth() {
 function wireSidebarResize() {
   let isResizing = false
 
+  // A fixed full-screen overlay sits on top of everything (including the webview)
+  // during a drag so mouse events never get swallowed by the webview process boundary.
+  const dragOverlay = document.createElement('div')
+  dragOverlay.style.cssText =
+    'position:fixed;inset:0;z-index:99999;cursor:col-resize;display:none'
+  document.body.appendChild(dragOverlay)
+
   sidebarResizeHandle.addEventListener('mousedown', (e) => {
     isResizing = true
+    dragOverlay.style.display = 'block'
     sidebarResizeHandle.classList.add('dragging')
-    document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
     e.preventDefault()
   })
 
-  document.addEventListener('mousemove', (e) => {
+  const onMove = (e) => {
     if (!isResizing) return
-    const min = 160, max = 480
-    const w = Math.max(min, Math.min(max, e.clientX))
+    const w = Math.max(160, Math.min(480, e.clientX))
     sidebar.style.width = w + 'px'
-  })
+  }
 
-  document.addEventListener('mouseup', () => {
+  const onUp = () => {
     if (!isResizing) return
     isResizing = false
+    dragOverlay.style.display = 'none'
     sidebarResizeHandle.classList.remove('dragging')
-    document.body.style.cursor = ''
     document.body.style.userSelect = ''
-
     const w = parseInt(sidebar.style.width, 10)
     if (w) {
       if (!state.store.settings) state.store.settings = {}
       state.store.settings.sidebarWidth = w
       persist()
     }
-  })
+  }
+
+  // Attach to dragOverlay so events are never missed regardless of where the
+  // mouse travels (webview, other iframes, OS chrome, etc.)
+  dragOverlay.addEventListener('mousemove', onMove)
+  dragOverlay.addEventListener('mouseup', onUp)
+  // Also handle mouseup on document as a safety net
+  document.addEventListener('mouseup', onUp)
 }
 
 // ── Favorites ────────────────────────────────────────────────────────────────
@@ -457,7 +490,6 @@ function wireEvents() {
     btn.addEventListener('click', () => applyTheme(btn.dataset.themeId))
   })
 
-  // Sidebar footer links — open in default browser
   sidebarFooter.addEventListener('click', (e) => {
     const link = e.target.closest('.sidebar-footer-link')
     if (link?.dataset.href) window.api.openExternal(link.dataset.href)
