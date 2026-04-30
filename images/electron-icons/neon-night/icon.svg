@@ -8,7 +8,6 @@
     </filter>
   </defs>
 
-  <rect width="512" height="512" rx="112" fill="#eef1f6"/>
   <g filter="url(#iconShadow)">
     <rect x="42" y="70" width="428" height="372" rx="50" fill="#15213f"/>
     <path d="M92 70h328c28 0 50 22 50 50v22H42v-22c0-28 22-50 50-50Z" fill="#263a6b"/>
