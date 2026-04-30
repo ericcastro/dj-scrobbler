@@ -377,6 +377,46 @@ function renderHistory() {
   hist.forEach((item) => historyList.appendChild(makeSetListItem(item)))
 }
 
+function wireMarquee(li) {
+  const titleEl = li.querySelector('.set-item-title')
+  if (!titleEl) return
+
+  li.addEventListener('mouseenter', () => {
+    // Cancel any in-progress return transition first
+    titleEl.style.transition = 'none'
+    titleEl.style.transform  = ''
+    titleEl.classList.remove('marquee')
+
+    requestAnimationFrame(() => {
+      const overflow = titleEl.scrollWidth - titleEl.clientWidth
+      if (overflow <= 4) return
+      const secs = Math.max(1.5, overflow / 60) // 60 px/s
+      titleEl.style.setProperty('--marquee-dist', `-${overflow}px`)
+      titleEl.style.setProperty('--marquee-dur',  `${secs}s`)
+      titleEl.classList.add('marquee')
+    })
+  })
+
+  li.addEventListener('mouseleave', () => {
+    if (!titleEl.classList.contains('marquee')) return
+    // Read animated position so the return glide starts from where it is
+    const currentX = new DOMMatrix(getComputedStyle(titleEl).transform).m41
+    titleEl.classList.remove('marquee')
+    titleEl.style.transform = `translateX(${currentX}px)`
+    // Double rAF ensures the browser registers the explicit transform before
+    // we add the transition, avoiding an instant snap
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      titleEl.style.transition = 'transform 0.5s ease'
+      titleEl.style.transform  = 'translateX(0)'
+    }))
+  })
+
+  titleEl.addEventListener('transitionend', () => {
+    titleEl.style.transition = ''
+    titleEl.style.transform  = ''
+  })
+}
+
 function makeSetListItem(item, onRemove) {
   const li = document.createElement('li')
   li.innerHTML = `
@@ -395,6 +435,7 @@ function makeSetListItem(item, onRemove) {
       onRemove()
     })
   }
+  wireMarquee(li)
   return li
 }
 

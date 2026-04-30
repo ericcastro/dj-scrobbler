@@ -381,6 +381,7 @@ html, body {
   line-height: 1.4;
   transition: background .15s;
   position: relative;
+  overflow: hidden; /* clip boundary for marquee title */
 }
 
 .set-list li:hover { background: var(--border); }
@@ -391,6 +392,18 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Marquee state — li clips, title slides */
+.set-item-title.marquee {
+  overflow: visible;
+  text-overflow: clip;
+  animation: marquee-ping-pong var(--marquee-dur, 3s) linear 0.3s infinite alternate;
+}
+
+@keyframes marquee-ping-pong {
+  from { transform: translateX(0); }
+  to   { transform: translateX(var(--marquee-dist, 0)); }
 }
 
 .set-list li .set-item-src {
