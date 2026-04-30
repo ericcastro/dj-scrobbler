@@ -498,6 +498,41 @@ webview {
   letter-spacing: .06em;
 }
 
+/* ── Scrobble badge ── */
+#scrobble-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  cursor: default;
+}
+
+#scrobble-dot {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text2);
+  transition: color .3s;
+}
+
+#scrobble-label {
+  font-size: 10px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  transition: color .3s;
+}
+
+#scrobble-badge.ok     #scrobble-dot,
+#scrobble-badge.ok     #scrobble-label   { color: var(--green); }
+#scrobble-badge.error  #scrobble-dot,
+#scrobble-badge.error  #scrobble-label   { color: var(--red); }
+#scrobble-badge.ok     { border-color: var(--green); }
+#scrobble-badge.error  { border-color: var(--red); }
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

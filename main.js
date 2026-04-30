@@ -1,8 +1,9 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron')
-const path = require('path')
-const https = require('https')
+const path   = require('path')
+const https  = require('https')
 const crypto = require('crypto')
-const fs = require('fs')
+const fs     = require('fs')
+const plugins = require('./plugins')
 
 let mainWindow
 let currentWvContents = null
@@ -17,133 +18,12 @@ function readStore() {
   try {
     return JSON.parse(fs.readFileSync(getStorePath(), 'utf8'))
   } catch {
-    return { favorites: [], history: [], settings: {} }
+    return { favorites: [], history: [], searchQueries: [], settings: {} }
   }
 }
 
 function writeStore(data) {
   fs.writeFileSync(getStorePath(), JSON.stringify(data, null, 2))
-}
-
-// ── URL classification ────────────────────────────────────────────────────────
-
-function isYouTubeWatch(url) {
-  try {
-    const u = new URL(url)
-    return (u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com') &&
-      u.pathname === '/watch' && u.searchParams.has('v')
-  } catch { return false }
-}
-
-function isSoundCloudTrack(url) {
-  try {
-    const u = new URL(url)
-    if (u.hostname !== 'soundcloud.com') return false
-    const parts = u.pathname.split('/').filter(Boolean)
-    const SKIP = ['you', 'discover', 'upload', 'signin', 'pages', 'charts', 'jobs', 'imprint', 'stream']
-    return parts.length === 2 && !SKIP.includes(parts[0])
-  } catch { return false }
-}
-
-function buildSet79Url(scUrl) {
-  const u = new URL(scUrl)
-  return `https://set79.com/tracklist/soundcloud.com${u.pathname}`
-}
-
-// ── YouTube metadata ──────────────────────────────────────────────────────────
-
-function fetchYoutubeMeta(watchUrl) {
-  return new Promise((resolve) => {
-    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`
-    const u = new URL(oembedUrl)
-    const req = https.request({
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      method: 'GET',
-      headers: { 'User-Agent': 'dj-scrobbler/0.1' },
-    }, (res) => {
-      const chunks = []
-      res.on('data', c => chunks.push(c))
-      res.on('end', () => {
-        try {
-          const data = JSON.parse(Buffer.concat(chunks).toString())
-          resolve({ title: data.title, channel: data.author_name, url: watchUrl })
-        } catch {
-          resolve({ title: null, channel: null, url: watchUrl })
-        }
-      })
-    })
-    req.on('error', () => resolve({ title: null, channel: null, url: watchUrl }))
-    req.end()
-  })
-}
-
-// ── 1001tracklists search ─────────────────────────────────────────────────────
-
-// Returns all results as [{ url, title }], title derived from the URL slug.
-function search1001tl(youtubeUrl) {
-  return new Promise((resolve) => {
-    const postData = new URLSearchParams({
-      main_search: youtubeUrl,
-      search_selection: '9',
-      orderby: 'added',
-    }).toString()
-
-    const req = https.request(
-      {
-        hostname: 'www.1001tracklists.com',
-        path: '/search/result.php',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Content-Length': Buffer.byteLength(postData),
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) Gecko/20100101 Firefox/150.0',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          Origin: 'https://www.1001tracklists.com',
-          Referer: 'https://www.1001tracklists.com/search/result.php',
-          Cookie: 'guid=3dc62f90cce8f',
-        },
-      },
-      (res) => {
-        const chunks = []
-        res.on('data', (c) => chunks.push(c))
-        res.on('end', () => {
-          const html = Buffer.concat(chunks).toString()
-          // Extract all unique tracklist paths: /tracklist/<id>/<slug>.html
-          const seen = new Set()
-          const results = []
-          const re = /href="(\/tracklist\/[a-z0-9]+\/([^"]+)\.html)"/g
-          let m
-          while ((m = re.exec(html)) !== null) {
-            const path = m[1]
-            if (seen.has(path)) continue
-            seen.add(path)
-            // Derive a readable title from the slug: strip trailing date, replace dashes
-            const slug = m[2]
-              .replace(/-\d{4}-\d{2}-\d{2}(-\d{4}-\d{2}-\d{2})?$/, '')
-              .replace(/-/g, ' ')
-              .trim()
-            results.push({ url: 'https://www.1001tracklists.com' + path, title: slug })
-          }
-          resolve(results)
-        })
-      }
-    )
-    req.on('error', () => resolve([]))
-    req.write(postData)
-    req.end()
-  })
-}
-
-// Jaccard word-overlap similarity, 0–1
-function titleSimilarity(a, b) {
-  const words = s => new Set(
-    s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean)
-  )
-  const wa = words(a), wb = words(b)
-  const intersection = [...wa].filter(w => wb.has(w)).length
-  const union = new Set([...wa, ...wb]).size
-  return union === 0 ? 0 : Math.round((intersection / union) * 100)
 }
 
 // ── Consent popup dismissal ───────────────────────────────────────────────────
@@ -183,6 +63,12 @@ const LFM_KEY    = 'f3f24407f4bd2142b31d27fb47461e05'
 const LFM_SECRET = '5c9447b7b09a1514c64aab54002645db'
 
 let lfmSession = null   // { key, name } once authenticated
+let lfmStatus  = 'unconfigured'  // 'unconfigured' | 'ok' | 'error'
+
+function setLfmStatus(status) {
+  lfmStatus = status
+  if (mainWindow) mainWindow.webContents.send('lfm-status', status)
+}
 
 function lfmSign(params) {
   const str = Object.keys(params)
@@ -221,7 +107,6 @@ function lfmPost(params) {
   })
 }
 
-// Desktop auth flow: get token → open browser → poll for session
 async function lfmConnect() {
   const tokenRes = await lfmPost({ method: 'auth.getToken' })
   if (!tokenRes.token) throw new Error('Could not get auth token from Last.fm')
@@ -229,7 +114,6 @@ async function lfmConnect() {
 
   shell.openExternal(`https://www.last.fm/api/auth/?api_key=${LFM_KEY}&token=${token}`)
 
-  // Poll until user clicks Allow (up to 90 seconds)
   return new Promise((resolve, reject) => {
     let attempts = 0
     const iv = setInterval(async () => {
@@ -247,9 +131,9 @@ async function lfmConnect() {
           const store = readStore()
           store.settings.lfmSession = lfmSession
           writeStore(store)
+          setLfmStatus('ok')
           resolve(lfmSession)
         }
-        // error code 14 = not authorised yet — keep polling
       } catch {}
     }, 2000)
   })
@@ -257,6 +141,7 @@ async function lfmConnect() {
 
 function lfmDisconnect() {
   lfmSession = null
+  setLfmStatus('unconfigured')
   const store = readStore()
   delete store.settings.lfmSession
   writeStore(store)
@@ -264,7 +149,9 @@ function lfmDisconnect() {
 
 function lfmUpdateNowPlaying(artist, title) {
   if (!lfmSession?.key) return
-  lfmPost({ method: 'track.updateNowPlaying', artist, track: title, sk: lfmSession.key }).catch(() => {})
+  lfmPost({ method: 'track.updateNowPlaying', artist, track: title, sk: lfmSession.key })
+    .then(res => setLfmStatus(res.error ? 'error' : 'ok'))
+    .catch(() => setLfmStatus('error'))
 }
 
 function lfmScrobble(artist, title, startedAt) {
@@ -275,7 +162,9 @@ function lfmScrobble(artist, title, startedAt) {
     'track[0]': title,
     'timestamp[0]': String(Math.floor(startedAt / 1000)),
     sk: lfmSession.key,
-  }).catch(() => {})
+  })
+    .then(res => setLfmStatus(res.error ? 'error' : 'ok'))
+    .catch(() => setLfmStatus('error'))
 }
 
 // ── Now-playing polling ───────────────────────────────────────────────────────
@@ -290,60 +179,14 @@ function stopMonitoring() {
   lastNowPlaying = null
 }
 
-function startMonitoring(wvContents, url) {
+function startMonitoring(wvContents, tlPlugin) {
   stopMonitoring()
-
-  if (url.includes('1001tracklists.com/tracklist/')) {
-    monitorInterval = setInterval(async () => {
-      try {
-        const data = await wvContents.executeJavaScript(`
-          (() => {
-            const row = document.getElementsByClassName('cPlay')[0]
-            if (!row) return null
-            const nameMeta   = row.querySelector('meta[itemprop="name"]')
-            const artistMeta = row.querySelector('meta[itemprop="byArtist"]')
-            if (!nameMeta) return null
-            const fullName = nameMeta.getAttribute('content') || ''
-            const artist   = artistMeta ? (artistMeta.getAttribute('content') || '') : ''
-            const prefix   = artist ? artist + ' - ' : ''
-            const title    = prefix && fullName.startsWith(prefix)
-              ? fullName.substring(prefix.length)
-              : fullName
-            const trackNumEl = row.querySelector('.fontXL')
-            const trackNum   = trackNumEl ? parseInt(trackNumEl.textContent.trim()) : null
-            const pauseBtn   = document.getElementById('playerWidgetPause')
-            const isPlaying  = pauseBtn ? pauseBtn.classList.contains('fa-pause') : true
-            return { artist, title, raw: fullName, trackNum, isPlaying, source: '1001tl' }
-          })()
-        `)
-        if (data) emitNowPlaying(data)
-      } catch {}
-    }, 500)
-
-  } else if (url.includes('set79.com/tracklist/')) {
-    monitorInterval = setInterval(async () => {
-      try {
-        const data = await wvContents.executeJavaScript(`
-          (() => {
-            const activeRow = document.querySelector('.track-row.active')
-            if (!activeRow) return null
-            const ariaLabel = activeRow.getAttribute('aria-label') || ''
-            const match = ariaLabel.match(/Track (\\d+): (.+?) at \\d/)
-            if (!match) return null
-            const trackNum = parseInt(match[1])
-            const raw = match[2]
-            const dashIdx = raw.lastIndexOf(' - ')
-            return {
-              artist: dashIdx > 0 ? raw.substring(0, dashIdx).trim() : '',
-              title:  dashIdx > 0 ? raw.substring(dashIdx + 3).trim() : raw,
-              raw, trackNum, isPlaying: true, source: 'set79',
-            }
-          })()
-        `)
-        if (data) emitNowPlaying(data)
-      } catch {}
-    }, 500)
-  }
+  monitorInterval = setInterval(async () => {
+    try {
+      const data = await wvContents.executeJavaScript(tlPlugin.nowPlayingScript)
+      if (data) emitNowPlaying(data)
+    } catch {}
+  }, 500)
 }
 
 function emitNowPlaying(data) {
@@ -362,111 +205,101 @@ function emitNowPlaying(data) {
   mainWindow.webContents.send('now-playing', data)
 }
 
+// ── Source → tracklist routing ────────────────────────────────────────────────
+
+async function handleSourceUrl(source, url, wvContents) {
+  const tlPlugin = plugins.tracklistForSource(source.id)
+  if (!tlPlugin) return
+
+  mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
+
+  const meta    = await source.getMeta(url)
+  const results = await tlPlugin.findTracklists(meta)
+
+  if (results.length === 0) {
+    mainWindow.webContents.send('wv-status', { type: 'no-tracklist' })
+    return
+  }
+
+  const scored = results
+    .map(r => ({ ...r, score: plugins.titleSimilarity(meta.title || '', r.title) }))
+    .sort((a, b) => b.score - a.score)
+
+  console.log(`[${tlPlugin.id}] ${scored.length} results for: "${meta.title}"`)
+  scored.forEach((r, i) => console.log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
+
+  wvContents.loadURL(scored[0].url)
+}
+
 // ── WebView wiring ────────────────────────────────────────────────────────────
 
 function wireWebview(wvContents) {
   currentWvContents = wvContents
-
   let pendingLookup = false
 
-  // Inject into every YouTube page: intercept video link clicks before
-  // YouTube's own SPA handler runs (capture phase), and signal via console.log.
-  const YT_INTERCEPT = `
-    if (!window.__djScrobblerIntercept) {
-      window.__djScrobblerIntercept = true
-      document.addEventListener('click', (e) => {
-        const a = e.target.closest('a[href]')
-        if (!a) return
-        try {
-          const u = new URL(a.href)
-          if ((u.hostname === 'www.youtube.com' || u.hostname === 'youtube.com') &&
-               u.pathname === '/watch' && u.searchParams.has('v')) {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            console.log('YT_INTERCEPT:' + a.href)
-          }
-        } catch {}
-      }, true) // capture phase — fires before YouTube's handlers
-    }
-  `
-
-  // Listen for the intercepted URL coming back via console-message
+  // Catch intercept signals from source plugins that use click interception
   wvContents.on('console-message', async (_e, _level, message) => {
-    if (!message.startsWith('YT_INTERCEPT:')) return
+    for (const source of plugins.SOURCES) {
+      const interceptedUrl = source.parseIntercept(message)
+      if (!interceptedUrl) continue
+      if (pendingLookup) return
+      pendingLookup = true
+      await handleSourceUrl(source, interceptedUrl, wvContents)
+      pendingLookup = false
+      return
+    }
+  })
+
+  // Real navigations — sources without an intercept script use this
+  wvContents.on('will-navigate', async (event, url) => {
+    const source = plugins.sourceForUrl(url)
+    if (!source || source.interceptScript) return
     if (pendingLookup) return
     pendingLookup = true
-    const url = message.replace('YT_INTERCEPT:', '')
-    mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Searching 1001tracklists…' })
-    const meta = await fetchYoutubeMeta(url)
-    console.log('[yt-meta]', meta)
-
-    const results = await search1001tl(url)
-    const scored = results
-      .map(r => ({ ...r, score: titleSimilarity(meta.title || '', r.title) }))
-      .sort((a, b) => b.score - a.score)
-
-    console.log(`[1001tl results] ${scored.length} found for: "${meta.title}"`)
-    scored.forEach((r, i) => console.log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
-
+    event.preventDefault()
+    await handleSourceUrl(source, url, wvContents)
     pendingLookup = false
-    if (scored.length === 0) {
-      mainWindow.webContents.send('wv-status', { type: 'no-tracklist' })
-    } else {
-      wvContents.loadURL(scored[0].url)
-    }
   })
 
-  // SoundCloud still uses will-navigate (not SPA)
-  wvContents.on('will-navigate', (event, url) => {
-    if (isSoundCloudTrack(url)) {
-      if (pendingLookup) return
-      pendingLookup = true
-      event.preventDefault()
-      mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Looking up set79…' })
-      wvContents.loadURL(buildSet79Url(url))
-      pendingLookup = false
-    }
-  })
-
-  wvContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
+  // SPA pushState navigations (SoundCloud)
+  wvContents.on('did-navigate-in-page', async (_event, url, isMainFrame) => {
     if (!isMainFrame) return
-    if (isSoundCloudTrack(url)) {
-      if (pendingLookup) return
-      pendingLookup = true
-      mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Looking up set79…' })
-      wvContents.loadURL(buildSet79Url(url))
-      pendingLookup = false
-    }
+    const source = plugins.sourceForUrl(url)
+    if (!source || source.interceptScript) return
+    if (pendingLookup) return
+    pendingLookup = true
+    await handleSourceUrl(source, url, wvContents)
+    pendingLookup = false
   })
 
   wvContents.on('did-finish-load', async () => {
     const url = wvContents.getURL()
 
     wvContents.executeJavaScript(CONSENT_SCRIPT).catch(() => {})
-    if (url.includes('youtube.com')) {
-      wvContents.executeJavaScript(YT_INTERCEPT).catch(() => {})
+
+    // Inject intercept scripts for matching source plugins
+    for (const source of plugins.SOURCES) {
+      if (source.interceptScript && source.shouldInjectOn(url)) {
+        wvContents.executeJavaScript(source.interceptScript).catch(() => {})
+      }
     }
 
-    if (url.includes('1001tracklists.com/tracklist/') || url.includes('set79.com/tracklist/')) {
+    const tlPlugin = plugins.tracklistForUrl(url)
+    if (tlPlugin) {
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       try {
         const title = await wvContents.executeJavaScript(
-          url.includes('set79.com')
-            ? `document.querySelector('h1')?.textContent?.trim() || document.title`
-            : `document.title`
+          `document.querySelector('h1')?.textContent?.trim() || document.title`
         )
         mainWindow.webContents.send('tracklist-loaded', { url, title })
       } catch {}
-      startMonitoring(wvContents, url)
+      startMonitoring(wvContents, tlPlugin)
 
-      if (url.includes('1001tracklists.com/tracklist/')) {
-        setTimeout(() => {
-          wvContents.executeJavaScript(`
-            if (typeof ytPlayer !== 'undefined' && ytPlayer.idPlayer) {
-              try { getYTPlayer(ytPlayer.idPlayer).player.playVideo() } catch(e) {}
-            }
-          `).catch(() => {})
-        }, 3000)
+      if (tlPlugin.autoplayScript) {
+        setTimeout(
+          () => wvContents.executeJavaScript(tlPlugin.autoplayScript).catch(() => {}),
+          tlPlugin.autoplayDelay || 0
+        )
       }
     } else {
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
@@ -501,23 +334,18 @@ function createWindow() {
   })
 
   mainWindow.loadFile('renderer/index.html')
-
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
-
-  mainWindow.webContents.on('did-attach-webview', (_event, wvContents) => {
-    wireWebview(wvContents)
-  })
+  mainWindow.webContents.on('did-attach-webview', (_event, wvContents) => wireWebview(wvContents))
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
-  // Restore Last.fm session from disk
   const store = readStore()
   if (store.settings?.lfmSession) {
     lfmSession = store.settings.lfmSession
+    lfmStatus  = 'ok'
   }
-
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -530,18 +358,8 @@ app.on('window-all-closed', () => {
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
-ipcMain.handle('search-1001tl', (_event, url) => search1001tl(url))
-
-ipcMain.handle('get-set79-url', (_event, scUrl) => {
-  try {
-    const u = new URL(scUrl)
-    return u.hostname === 'soundcloud.com' ? buildSet79Url(scUrl) : null
-  } catch { return null }
-})
-
 ipcMain.handle('store-get', () => readStore())
 ipcMain.handle('store-set', (_event, data) => {
-  // Renderer doesn't manage lfmSession — preserve it across any persist() call
   if (lfmSession) {
     if (!data.settings) data.settings = {}
     data.settings.lfmSession = lfmSession
@@ -556,24 +374,21 @@ ipcMain.handle('open-devtools', () => {
 ipcMain.handle('player-toggle', async () => {
   if (!currentWvContents) return
   const url = currentWvContents.getURL()
-  if (url.includes('1001tracklists.com')) {
-    await currentWvContents.executeJavaScript(
-      `document.getElementById('playerWidgetPause')?.click()`
-    ).catch(() => {})
-  } else if (url.includes('set79.com')) {
-    await currentWvContents.executeJavaScript(
-      `document.querySelector('.play-button.active, .play-button')?.click()`
-    ).catch(() => {})
-  }
+  const tlPlugin = plugins.tracklistForUrl(url)
+  if (!tlPlugin) return
+  // Each plugin could expose a toggleScript; fall back to common selectors
+  const script = url.includes('1001tracklists.com')
+    ? `document.getElementById('playerWidgetPause')?.click()`
+    : `document.querySelector('.play-button.active, .play-button')?.click()`
+  await currentWvContents.executeJavaScript(script).catch(() => {})
 })
 
-ipcMain.handle('lfm-connect', async () => {
-  const session = await lfmConnect()
-  return session  // { key, name }
-})
+ipcMain.handle('lfm-connect',    async () => lfmConnect())
+ipcMain.handle('lfm-disconnect', ()      => lfmDisconnect())
+ipcMain.handle('lfm-session',    ()      => lfmSession)
+ipcMain.handle('lfm-status-get', ()      => lfmStatus)
 
-ipcMain.handle('lfm-disconnect', () => {
-  lfmDisconnect()
-})
-
-ipcMain.handle('lfm-session', () => lfmSession)
+// Send source plugin metadata to renderer (for search placeholder etc.)
+ipcMain.handle('get-sources', () =>
+  plugins.SOURCES.map(s => ({ id: s.id, name: s.name, searchPlaceholder: s.searchPlaceholder, searchQueryUrl: null }))
+)

@@ -27,7 +27,9 @@
       </div>
 
       <div id="search-box">
-        <input type="text" id="search-input" placeholder="Search for a DJ set…" />
+        <input type="text" id="search-input" placeholder="Search for a DJ set…"
+               list="search-suggestions" autocomplete="off" />
+        <datalist id="search-suggestions"></datalist>
         <button id="search-btn">Search</button>
       </div>
     </div>
@@ -112,6 +114,10 @@
     <div id="np-right">
       <div id="np-set">—</div>
       <div id="np-source"></div>
+    </div>
+    <div id="scrobble-badge" title="Last.fm scrobbling status">
+      <span id="scrobble-dot">●</span>
+      <span id="scrobble-label">Not configured</span>
     </div>
   </footer>
 

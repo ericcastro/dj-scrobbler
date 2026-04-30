@@ -1,7 +1,6 @@
 /**
  * Renderer process — all UI logic.
  * window.api is exposed by preload.js via contextBridge.
- * Navigation interception and now-playing polling run in main.js (more reliable).
  */
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -12,13 +11,14 @@ const state = {
   currentSetUrl: '',
   currentSource: '',
   nowPlaying: null,
-  store: { favorites: [], history: [], settings: {} },
+  store: { favorites: [], history: [], searchQueries: [], settings: {} },
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 
 const webview          = document.getElementById('webview')
 const searchInput      = document.getElementById('search-input')
+const searchSuggestions= document.getElementById('search-suggestions')
 const searchBtn        = document.getElementById('search-btn')
 const btnYT            = document.getElementById('btn-yt')
 const btnSC            = document.getElementById('btn-sc')
@@ -42,6 +42,9 @@ const npTrack          = document.getElementById('np-track')
 const npArtist         = document.getElementById('np-artist')
 const npSet            = document.getElementById('np-set')
 const npSource         = document.getElementById('np-source')
+const scrobbleBadge    = document.getElementById('scrobble-badge')
+const scrobbleDot      = document.getElementById('scrobble-dot')
+const scrobbleLabel    = document.getElementById('scrobble-label')
 const btnLfmConnect    = document.getElementById('btn-lfm-connect')
 const btnLfmDisconnect = document.getElementById('btn-lfm-disconnect')
 const lfmConnected     = document.getElementById('lfm-connected')
@@ -51,31 +54,25 @@ const lfmConnectStatus = document.getElementById('lfm-connect-status')
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 
-// Webview navigation must happen via loadURL(), and only after dom-ready.
 let webviewReady = false
 let pendingNav = null
 
 function navigateTo(url) {
-  if (webviewReady) {
-    webview.loadURL(url)
-  } else {
-    pendingNav = url
-  }
+  if (webviewReady) webview.loadURL(url)
+  else pendingNav = url
 }
 
 async function init() {
   state.store = await window.api.getStore()
   renderFavorites()
   renderHistory()
+  renderSearchSuggestions()
   await loadSettings()
+  updateScrobbleBadge(await window.api.lfmStatusGet())
 
-  // Webview methods are only available after dom-ready
   webview.addEventListener('dom-ready', () => {
     webviewReady = true
-    if (pendingNav) {
-      webview.loadURL(pendingNav)
-      pendingNav = null
-    }
+    if (pendingNav) { webview.loadURL(pendingNav); pendingNav = null }
   })
 
   wireEvents()
@@ -85,38 +82,54 @@ async function init() {
 
 // ── Search ──────────────────────────────────────────────────────────────────
 
+const SOURCE_URLS = {
+  youtube:    q => q ? `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}` : 'https://www.youtube.com',
+  soundcloud: q => q ? `https://soundcloud.com/search?q=${encodeURIComponent(q)}` : 'https://soundcloud.com',
+}
+
 function navigateToSearch(query = '') {
   hideOverlays()
-  const q = encodeURIComponent(query)
-  const url = state.source === 'youtube'
-    ? (q ? `https://www.youtube.com/results?search_query=${q}` : 'https://www.youtube.com')
-    : (q ? `https://soundcloud.com/search?q=${q}` : 'https://soundcloud.com')
-  navigateTo(url)
+  navigateTo(SOURCE_URLS[state.source](query))
 }
 
 function doSearch() {
-  navigateToSearch(searchInput.value.trim())
+  const q = searchInput.value.trim()
+  if (q) saveSearchQuery(q)
+  navigateToSearch(q)
 }
 
-// ── Messages pushed from main process ────────────────────────────────────────
+// ── Search history ───────────────────────────────────────────────────────────
+
+function saveSearchQuery(query) {
+  if (!query) return
+  const queries = state.store.searchQueries || []
+  const deduped = [query, ...queries.filter(q => q !== query)].slice(0, 50)
+  state.store.searchQueries = deduped
+  persist()
+  renderSearchSuggestions()
+}
+
+function renderSearchSuggestions() {
+  searchSuggestions.innerHTML = ''
+  const queries = state.store.searchQueries || []
+  queries.forEach(q => {
+    const opt = document.createElement('option')
+    opt.value = q
+    searchSuggestions.appendChild(opt)
+  })
+}
+
+// ── Messages from main process ────────────────────────────────────────────────
 
 function wireMainEvents() {
-  // Navigation status updates from main.js
   window.api.on('wv-status', (status) => {
     switch (status.type) {
-      case 'loading':
-        showLoading(status.msg)
-        break
-      case 'no-tracklist':
-        showNoTracklist()
-        break
-      case 'hide-overlay':
-        hideOverlays()
-        break
+      case 'loading':      showLoading(status.msg); break
+      case 'no-tracklist': showNoTracklist(); break
+      case 'hide-overlay': hideOverlays(); break
     }
   })
 
-  // Main detected a tracklist page finished loading
   window.api.on('tracklist-loaded', ({ url, title }) => {
     state.currentSetTitle = title
     state.currentSetUrl   = url
@@ -127,16 +140,31 @@ function wireMainEvents() {
     addToHistory({ title, url, source: state.currentSource })
   })
 
-  // Now-playing update from main's polling loop
   window.api.on('now-playing', (data) => {
     state.nowPlaying = data
     npTrack.textContent    = data.title  || data.raw || '—'
     npArtist.textContent   = data.artist || '—'
     npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
-    const playing = data.isPlaying !== false   // treat undefined as playing
+    const playing = data.isPlaying !== false
     ppIcon.textContent = playing ? '⏸' : '▶'
     btnPlayPause.classList.toggle('playing', playing)
   })
+
+  window.api.on('lfm-status', (status) => updateScrobbleBadge(status))
+}
+
+// ── Scrobble badge ────────────────────────────────────────────────────────────
+
+const BADGE = {
+  unconfigured: { label: 'Not configured', cls: '' },
+  ok:           { label: 'Scrobbling',     cls: 'ok' },
+  error:        { label: 'Error',          cls: 'error' },
+}
+
+function updateScrobbleBadge(status) {
+  const cfg = BADGE[status] || BADGE.unconfigured
+  scrobbleBadge.className = cfg.cls
+  scrobbleLabel.textContent = cfg.label
 }
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -166,9 +194,7 @@ function renderFavorites() {
   const favs = state.store.favorites
   favoritesList.innerHTML = ''
   favEmpty.style.display = favs.length ? 'none' : ''
-  favs.forEach((item) =>
-    favoritesList.appendChild(makeSetListItem(item, () => removeFromFavorites(item.url)))
-  )
+  favs.forEach((item) => favoritesList.appendChild(makeSetListItem(item, () => removeFromFavorites(item.url))))
 }
 
 function isFavorited(url) {
@@ -319,9 +345,9 @@ function wireEvents() {
   btnLfmDisconnect.addEventListener('click', async () => {
     await window.api.lfmDisconnect()
     showLfmDisconnected()
+    updateScrobbleBadge('unconfigured')
   })
 
-  // Overlay cleanup when webview navigates away from tracklists
   webview.addEventListener('did-navigate', (e) => {
     const url = e.url || ''
     if (!url.includes('1001tracklists.com') && !url.includes('set79.com')) {
@@ -332,7 +358,6 @@ function wireEvents() {
     }
   })
 
-  // Play/pause button
   btnPlayPause.addEventListener('click', () => window.api.playerToggle())
 }
 
@@ -340,10 +365,8 @@ function wireEvents() {
 
 function escHtml(str) {
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
