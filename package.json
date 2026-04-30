@@ -1,5 +1,6 @@
 {
   "name": "dj-scrobbler",
+  "productName": "DJ Scrobbler",
   "version": "0.1.0",
   "description": "Scrobble tracks from DJ sets on YouTube and SoundCloud",
   "main": "main.js",

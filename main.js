@@ -5,6 +5,9 @@ const crypto = require('crypto')
 const fs     = require('fs')
 const plugins = require('./plugins')
 
+// Must be set before app is ready — controls menu bar name and dock tooltip
+app.name = 'DJ Scrobbler'
+
 let mainWindow
 let currentWvContents = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
