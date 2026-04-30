@@ -226,7 +226,7 @@ async function handleSourceUrl(source, url, wvContents) {
   const results = await tlPlugin.findTracklists(meta)
 
   if (results.length === 0) {
-    mainWindow.webContents.send('wv-status', { type: 'no-tracklist' })
+    mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
     return
   }
 
@@ -236,6 +236,12 @@ async function handleSourceUrl(source, url, wvContents) {
 
   console.log(`[${tlPlugin.id}] ${scored.length} results for: "${meta.title}"`)
   scored.forEach((r, i) => console.log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
+
+  // All results at 0% confidence — tracklist likely doesn't exist yet for this set
+  if (scored[0].score === 0) {
+    mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
+    return
+  }
 
   wvContents.loadURL(scored[0].url)
 }

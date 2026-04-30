@@ -15,6 +15,7 @@ const state = {
   nowPlaying: null,
   lfmStatus: 'unconfigured',
   isTrackPlaying: false,
+  tracklistUnavailable: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
 }
 
@@ -37,6 +38,8 @@ const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
 const loadingMsg         = document.getElementById('loading-msg')
 const noTracklistMsg     = document.getElementById('no-tracklist-msg')
+const noTracklistPrompt  = document.getElementById('no-tracklist-prompt')
+const btnPlayAnyway      = document.getElementById('btn-play-anyway')
 const navBtns            = document.querySelectorAll('.nav-btn')
 const panels             = document.querySelectorAll('.sidebar-panel')
 const favoritesList      = document.getElementById('favorites-list')
@@ -201,13 +204,15 @@ function saveSearchQuery(query) {
 function wireMainEvents() {
   window.api.on('wv-status', (status) => {
     switch (status.type) {
-      case 'loading':      showLoading(status.msg); break
-      case 'no-tracklist': showNoTracklist(); break
-      case 'hide-overlay': hideOverlays(); break
+      case 'loading':             showLoading(status.msg); break
+      case 'no-tracklist':        showNoTracklist(); break
+      case 'no-tracklist-prompt': showNoTracklistPrompt(status.url); break
+      case 'hide-overlay':        hideOverlays(); break
     }
   })
 
   window.api.on('tracklist-loaded', ({ url, title }) => {
+    state.tracklistUnavailable = false
     state.currentSetTitle = title
     state.currentSetUrl   = url
     state.currentSource   = url.includes('1001tracklists') ? '1001tl' : 'set79'
@@ -243,15 +248,17 @@ function wireMainEvents() {
 // ── Scrobble badge ────────────────────────────────────────────────────────────
 
 const BADGE = {
-  unconfigured: { label: 'Scrobbling not configured', cls: '' },
-  enabled:      { label: 'Scrobbling enabled',        cls: '' },
-  scrobbling:   { label: 'Scrobbling',                cls: 'ok' },
-  error:        { label: 'Error',                     cls: 'error' },
+  unconfigured:  { label: 'Scrobbling not configured', cls: '' },
+  enabled:       { label: 'Scrobbling enabled',        cls: '' },
+  scrobbling:    { label: 'Scrobbling',                cls: 'ok' },
+  error:         { label: 'Error',                     cls: 'error' },
+  unavailable:   { label: 'tracklist unavailable',     cls: 'dim' },
 }
 
 function refreshScrobbleBadge() {
   let key
-  if (state.lfmStatus === 'error') key = 'error'
+  if (state.tracklistUnavailable) key = 'unavailable'
+  else if (state.lfmStatus === 'error') key = 'error'
   else if (state.lfmStatus === 'unconfigured') key = 'unconfigured'
   else if (state.isTrackPlaying) key = 'scrobbling'
   else key = 'enabled'
@@ -433,22 +440,58 @@ function persist() {
   window.api.setStore(state.store)
 }
 
+// ── Now-playing reset ─────────────────────────────────────────────────────────
+
+function resetNowPlaying() {
+  state.nowPlaying      = null
+  state.currentSetTitle = ''
+  state.currentSetUrl   = ''
+  state.currentSource   = ''
+  state.isTrackPlaying  = false
+  npTrack.textContent   = '—'
+  npArtist.textContent  = 'Waiting for playback…'
+  npTracknum.textContent = ''
+  npSet.textContent     = '—'
+  npSource.textContent  = ''
+  ppIcon.innerHTML      = icon(ICON.play, 16)
+  btnPlayPause.classList.remove('playing')
+  updateBookmarkBtn()
+}
+
 // ── Overlays ──────────────────────────────────────────────────────────────────
+
+let pendingPlayUrl = null
 
 function showLoading(msg = 'Loading…') {
   loadingMsg.textContent = msg
   loadingOverlay.classList.remove('hidden')
   noTracklistMsg.classList.add('hidden')
+  noTracklistPrompt.classList.add('hidden')
+  // A new search is starting — clear the unavailable state
+  state.tracklistUnavailable = false
+  refreshScrobbleBadge()
 }
 
 function showNoTracklist() {
   noTracklistMsg.classList.remove('hidden')
   loadingOverlay.classList.add('hidden')
+  noTracklistPrompt.classList.add('hidden')
+}
+
+function showNoTracklistPrompt(url) {
+  pendingPlayUrl = url
+  noTracklistPrompt.classList.remove('hidden')
+  loadingOverlay.classList.add('hidden')
+  noTracklistMsg.classList.add('hidden')
+  resetNowPlaying()
+  state.tracklistUnavailable = true
+  refreshScrobbleBadge()
 }
 
 function hideOverlays() {
   loadingOverlay.classList.add('hidden')
   noTracklistMsg.classList.add('hidden')
+  noTracklistPrompt.classList.add('hidden')
 }
 
 // ── Event wiring ──────────────────────────────────────────────────────────────
@@ -553,6 +596,13 @@ function wireEvents() {
       state.isTrackPlaying = false
       refreshScrobbleBadge()
     }
+  })
+
+  btnPlayAnyway.addEventListener('click', () => {
+    if (!pendingPlayUrl) return
+    const url = pendingPlayUrl
+    pendingPlayUrl = null
+    navigateTo(url)
   })
 
   btnPlayPause.addEventListener('click', () => window.api.playerToggle())
