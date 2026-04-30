@@ -491,6 +491,16 @@ ipcMain.handle('get-sources', () =>
   plugins.SOURCES.map(s => ({ id: s.id, name: s.name, searchPlaceholder: s.searchPlaceholder, searchQueryUrl: null }))
 )
 
+ipcMain.handle('get-version', () => app.getVersion())
+
+ipcMain.handle('open-external', (_event, url) => {
+  const allowed = ['djscrobbler.com', 'github.com']
+  try {
+    const { hostname } = new URL(url)
+    if (allowed.some(d => hostname === d || hostname.endsWith('.' + d))) shell.openExternal(url)
+  } catch {}
+})
+
 // Theme change — update dock icon and persist
 ipcMain.handle('set-theme', (_event, theme) => {
   setDockIcon(theme)

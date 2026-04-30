@@ -11,48 +11,54 @@ const state = {
   currentSetUrl: '',
   currentSource: '',
   nowPlaying: null,
+  lfmStatus: 'unconfigured',   // 'unconfigured' | 'ok' | 'error'
+  isTrackPlaying: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 
-const webview          = document.getElementById('webview')
-const searchInput      = document.getElementById('search-input')
-const searchSuggestions= document.getElementById('search-suggestions')
-const searchBtn        = document.getElementById('search-btn')
-const btnYT            = document.getElementById('btn-yt')
-const btnSC            = document.getElementById('btn-sc')
-const btnBookmark      = document.getElementById('btn-bookmark')
-const btnDevtools      = document.getElementById('btn-devtools')
-const btnSidebarToggle = document.getElementById('btn-sidebar-toggle')
-const sidebar          = document.getElementById('sidebar')
-const loadingOverlay   = document.getElementById('loading-overlay')
-const loadingMsg       = document.getElementById('loading-msg')
-const noTracklistMsg   = document.getElementById('no-tracklist-msg')
-const navBtns          = document.querySelectorAll('.nav-btn')
-const panels           = document.querySelectorAll('.sidebar-panel')
-const favoritesList    = document.getElementById('favorites-list')
-const historyList      = document.getElementById('history-list')
-const favEmpty         = document.getElementById('fav-empty')
-const histEmpty        = document.getElementById('hist-empty')
-const btnPlayPause     = document.getElementById('btn-playpause')
-const ppIcon           = document.getElementById('pp-icon')
-const npTracknum       = document.getElementById('np-tracknum')
-const npTrack          = document.getElementById('np-track')
-const npArtist         = document.getElementById('np-artist')
-const npSet            = document.getElementById('np-set')
-const npSource         = document.getElementById('np-source')
-const scrobbleBadge    = document.getElementById('scrobble-badge')
-const scrobbleDot      = document.getElementById('scrobble-dot')
-const scrobbleLabel    = document.getElementById('scrobble-label')
-const btnLfmConnect    = document.getElementById('btn-lfm-connect')
-const btnLfmDisconnect = document.getElementById('btn-lfm-disconnect')
-const lfmConnected     = document.getElementById('lfm-connected')
-const lfmDisconnected  = document.getElementById('lfm-disconnected')
-const lfmUsername      = document.getElementById('lfm-username')
-const lfmConnectStatus = document.getElementById('lfm-connect-status')
+const webview            = document.getElementById('webview')
+const searchInput        = document.getElementById('search-input')
+const searchSuggestions  = document.getElementById('search-suggestions')
+const searchBtn          = document.getElementById('search-btn')
+const btnYT              = document.getElementById('btn-yt')
+const btnSC              = document.getElementById('btn-sc')
+const btnBookmark        = document.getElementById('btn-bookmark')
+const btnDevtools        = document.getElementById('btn-devtools')
+const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
+const sidebar            = document.getElementById('sidebar')
+const sidebarResizeHandle= document.getElementById('sidebar-resize-handle')
+const sidebarFooter      = document.getElementById('sidebar-footer')
+const loadingOverlay     = document.getElementById('loading-overlay')
+const loadingMsg         = document.getElementById('loading-msg')
+const noTracklistMsg     = document.getElementById('no-tracklist-msg')
+const navBtns            = document.querySelectorAll('.nav-btn')
+const panels             = document.querySelectorAll('.sidebar-panel')
+const favoritesList      = document.getElementById('favorites-list')
+const historyList        = document.getElementById('history-list')
+const favEmpty           = document.getElementById('fav-empty')
+const histEmpty          = document.getElementById('hist-empty')
+const btnPlayPause       = document.getElementById('btn-playpause')
+const ppIcon             = document.getElementById('pp-icon')
+const npTracknum         = document.getElementById('np-tracknum')
+const npTrack            = document.getElementById('np-track')
+const npArtist           = document.getElementById('np-artist')
+const npSet              = document.getElementById('np-set')
+const npSource           = document.getElementById('np-source')
+const scrobbleBadge      = document.getElementById('scrobble-badge')
+const scrobbleLabel      = document.getElementById('scrobble-label')
+const btnLfmConnect      = document.getElementById('btn-lfm-connect')
+const btnLfmDisconnect   = document.getElementById('btn-lfm-disconnect')
+const lfmConnected       = document.getElementById('lfm-connected')
+const lfmDisconnected    = document.getElementById('lfm-disconnected')
+const lfmUsername        = document.getElementById('lfm-username')
+const lfmConnectStatus   = document.getElementById('lfm-connect-status')
+const footerAppName      = document.getElementById('footer-app-name')
 
 // ── Boot ────────────────────────────────────────────────────────────────────
+
+const DEFAULT_SIDEBAR_W = 220
 
 let webviewReady = false
 let pendingNav = null
@@ -64,12 +70,21 @@ function navigateTo(url) {
 
 async function init() {
   state.store = await window.api.getStore()
+
   applyTheme(state.store.settings?.theme || 'neon-night', false)
+  restoreSidebarWidth()
+
+  // Footer version from main process
+  const version = await window.api.getVersion()
+  footerAppName.textContent = `DJ Scrobbler v${version}`
+
   renderFavorites()
   renderHistory()
   renderSearchSuggestions()
   await loadSettings()
-  updateScrobbleBadge(await window.api.lfmStatusGet())
+
+  state.lfmStatus = await window.api.lfmStatusGet()
+  refreshScrobbleBadge()
 
   webview.addEventListener('dom-ready', () => {
     webviewReady = true
@@ -149,24 +164,35 @@ function wireMainEvents() {
     const playing = data.isPlaying !== false
     ppIcon.textContent = playing ? '⏸' : '▶'
     btnPlayPause.classList.toggle('playing', playing)
+    state.isTrackPlaying = playing
+    refreshScrobbleBadge()
   })
 
-  window.api.on('lfm-status', (status) => updateScrobbleBadge(status))
+  window.api.on('lfm-status', (status) => {
+    state.lfmStatus = status
+    refreshScrobbleBadge()
+  })
 
-  window.api.on('menu-toggle-sidebar', () => sidebar.classList.toggle('collapsed'))
+  window.api.on('menu-toggle-sidebar', () => toggleSidebar())
   window.api.on('menu-reload', () => navigateToSearch())
 }
 
 // ── Scrobble badge ────────────────────────────────────────────────────────────
 
 const BADGE = {
-  unconfigured: { label: 'Not configured', cls: '' },
-  ok:           { label: 'Scrobbling',     cls: 'ok' },
-  error:        { label: 'Error',          cls: 'error' },
+  unconfigured: { label: 'Scrobbling not configured', cls: '' },
+  enabled:      { label: 'Scrobbling enabled',        cls: '' },  // muted, same as unconfigured
+  scrobbling:   { label: 'Scrobbling',                cls: 'ok' },
+  error:        { label: 'Error',                     cls: 'error' },
 }
 
-function updateScrobbleBadge(status) {
-  const cfg = BADGE[status] || BADGE.unconfigured
+function refreshScrobbleBadge() {
+  let key
+  if (state.lfmStatus === 'error') key = 'error'
+  else if (state.lfmStatus === 'unconfigured') key = 'unconfigured'
+  else if (state.isTrackPlaying) key = 'scrobbling'
+  else key = 'enabled'
+  const cfg = BADGE[key]
   scrobbleBadge.className = cfg.cls
   scrobbleLabel.textContent = cfg.label
 }
@@ -176,6 +202,51 @@ function updateScrobbleBadge(status) {
 function switchSidebarPanel(name) {
   navBtns.forEach((b) => b.classList.toggle('active', b.dataset.panel === name))
   panels.forEach((p) => p.classList.toggle('active', p.id === `panel-${name}`))
+}
+
+function toggleSidebar() {
+  sidebar.classList.toggle('collapsed')
+}
+
+// ── Sidebar resize ────────────────────────────────────────────────────────────
+
+function restoreSidebarWidth() {
+  const w = state.store.settings?.sidebarWidth || DEFAULT_SIDEBAR_W
+  sidebar.style.width = w + 'px'
+}
+
+function wireSidebarResize() {
+  let isResizing = false
+
+  sidebarResizeHandle.addEventListener('mousedown', (e) => {
+    isResizing = true
+    sidebarResizeHandle.classList.add('dragging')
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    e.preventDefault()
+  })
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return
+    const min = 160, max = 480
+    const w = Math.max(min, Math.min(max, e.clientX))
+    sidebar.style.width = w + 'px'
+  })
+
+  document.addEventListener('mouseup', () => {
+    if (!isResizing) return
+    isResizing = false
+    sidebarResizeHandle.classList.remove('dragging')
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+
+    const w = parseInt(sidebar.style.width, 10)
+    if (w) {
+      if (!state.store.settings) state.store.settings = {}
+      state.store.settings.sidebarWidth = w
+      persist()
+    }
+  })
 }
 
 // ── Favorites ────────────────────────────────────────────────────────────────
@@ -251,12 +322,12 @@ function makeSetListItem(item, onRemove) {
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
-function applyTheme(theme, persist = true) {
+function applyTheme(theme, shouldPersist = true) {
   document.documentElement.setAttribute('data-theme', theme)
   document.querySelectorAll('.theme-swatch').forEach(el => {
     el.classList.toggle('active', el.dataset.themeId === theme)
   })
-  if (persist) {
+  if (shouldPersist) {
     if (!state.store.settings) state.store.settings = {}
     state.store.settings.theme = theme
     window.api.setTheme(theme)
@@ -330,7 +401,7 @@ function wireEvents() {
   searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch() })
 
   btnDevtools.addEventListener('click', () => window.api.openDevTools())
-  btnSidebarToggle.addEventListener('click', () => sidebar.classList.toggle('collapsed'))
+  btnSidebarToggle.addEventListener('click', () => toggleSidebar())
 
   navBtns.forEach((btn) =>
     btn.addEventListener('click', () => switchSidebarPanel(btn.dataset.panel))
@@ -363,7 +434,9 @@ function wireEvents() {
   btnLfmDisconnect.addEventListener('click', async () => {
     await window.api.lfmDisconnect()
     showLfmDisconnected()
-    updateScrobbleBadge('unconfigured')
+    state.lfmStatus = 'unconfigured'
+    state.isTrackPlaying = false
+    refreshScrobbleBadge()
   })
 
   webview.addEventListener('did-navigate', (e) => {
@@ -373,6 +446,8 @@ function wireEvents() {
       ppIcon.textContent = '▶'
       btnPlayPause.classList.remove('playing')
       npTracknum.textContent = ''
+      state.isTrackPlaying = false
+      refreshScrobbleBadge()
     }
   })
 
@@ -381,6 +456,14 @@ function wireEvents() {
   document.querySelectorAll('.theme-swatch').forEach(btn => {
     btn.addEventListener('click', () => applyTheme(btn.dataset.themeId))
   })
+
+  // Sidebar footer links — open in default browser
+  sidebarFooter.addEventListener('click', (e) => {
+    const link = e.target.closest('.sidebar-footer-link')
+    if (link?.dataset.href) window.api.openExternal(link.dataset.href)
+  })
+
+  wireSidebarResize()
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

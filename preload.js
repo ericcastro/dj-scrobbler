@@ -13,7 +13,9 @@ contextBridge.exposeInMainWorld('api', {
   lfmSession:    ()     => ipcRenderer.invoke('lfm-session'),
   lfmStatusGet:  ()     => ipcRenderer.invoke('lfm-status-get'),
 
-  setTheme: (theme) => ipcRenderer.invoke('set-theme', theme),
+  setTheme:     (theme) => ipcRenderer.invoke('set-theme', theme),
+  getVersion:   ()      => ipcRenderer.invoke('get-version'),
+  openExternal: (url)   => ipcRenderer.invoke('open-external', url),
 
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'lfm-status',

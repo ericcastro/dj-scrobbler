@@ -212,7 +212,7 @@ html, body {
 
 /* ── Sidebar ── */
 #sidebar {
-  width: var(--sidebar-w);
+  /* width set via JS inline style; default 220px */
   background: var(--bg2);
   border-right: 1px solid var(--border);
   display: flex;
@@ -220,9 +220,50 @@ html, body {
   flex-shrink: 0;
   overflow: hidden;
   transition: width .2s;
+  min-width: 160px;
+  max-width: 480px;
 }
 
-#sidebar.collapsed { width: 0; }
+#sidebar.collapsed { width: 0 !important; min-width: 0; }
+
+/* ── Sidebar resize handle ── */
+#sidebar-resize-handle {
+  width: 4px;
+  flex-shrink: 0;
+  background: transparent;
+  cursor: col-resize;
+  transition: background .15s;
+  position: relative;
+  z-index: 20;
+}
+
+#sidebar-resize-handle:hover,
+#sidebar-resize-handle.dragging { background: var(--accent); opacity: .4; }
+
+#sidebar.collapsed + #sidebar-resize-handle { display: none; }
+
+/* ── Sidebar footer ── */
+#sidebar-footer {
+  padding: 10px 8px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 10px;
+  color: var(--text2);
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-footer-link {
+  color: var(--text2);
+  cursor: pointer;
+  text-decoration: none;
+  transition: color .15s;
+}
+
+.sidebar-footer-link:hover { color: var(--accent); }
+.sidebar-footer-sep { opacity: .5; }
 
 #sidebar-nav {
   display: flex;
@@ -646,6 +687,7 @@ webview {
 #scrobble-badge.error  #scrobble-label   { color: var(--red); }
 #scrobble-badge.ok     { border-color: var(--green); }
 #scrobble-badge.error  { border-color: var(--red); }
+/* "enabled" = configured but not playing — same muted look as unconfigured */
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; }
