@@ -67,9 +67,12 @@ module.exports = {
     return searchHttp(meta.url)
   },
 
-  // Ordered selectors tried in sequence; first rendered match wins.
-  // #playerWidget is the outer container; iframe fallback catches edge cases.
-  playerSelectors: ['#playerWidget', 'iframe[src*="youtube"]', 'iframe[src*="youtube-nocookie"]'],
+  // Primary: direct access to the YouTube iframe via 1001tl's own JS API.
+  // Fallback CSS selectors cover any edge cases where the API isn't ready.
+  playerConfig: {
+    finderScript: 'getYTPlayer(ytPlayer.idPlayer).player.g',
+    selectors: ['#playerWidget', 'iframe[src*="youtube"]', 'iframe[src*="youtube-nocookie"]'],
+  },
 
   autoplayDelay: 3000,
   autoplayScript: `

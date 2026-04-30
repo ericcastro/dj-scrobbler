@@ -313,11 +313,11 @@ function wireWebview(wvContents) {
       startMonitoring(wvContents, tlPlugin)
 
       // Inject overlay to hide page noise and surface the player full-width
-      if (tlPlugin.playerSelectors) {
+      if (tlPlugin.playerConfig) {
         const store   = readStore()
         const theme   = store.settings?.theme || 'neon-night'
         const bgColor = overlay.bgForTheme(theme)
-        const script  = overlay.buildOverlayScript(tlPlugin.playerSelectors, bgColor)
+        const script  = overlay.buildOverlayScript(tlPlugin.playerConfig, bgColor)
         wvContents.executeJavaScript(script).catch(() => {})
       }
 

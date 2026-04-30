@@ -19,22 +19,33 @@ function bgForTheme(theme) {
 /**
  * Builds a self-contained JS string to inject into a tracklist webview.
  *
- * @param {string[]} selectors  Ordered list of CSS selectors to try for the player
- *                              container. First match with a rendered size wins.
- * @param {string}   bgColor   Hex color from the current app theme.
+ * @param {object} config
+ *   @param {string}   [config.finderScript]  JS expression that evaluates to the
+ *                                            player element (most reliable when the
+ *                                            page exposes a JS API for its player).
+ *   @param {string[]} [config.selectors]     CSS selector fallbacks tried in order.
+ * @param {string} bgColor  Hex color from the current app theme.
  */
-function buildOverlayScript(selectors, bgColor) {
+function buildOverlayScript({ finderScript = null, selectors = [] }, bgColor) {
+  const finderExpr = finderScript
+    ? `(function(){ try { return (${finderScript}); } catch(e) { return null; } })()`
+    : 'null'
+
   return `(function attempt(tries) {
   if (document.getElementById('_djs_overlay')) return;
 
-  // Try each selector in order; require a rendered element
-  const candidates = ${JSON.stringify(selectors)};
-  let player = null;
-  for (const sel of candidates) {
-    const el = document.querySelector(sel);
-    if (el && (el.offsetWidth > 50 || el.tagName === 'IFRAME')) {
-      player = el;
-      break;
+  // 1. Try the direct JS expression (page-specific API — most reliable)
+  let player = ${finderExpr};
+
+  // 2. Fall back to CSS selectors
+  if (!player || !player.tagName) {
+    const candidates = ${JSON.stringify(selectors)};
+    for (const sel of candidates) {
+      const el = document.querySelector(sel);
+      if (el && (el.offsetWidth > 50 || el.tagName === 'IFRAME')) {
+        player = el;
+        break;
+      }
     }
   }
 
@@ -44,7 +55,7 @@ function buildOverlayScript(selectors, bgColor) {
     return;
   }
 
-  // ── Backdrop ────────────────────────────────────────────────────────────
+  // ── Backdrop ──────────────────────────────────────────────────────────────
   const overlay = document.createElement('div');
   overlay.id = '_djs_overlay';
   overlay.style.cssText =
@@ -52,36 +63,34 @@ function buildOverlayScript(selectors, bgColor) {
     'z-index:9000;pointer-events:none;transition:background .3s;';
   document.body.appendChild(overlay);
 
-  // ── Remove overflow clipping on ancestor chain ───────────────────────────
-  // Required so the player can visually escape its layout position.
+  // ── Remove overflow clipping on ancestor chain ─────────────────────────────
+  // Required so the player can visually escape its layout box.
   let el = player.parentElement;
   while (el && el !== document.body) {
-    const cs = window.getComputedStyle(el);
-    if (cs.overflow !== 'visible') el.style.overflow = 'visible';
+    if (window.getComputedStyle(el).overflow !== 'visible') el.style.overflow = 'visible';
     el = el.parentElement;
   }
 
-  // ── Float the player full-width above the overlay ───────────────────────
-  // 16:9 aspect ratio → height = 56.25 vw
+  // ── Float the player full-width above the overlay ─────────────────────────
+  // 16:9 → height = 56.25 vw
   const ps = player.style;
-  ps.setProperty('position', 'fixed',    'important');
-  ps.setProperty('top',      '0',        'important');
-  ps.setProperty('left',     '0',        'important');
-  ps.setProperty('width',    '100vw',    'important');
-  ps.setProperty('height',   '56.25vw', 'important');
-  ps.setProperty('z-index',  '9001',    'important');
-  ps.setProperty('border',   'none',    'important');
-  ps.setProperty('margin',   '0',       'important');
-  ps.setProperty('padding',  '0',       'important');
+  ps.setProperty('position', 'fixed',     'important');
+  ps.setProperty('top',      '0',         'important');
+  ps.setProperty('left',     '0',         'important');
+  ps.setProperty('width',    '100vw',     'important');
+  ps.setProperty('height',   '56.25vw',  'important');
+  ps.setProperty('z-index',  '9001',     'important');
+  ps.setProperty('border',   'none',     'important');
+  ps.setProperty('margin',   '0',        'important');
+  ps.setProperty('padding',  '0',        'important');
 
-  // If the player is a container (not the iframe itself), stretch the
-  // inner iframe/player element to fill it.
+  // If the matched element is a container (not the iframe itself),
+  // also stretch any inner iframe to fill it.
   if (player.tagName !== 'IFRAME') {
     const inner = player.querySelector('iframe');
     if (inner) {
       inner.style.setProperty('position', 'absolute', 'important');
-      inner.style.setProperty('top',      '0',        'important');
-      inner.style.setProperty('left',     '0',        'important');
+      inner.style.setProperty('inset',    '0',        'important');
       inner.style.setProperty('width',    '100%',     'important');
       inner.style.setProperty('height',   '100%',     'important');
       inner.style.setProperty('border',   'none',     'important');
@@ -91,8 +100,7 @@ function buildOverlayScript(selectors, bgColor) {
 }
 
 /**
- * Builds a tiny JS snippet that updates the backdrop color.
- * Call this when the user changes theme.
+ * Builds a tiny JS snippet to live-update the backdrop color on theme change.
  */
 function buildColorUpdateScript(bgColor) {
   return `(function(){

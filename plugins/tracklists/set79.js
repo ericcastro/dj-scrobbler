@@ -18,7 +18,9 @@ module.exports = {
   },
 
   // set79 embeds SoundCloud's own player widget
-  playerSelectors: ['iframe[src*="soundcloud.com/player"]', 'iframe[src*="soundcloud"]'],
+  playerConfig: {
+    selectors: ['iframe[src*="soundcloud.com/player"]', 'iframe[src*="soundcloud"]'],
+  },
 
   autoplayDelay: 0,
   autoplayScript: null,
