@@ -62,21 +62,22 @@
       </div>
 
       <div id="panel-settings" class="sidebar-panel">
-        <div class="panel-title">Settings</div>
-        <div class="setting-group">
-          <label>Last.fm Username</label>
-          <input type="text" id="lfm-user" placeholder="username" />
+        <div class="panel-title">Last.fm</div>
+
+        <div id="lfm-disconnected">
+          <p class="setting-desc">Connect your Last.fm account to scrobble tracks as you listen.</p>
+          <button id="btn-lfm-connect" class="btn-primary">Connect Last.fm</button>
+          <div id="lfm-connect-status"></div>
         </div>
-        <div class="setting-group">
-          <label>Last.fm API Key</label>
-          <input type="text" id="lfm-key" placeholder="API key" />
+
+        <div id="lfm-connected" class="hidden">
+          <div class="lfm-user-row">
+            <span class="lfm-dot">◎</span>
+            <span id="lfm-username"></span>
+          </div>
+          <p class="setting-desc">Tracks are scrobbled automatically as they play.</p>
+          <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
         </div>
-        <div class="setting-group">
-          <label>Last.fm API Secret</label>
-          <input type="password" id="lfm-secret" placeholder="API secret" />
-        </div>
-        <button id="save-settings" class="btn-primary">Save Settings</button>
-        <div id="settings-status"></div>
       </div>
     </aside>
 

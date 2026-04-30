@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, shell } = require('electron')
 const path = require('path')
 const https = require('https')
+const crypto = require('crypto')
 const fs = require('fs')
 
 let mainWindow
-let currentWvContents = null   // reference to the active webview webContents
+let currentWvContents = null
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -91,7 +92,6 @@ function search1001tl(youtubeUrl) {
 }
 
 // ── Consent popup dismissal ───────────────────────────────────────────────────
-// Inject into each page after load to auto-dismiss common cookie/GDPR banners.
 
 const CONSENT_SCRIPT = `
 (function() {
@@ -104,10 +104,7 @@ const CONSENT_SCRIPT = `
     const btns = Array.from(document.querySelectorAll('button, [role="button"], a.btn, input[type="button"]'))
     for (const btn of btns) {
       const text = (btn.textContent || btn.value || btn.getAttribute('aria-label') || '').trim()
-      if (labels.some(r => r.test(text))) {
-        btn.click()
-        return true
-      }
+      if (labels.some(r => r.test(text))) { btn.click(); return true }
     }
     const ytConsent = document.querySelector('ytd-consent-bump-v2-lightbox, tp-yt-paper-dialog')
     if (ytConsent) {
@@ -121,15 +118,117 @@ const CONSENT_SCRIPT = `
     }
     return false
   }
-
   if (!dismiss()) setTimeout(dismiss, 2000)
 })()
 `
 
+// ── Last.fm ───────────────────────────────────────────────────────────────────
+
+const LFM_KEY    = 'f3f24407f4bd2142b31d27fb47461e05'
+const LFM_SECRET = '5c9447b7b09a1514c64aab54002645db'
+
+let lfmSession = null   // { key, name } once authenticated
+
+function lfmSign(params) {
+  const str = Object.keys(params)
+    .filter(k => k !== 'format')
+    .sort()
+    .map(k => k + params[k])
+    .join('') + LFM_SECRET
+  return crypto.createHash('md5').update(str, 'utf8').digest('hex')
+}
+
+function lfmPost(params) {
+  return new Promise((resolve, reject) => {
+    const p = { ...params, api_key: LFM_KEY, format: 'json' }
+    p.api_sig = lfmSign(p)
+    const body = new URLSearchParams(p).toString()
+    const req = https.request({
+      hostname: 'ws.audioscrobbler.com',
+      path: '/2.0/',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+        'User-Agent': 'dj-scrobbler/0.1',
+      },
+    }, res => {
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString())) }
+        catch (e) { reject(e) }
+      })
+    })
+    req.on('error', reject)
+    req.write(body)
+    req.end()
+  })
+}
+
+// Desktop auth flow: get token → open browser → poll for session
+async function lfmConnect() {
+  const tokenRes = await lfmPost({ method: 'auth.getToken' })
+  if (!tokenRes.token) throw new Error('Could not get auth token from Last.fm')
+  const token = tokenRes.token
+
+  shell.openExternal(`https://www.last.fm/api/auth/?api_key=${LFM_KEY}&token=${token}`)
+
+  // Poll until user clicks Allow (up to 90 seconds)
+  return new Promise((resolve, reject) => {
+    let attempts = 0
+    const iv = setInterval(async () => {
+      attempts++
+      if (attempts > 45) {
+        clearInterval(iv)
+        reject(new Error('Timed out waiting for Last.fm authorisation'))
+        return
+      }
+      try {
+        const res = await lfmPost({ method: 'auth.getSession', token })
+        if (res.session) {
+          clearInterval(iv)
+          lfmSession = { key: res.session.key, name: res.session.name }
+          const store = readStore()
+          store.settings.lfmSession = lfmSession
+          writeStore(store)
+          resolve(lfmSession)
+        }
+        // error code 14 = not authorised yet — keep polling
+      } catch {}
+    }, 2000)
+  })
+}
+
+function lfmDisconnect() {
+  lfmSession = null
+  const store = readStore()
+  delete store.settings.lfmSession
+  writeStore(store)
+}
+
+function lfmUpdateNowPlaying(artist, title) {
+  if (!lfmSession?.key) return
+  lfmPost({ method: 'track.updateNowPlaying', artist, track: title, sk: lfmSession.key }).catch(() => {})
+}
+
+function lfmScrobble(artist, title, startedAt) {
+  if (!lfmSession?.key || !artist || !title) return
+  lfmPost({
+    method: 'track.scrobble',
+    'artist[0]': artist,
+    'track[0]': title,
+    'timestamp[0]': String(Math.floor(startedAt / 1000)),
+    sk: lfmSession.key,
+  }).catch(() => {})
+}
+
 // ── Now-playing polling ───────────────────────────────────────────────────────
 
 let monitorInterval = null
-let lastNowPlaying = null
+let lastNowPlaying  = null
+let lastTrackData   = null
+let trackStartedAt  = null
 
 function stopMonitoring() {
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null }
@@ -194,7 +293,17 @@ function startMonitoring(wvContents, url) {
 
 function emitNowPlaying(data) {
   if (data.raw === lastNowPlaying) return
+
+  // Scrobble the track that just ended (must have played ≥30s)
+  if (lastTrackData && trackStartedAt && (Date.now() - trackStartedAt) >= 30000) {
+    lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt)
+  }
+
   lastNowPlaying = data.raw
+  lastTrackData  = data
+  trackStartedAt = Date.now()
+
+  lfmUpdateNowPlaying(data.artist, data.title)
   mainWindow.webContents.send('now-playing', data)
 }
 
@@ -228,10 +337,8 @@ function wireWebview(wvContents) {
     }
   }
 
-  // Real (non-SPA) navigations — can preventDefault
   wvContents.on('will-navigate', (event, url) => handleUrl(url, true, event))
 
-  // SPA pushState navigations (YouTube, SoundCloud) — can't preventDefault
   wvContents.on('did-navigate-in-page', (_event, url, isMainFrame) => {
     if (!isMainFrame) return
     handleUrl(url, false, null)
@@ -240,7 +347,6 @@ function wireWebview(wvContents) {
   wvContents.on('did-finish-load', async () => {
     const url = wvContents.getURL()
 
-    // Dismiss consent popups on any page
     wvContents.executeJavaScript(CONSENT_SCRIPT).catch(() => {})
 
     if (url.includes('1001tracklists.com/tracklist/') || url.includes('set79.com/tracklist/')) {
@@ -255,7 +361,6 @@ function wireWebview(wvContents) {
       } catch {}
       startMonitoring(wvContents, url)
 
-      // Auto-start playback once player JS has initialised
       if (url.includes('1001tracklists.com/tracklist/')) {
         setTimeout(() => {
           wvContents.executeJavaScript(`
@@ -272,7 +377,6 @@ function wireWebview(wvContents) {
   })
 
   wvContents.on('did-fail-load', (_e, _code, _desc, _failedUrl, isMainFrame) => {
-    // Only react to main-frame failures; sub-resource errors are normal
     if (isMainFrame) {
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       stopMonitoring()
@@ -310,6 +414,12 @@ function createWindow() {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Restore Last.fm session from disk
+  const store = readStore()
+  if (store.settings?.lfmSession) {
+    lfmSession = store.settings.lfmSession
+  }
+
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -351,3 +461,14 @@ ipcMain.handle('player-toggle', async () => {
     ).catch(() => {})
   }
 })
+
+ipcMain.handle('lfm-connect', async () => {
+  const session = await lfmConnect()
+  return session  // { key, name }
+})
+
+ipcMain.handle('lfm-disconnect', () => {
+  lfmDisconnect()
+})
+
+ipcMain.handle('lfm-session', () => lfmSession)

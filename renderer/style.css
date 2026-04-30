@@ -306,13 +306,52 @@ html, body {
 }
 
 .btn-primary:hover { background: var(--accent2); }
+.btn-primary:disabled { opacity: .5; cursor: default; }
 
-#settings-status {
+.btn-secondary {
+  background: transparent;
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.btn-secondary:hover { color: var(--text); border-color: var(--accent); }
+
+.setting-desc {
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+.lfm-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg3);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lfm-dot { color: var(--red); font-size: 16px; }
+
+#lfm-connect-status {
   margin-top: 8px;
   font-size: 11px;
-  color: var(--green);
+  color: var(--text2);
   text-align: center;
+  min-height: 16px;
 }
+
+.hidden { display: none !important; }
 
 /* ── Main content / WebView ── */
 #main-content {

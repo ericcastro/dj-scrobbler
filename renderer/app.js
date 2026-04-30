@@ -42,11 +42,12 @@ const npTrack          = document.getElementById('np-track')
 const npArtist         = document.getElementById('np-artist')
 const npSet            = document.getElementById('np-set')
 const npSource         = document.getElementById('np-source')
-const lfmUser          = document.getElementById('lfm-user')
-const lfmKey           = document.getElementById('lfm-key')
-const lfmSecret        = document.getElementById('lfm-secret')
-const saveSettings     = document.getElementById('save-settings')
-const settingsStatus   = document.getElementById('settings-status')
+const btnLfmConnect    = document.getElementById('btn-lfm-connect')
+const btnLfmDisconnect = document.getElementById('btn-lfm-disconnect')
+const lfmConnected     = document.getElementById('lfm-connected')
+const lfmDisconnected  = document.getElementById('lfm-disconnected')
+const lfmUsername      = document.getElementById('lfm-username')
+const lfmConnectStatus = document.getElementById('lfm-connect-status')
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ async function init() {
   state.store = await window.api.getStore()
   renderFavorites()
   renderHistory()
-  loadSettings()
+  await loadSettings()
 
   // Webview methods are only available after dom-ready
   webview.addEventListener('dom-ready', () => {
@@ -218,24 +219,26 @@ function makeSetListItem(item, onRemove) {
   return li
 }
 
-// ── Settings ─────────────────────────────────────────────────────────────────
+// ── Last.fm auth ──────────────────────────────────────────────────────────────
 
-function loadSettings() {
-  const s = state.store.settings || {}
-  lfmUser.value   = s.lfmUser   || ''
-  lfmKey.value    = s.lfmKey    || ''
-  lfmSecret.value = s.lfmSecret || ''
+function showLfmConnected(name) {
+  lfmUsername.textContent = name
+  lfmConnected.classList.remove('hidden')
+  lfmDisconnected.classList.add('hidden')
 }
 
-function saveSettingsFn() {
-  state.store.settings = {
-    lfmUser:   lfmUser.value.trim(),
-    lfmKey:    lfmKey.value.trim(),
-    lfmSecret: lfmSecret.value.trim(),
-  }
-  persist()
-  settingsStatus.textContent = 'Saved!'
-  setTimeout(() => (settingsStatus.textContent = ''), 2000)
+function showLfmDisconnected() {
+  lfmConnected.classList.add('hidden')
+  lfmDisconnected.classList.remove('hidden')
+  lfmConnectStatus.textContent = ''
+  btnLfmConnect.disabled = false
+  btnLfmConnect.textContent = 'Connect Last.fm'
+}
+
+async function loadSettings() {
+  const session = await window.api.lfmSession()
+  if (session?.name) showLfmConnected(session.name)
+  else showLfmDisconnected()
 }
 
 // ── Persist ───────────────────────────────────────────────────────────────────
@@ -299,7 +302,24 @@ function wireEvents() {
     }
   })
 
-  saveSettings.addEventListener('click', saveSettingsFn)
+  btnLfmConnect.addEventListener('click', async () => {
+    btnLfmConnect.disabled = true
+    btnLfmConnect.textContent = 'Waiting…'
+    lfmConnectStatus.textContent = 'Authorize in the browser window that just opened.'
+    try {
+      const session = await window.api.lfmConnect()
+      showLfmConnected(session.name)
+    } catch (e) {
+      btnLfmConnect.disabled = false
+      btnLfmConnect.textContent = 'Connect Last.fm'
+      lfmConnectStatus.textContent = e.message || 'Connection failed.'
+    }
+  })
+
+  btnLfmDisconnect.addEventListener('click', async () => {
+    await window.api.lfmDisconnect()
+    showLfmDisconnected()
+  })
 
   // Overlay cleanup when webview navigates away from tracklists
   webview.addEventListener('did-navigate', (e) => {
