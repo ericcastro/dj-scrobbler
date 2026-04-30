@@ -96,7 +96,8 @@ html, body {
   z-index: 10;
 }
 
-#topbar > * { -webkit-app-region: no-drag; }
+#topbar button,
+#topbar input { -webkit-app-region: no-drag; }
 
 #app-title {
   display: flex;
@@ -670,7 +671,7 @@ webview {
   -webkit-app-region: drag;
 }
 
-#now-playing-bar > * { -webkit-app-region: no-drag; }
+#now-playing-bar button { -webkit-app-region: no-drag; }
 
 .play-btn {
   width: 36px;
