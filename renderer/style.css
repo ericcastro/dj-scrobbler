@@ -268,7 +268,7 @@ html, body {
 
 /* Keep interactive and scrollable areas non-draggable */
 #sidebar button,
-.sidebar-panel,
+.panel-items,
 .sidebar-footer-link { -webkit-app-region: no-drag; }
 
 #sidebar.collapsed { width: 0 !important; min-width: 0; }
@@ -340,13 +340,20 @@ html, body {
 
 .sidebar-panel {
   display: none;
-  flex-direction: column;
   flex: 1;
-  overflow-y: auto;
-  padding: 12px 8px;
+  overflow: hidden;
+  /* background exposed here is draggable (inherits from #sidebar) */
 }
 
-.sidebar-panel.active { display: flex; }
+.sidebar-panel.active { display: block; }
+
+/* Scrollable content — only takes the height it needs, capped at panel height */
+.panel-items {
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 12px 8px;
+  -webkit-app-region: no-drag;
+}
 
 .panel-title {
   font-size: 11px;
@@ -741,7 +748,7 @@ webview {
 
 #np-set {
   font-size: 11px;
-  color: var(--text2);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

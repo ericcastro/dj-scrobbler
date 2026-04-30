@@ -62,61 +62,67 @@
       </nav>
 
       <div id="panel-favorites" class="sidebar-panel active">
-        <div class="panel-title">Favorites</div>
-        <ul id="favorites-list" class="set-list"></ul>
-        <div class="empty-msg" id="fav-empty">No favorites yet.</div>
+        <div class="panel-items">
+          <div class="panel-title">Favorites</div>
+          <ul id="favorites-list" class="set-list"></ul>
+          <div class="empty-msg" id="fav-empty">No favorites yet.</div>
+        </div>
       </div>
 
       <div id="panel-history" class="sidebar-panel">
-        <div class="panel-title">History</div>
-        <ul id="history-list" class="set-list"></ul>
-        <div class="empty-msg" id="hist-empty">No history yet.</div>
+        <div class="panel-items">
+          <div class="panel-title">History</div>
+          <ul id="history-list" class="set-list"></ul>
+          <div class="empty-msg" id="hist-empty">No history yet.</div>
+        </div>
       </div>
 
       <div id="panel-settings" class="sidebar-panel">
-        <div class="panel-title">Theme</div>
-        <div class="theme-swatches">
-          <button class="theme-swatch" data-theme-id="neon-night">
-            <div class="swatch-dots">
-              <div class="swatch-dot"></div>
-              <div class="swatch-dot"></div>
-              <div class="swatch-dot"></div>
-            </div>
-            <span class="swatch-name">Neon Night</span>
-          </button>
-          <button class="theme-swatch" data-theme-id="signal-teal">
-            <div class="swatch-dots">
-              <div class="swatch-dot"></div>
-              <div class="swatch-dot"></div>
-              <div class="swatch-dot"></div>
-            </div>
-            <span class="swatch-name">Signal Teal</span>
-          </button>
-          <button class="theme-swatch" data-theme-id="sunset-deck">
-            <div class="swatch-dots">
-              <div class="swatch-dot"></div>
-              <div class="swatch-dot"></div>
-              <div class="swatch-dot"></div>
-            </div>
-            <span class="swatch-name">Sunset Deck</span>
-          </button>
-        </div>
-
-        <div class="panel-title" style="margin-top:12px">Last.fm</div>
-
-        <div id="lfm-disconnected">
-          <p class="setting-desc">Connect your Last.fm account to scrobble tracks as you listen.</p>
-          <button id="btn-lfm-connect" class="btn-primary">Connect Last.fm</button>
-          <div id="lfm-connect-status"></div>
-        </div>
-
-        <div id="lfm-connected" class="hidden">
-          <div class="lfm-user-row">
-            <span class="lfm-dot">◎</span>
-            <span id="lfm-username"></span>
+        <div class="panel-items">
+          <div class="panel-title">Theme</div>
+          <div class="theme-swatches">
+            <button class="theme-swatch" data-theme-id="neon-night">
+              <div class="swatch-dots">
+                <div class="swatch-dot"></div>
+                <div class="swatch-dot"></div>
+                <div class="swatch-dot"></div>
+              </div>
+              <span class="swatch-name">Neon Night</span>
+            </button>
+            <button class="theme-swatch" data-theme-id="signal-teal">
+              <div class="swatch-dots">
+                <div class="swatch-dot"></div>
+                <div class="swatch-dot"></div>
+                <div class="swatch-dot"></div>
+              </div>
+              <span class="swatch-name">Signal Teal</span>
+            </button>
+            <button class="theme-swatch" data-theme-id="sunset-deck">
+              <div class="swatch-dots">
+                <div class="swatch-dot"></div>
+                <div class="swatch-dot"></div>
+                <div class="swatch-dot"></div>
+              </div>
+              <span class="swatch-name">Sunset Deck</span>
+            </button>
           </div>
-          <p class="setting-desc">Tracks are scrobbled automatically as they play.</p>
-          <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
+
+          <div class="panel-title" style="margin-top:12px">Last.fm</div>
+
+          <div id="lfm-disconnected">
+            <p class="setting-desc">Connect your Last.fm account to scrobble tracks as you listen.</p>
+            <button id="btn-lfm-connect" class="btn-primary">Connect Last.fm</button>
+            <div id="lfm-connect-status"></div>
+          </div>
+
+          <div id="lfm-connected" class="hidden">
+            <div class="lfm-user-row">
+              <span class="lfm-dot">◎</span>
+              <span id="lfm-username"></span>
+            </div>
+            <p class="setting-desc">Tracks are scrobbled automatically as they play.</p>
+            <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
+          </div>
         </div>
       </div>
 

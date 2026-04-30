@@ -11,6 +11,7 @@ app.name = 'DJ Scrobbler'
 let mainWindow
 let currentWvContents = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
+let saveBoundsTimer = null
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -401,12 +402,28 @@ function setDockIcon(theme) {
   }
 }
 
+// ── Window bounds persistence ─────────────────────────────────────────────────
+
+function persistBounds() {
+  clearTimeout(saveBoundsTimer)
+  saveBoundsTimer = setTimeout(() => {
+    if (!mainWindow || mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
+    const store = readStore()
+    if (!store.settings) store.settings = {}
+    store.settings.windowBounds = mainWindow.getBounds()
+    if (lfmSession) store.settings.lfmSession = lfmSession
+    writeStore(store)
+  }, 400)
+}
+
 // ── Window ────────────────────────────────────────────────────────────────────
 
 function createWindow() {
+  const { windowBounds } = readStore().settings || {}
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width:  windowBounds?.width  || 1400,
+    height: windowBounds?.height || 900,
+    ...(windowBounds?.x != null ? { x: windowBounds.x, y: windowBounds.y } : {}),
     minWidth: 900,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
@@ -418,6 +435,9 @@ function createWindow() {
       webviewTag: true,
     },
   })
+
+  mainWindow.on('resize', persistBounds)
+  mainWindow.on('move',   persistBounds)
 
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
