@@ -13,8 +13,11 @@ contextBridge.exposeInMainWorld('api', {
   lfmSession:    ()     => ipcRenderer.invoke('lfm-session'),
   lfmStatusGet:  ()     => ipcRenderer.invoke('lfm-status-get'),
 
+  setTheme: (theme) => ipcRenderer.invoke('set-theme', theme),
+
   on: (channel, callback) => {
-    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'lfm-status']
+    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'lfm-status',
+                     'menu-toggle-sidebar', 'menu-reload']
     if (!allowed.includes(channel)) return
     ipcRenderer.on(channel, (_event, ...args) => callback(...args))
   },

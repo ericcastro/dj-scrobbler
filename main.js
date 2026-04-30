@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage } = require('electron')
 const path   = require('path')
 const https  = require('https')
 const crypto = require('crypto')
@@ -7,6 +7,7 @@ const plugins = require('./plugins')
 
 let mainWindow
 let currentWvContents = null
+let isQuitting = false   // distinguishes Cmd+Q from red-button close
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -315,6 +316,83 @@ function wireWebview(wvContents) {
   })
 }
 
+// ── Menu bar ──────────────────────────────────────────────────────────────────
+
+function buildMenu() {
+  const isMac = process.platform === 'darwin'
+  const template = [
+    // macOS app menu
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    }] : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Toggle Sidebar',
+          accelerator: 'CmdOrCtrl+\\',
+          click: () => mainWindow?.webContents.send('menu-toggle-sidebar'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Reload App',
+          accelerator: 'CmdOrCtrl+R',
+          click: () => mainWindow?.webContents.send('menu-reload'),
+        },
+        {
+          label: 'Open WebView DevTools',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => { if (currentWvContents) currentWvContents.openDevTools() },
+        },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac ? [
+          { type: 'separator' },
+          { role: 'front' },
+        ] : []),
+      ],
+    },
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+// ── Dock icon ─────────────────────────────────────────────────────────────────
+
+function setDockIcon(theme) {
+  if (process.platform !== 'darwin') return
+  const iconPath = path.join(__dirname, 'images', 'electron-icons', theme, 'icon.png')
+  try {
+    app.dock.setIcon(nativeImage.createFromPath(iconPath))
+  } catch (e) {
+    console.error('[dock] failed to set icon:', e.message)
+  }
+}
+
 // ── Window ────────────────────────────────────────────────────────────────────
 
 function createWindow() {
@@ -324,7 +402,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#0c1220',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -337,9 +415,9 @@ function createWindow() {
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
   mainWindow.webContents.on('did-attach-webview', (_event, wvContents) => wireWebview(wvContents))
 
-  // Spotify-style close: hide the window instead of quitting
+  // Spotify-style close: hide instead of quit — unless the user is actually quitting
   mainWindow.on('close', (e) => {
-    if (process.platform === 'darwin') {
+    if (process.platform === 'darwin' && !isQuitting) {
       e.preventDefault()
       mainWindow.hide()
     }
@@ -354,13 +432,20 @@ app.whenReady().then(() => {
     lfmSession = store.settings.lfmSession
     lfmStatus  = 'ok'
   }
+
+  const theme = store.settings?.theme || 'neon-night'
+  setDockIcon(theme)
+  buildMenu()
   createWindow()
+
   // Clicking the dock icon shows the window if it's hidden
   app.on('activate', () => {
     if (mainWindow) mainWindow.show()
     else createWindow()
   })
 })
+
+app.on('before-quit', () => { isQuitting = true })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
@@ -402,3 +487,13 @@ ipcMain.handle('lfm-status-get', ()      => lfmStatus)
 ipcMain.handle('get-sources', () =>
   plugins.SOURCES.map(s => ({ id: s.id, name: s.name, searchPlaceholder: s.searchPlaceholder, searchQueryUrl: null }))
 )
+
+// Theme change — update dock icon and persist
+ipcMain.handle('set-theme', (_event, theme) => {
+  setDockIcon(theme)
+  const store = readStore()
+  if (!store.settings) store.settings = {}
+  store.settings.theme = theme
+  if (lfmSession) store.settings.lfmSession = lfmSession
+  writeStore(store)
+})

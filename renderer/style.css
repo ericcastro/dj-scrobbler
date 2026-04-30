@@ -1,17 +1,55 @@
 /* ── Reset & base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-:root {
-  --bg:        #0f0f1a;
-  --bg2:       #16162a;
-  --bg3:       #1e1e35;
-  --border:    #2a2a45;
-  --accent:    #7c5cbf;
-  --accent2:   #a07fe0;
-  --text:      #e0dff5;
-  --text2:     #8888aa;
-  --red:       #e05c6b;
+/* ── Themes ── */
+
+/* Neon Night — deep navy, hot pink, electric cyan */
+:root,
+[data-theme="neon-night"] {
+  --bg:        #0c1220;
+  --bg2:       #131d35;
+  --bg3:       #1a2644;
+  --border:    #253460;
+  --accent:    #ff4fd8;
+  --accent2:   #00c2ff;
+  --text:      #e7f7ff;
+  --text2:     #6e88b8;
+  --red:       #ff4f6b;
   --green:     #5ce08a;
+  --topbar-bg: #0f1a30;
+}
+
+/* Signal Teal — dark teal, cyan-green, warm yellow */
+[data-theme="signal-teal"] {
+  --bg:        #061a1e;
+  --bg2:       #0b2830;
+  --bg3:       #0f3540;
+  --border:    #155262;
+  --accent:    #2dd4bf;
+  --accent2:   #6ee7b7;
+  --text:      #f0fffc;
+  --text2:     #6ab4aa;
+  --red:       #f87171;
+  --green:     #6ee7b7;
+  --topbar-bg: #071f25;
+}
+
+/* Sunset Deck — dark plum, coral/orange, amber */
+[data-theme="sunset-deck"] {
+  --bg:        #160d1a;
+  --bg2:       #211427;
+  --bg3:       #2d1c36;
+  --border:    #472652;
+  --accent:    #ff8a5b;
+  --accent2:   #ffbf3f;
+  --text:      #fff3ea;
+  --text2:     #9b7e8e;
+  --red:       #f05d5e;
+  --green:     #9fffe7;
+  --topbar-bg: #190c1e;
+}
+
+:root {
   --topbar-h:  52px;
   --sidebar-w: 220px;
   --footer-h:  64px;
@@ -30,7 +68,7 @@ html, body {
 /* ── Top bar ── */
 #topbar {
   height: var(--topbar-h);
-  background: var(--bg2);
+  background: var(--topbar-bg);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -129,7 +167,7 @@ html, body {
   transition: background .15s;
 }
 
-#search-btn:hover { background: var(--accent2); }
+#search-btn:hover { background: var(--accent2); color: #000; }
 
 #header-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
@@ -268,7 +306,7 @@ html, body {
   padding: 20px 8px;
 }
 
-/* Settings */
+/* ── Settings ── */
 .setting-group {
   margin-bottom: 12px;
 }
@@ -305,7 +343,7 @@ html, body {
   margin-top: 4px;
 }
 
-.btn-primary:hover { background: var(--accent2); }
+.btn-primary:hover { background: var(--accent2); color: #000; }
 .btn-primary:disabled { opacity: .5; cursor: default; }
 
 .btn-secondary {
@@ -350,6 +388,62 @@ html, body {
   text-align: center;
   min-height: 16px;
 }
+
+/* ── Theme picker ── */
+.theme-swatches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.theme-swatch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg3);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  text-align: left;
+  width: 100%;
+}
+
+.theme-swatch:hover { background: var(--border); }
+.theme-swatch.active { border-color: var(--accent); }
+
+.swatch-dots {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.swatch-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.swatch-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* per-theme dot colors */
+.theme-swatch[data-theme-id="neon-night"]  .swatch-dot:nth-child(1) { background: #ff4fd8; }
+.theme-swatch[data-theme-id="neon-night"]  .swatch-dot:nth-child(2) { background: #00c2ff; }
+.theme-swatch[data-theme-id="neon-night"]  .swatch-dot:nth-child(3) { background: #faff70; }
+
+.theme-swatch[data-theme-id="signal-teal"] .swatch-dot:nth-child(1) { background: #2dd4bf; }
+.theme-swatch[data-theme-id="signal-teal"] .swatch-dot:nth-child(2) { background: #6ee7b7; }
+.theme-swatch[data-theme-id="signal-teal"] .swatch-dot:nth-child(3) { background: #ffe66d; }
+
+.theme-swatch[data-theme-id="sunset-deck"] .swatch-dot:nth-child(1) { background: #f05d5e; }
+.theme-swatch[data-theme-id="sunset-deck"] .swatch-dot:nth-child(2) { background: #ff8a5b; }
+.theme-swatch[data-theme-id="sunset-deck"] .swatch-dot:nth-child(3) { background: #ffbf3f; }
 
 .hidden { display: none !important; }
 
@@ -441,9 +535,9 @@ webview {
   flex-shrink: 0;
 }
 
-.play-btn:hover { background: var(--accent); color: #fff; }
+.play-btn:hover { background: var(--accent); color: #000; }
 .play-btn.playing { border-color: var(--accent2); color: var(--accent2); }
-.play-btn.playing:hover { background: var(--accent2); color: #fff; }
+.play-btn.playing:hover { background: var(--accent2); color: #000; }
 
 #np-tracknum {
   font-size: 10px;

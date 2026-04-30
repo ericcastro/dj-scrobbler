@@ -64,6 +64,7 @@ function navigateTo(url) {
 
 async function init() {
   state.store = await window.api.getStore()
+  applyTheme(state.store.settings?.theme || 'neon-night', false)
   renderFavorites()
   renderHistory()
   renderSearchSuggestions()
@@ -151,6 +152,9 @@ function wireMainEvents() {
   })
 
   window.api.on('lfm-status', (status) => updateScrobbleBadge(status))
+
+  window.api.on('menu-toggle-sidebar', () => sidebar.classList.toggle('collapsed'))
+  window.api.on('menu-reload', () => navigateToSearch())
 }
 
 // ── Scrobble badge ────────────────────────────────────────────────────────────
@@ -243,6 +247,20 @@ function makeSetListItem(item, onRemove) {
     })
   }
   return li
+}
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+
+function applyTheme(theme, persist = true) {
+  document.documentElement.setAttribute('data-theme', theme)
+  document.querySelectorAll('.theme-swatch').forEach(el => {
+    el.classList.toggle('active', el.dataset.themeId === theme)
+  })
+  if (persist) {
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.theme = theme
+    window.api.setTheme(theme)
+  }
 }
 
 // ── Last.fm auth ──────────────────────────────────────────────────────────────
@@ -359,6 +377,10 @@ function wireEvents() {
   })
 
   btnPlayPause.addEventListener('click', () => window.api.playerToggle())
+
+  document.querySelectorAll('.theme-swatch').forEach(btn => {
+    btn.addEventListener('click', () => applyTheme(btn.dataset.themeId))
+  })
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
