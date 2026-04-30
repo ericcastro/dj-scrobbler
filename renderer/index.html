@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DJ Scrobbler</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Top bar -->
+  <header id="topbar">
+    <div id="app-title">
+      <span class="logo">◉</span>
+      <span>DJ Scrobbler</span>
+    </div>
+
+    <div id="search-area">
+      <div id="source-toggle">
+        <button class="toggle-btn active" data-source="youtube" id="btn-yt">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2C0 8 0 12 0 12s0 4 .5 5.8a3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1C24 16 24 12 24 12s0-4-.5-5.8zM9.7 15.5V8.5l6.3 3.5-6.3 3.5z"/></svg>
+          YouTube
+        </button>
+        <button class="toggle-btn" data-source="soundcloud" id="btn-sc">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M1.2 10.9c-.1 0-.2.1-.2.2L.5 12l.5.9c0 .1.1.2.2.2s.2-.1.2-.2L1.7 12l-.3-.9c0-.1-.1-.2-.2-.2zm1.5-.4c-.1 0-.3.1-.3.2l-.4 1.3.4 1.2c0 .1.2.2.3.2s.3-.1.3-.2l.5-1.2-.5-1.3c0-.1-.2-.2-.3-.2zm1.6-.8c-.2 0-.3.1-.3.3l-.5 2 .5 1.9c0 .2.1.3.3.3s.3-.1.3-.3l.5-1.9-.5-2c0-.2-.1-.3-.3-.3zm1.6.2c-.2 0-.4.1-.4.4l-.4 1.7.4 1.9c0 .2.2.4.4.4s.4-.2.4-.4l.5-1.9-.5-1.7c0-.2-.2-.4-.4-.4zm1.7-.3c-.2 0-.4.2-.4.4l-.4 1.8.4 2c0 .2.2.4.4.4.2 0 .4-.2.4-.4l.5-2-.5-1.8c0-.2-.2-.4-.4-.4zm1.7-.4c-.3 0-.5.2-.5.5L8.5 12l.3 2.1c0 .3.2.5.5.5s.5-.2.5-.5l.4-2.1-.4-2.2c0-.3-.2-.5-.5-.5zm1.7-.5c-.3 0-.5.2-.5.5L10.2 12l.3 2.2c0 .3.2.5.5.5s.5-.2.5-.5l.4-2.2-.4-2.3c0-.3-.2-.5-.5-.5zm5.3-3.2a4.8 4.8 0 0 0-4.8 4.4l-.2 1.9.2 2.2c0 .3.2.5.5.5s.5-.2.5-.5l.3-2.2-.3-1.9a3.8 3.8 0 0 1 3.8-3.5 3.8 3.8 0 0 1 3.8 3.8v.2a1.5 1.5 0 0 1 1.5 1.5 1.5 1.5 0 0 1-1.5 1.5H16c-.3 0-.5.2-.5.5s.2.5.5.5h4.8a2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2-2.4 4.8 4.8 0 0 0-4.3-3.5z"/></svg>
+          SoundCloud
+        </button>
+      </div>
+
+      <div id="search-box">
+        <input type="text" id="search-input" placeholder="Search for a DJ set…" />
+        <button id="search-btn">Search</button>
+      </div>
+    </div>
+
+    <div id="header-actions">
+      <button class="icon-btn" id="btn-bookmark" title="Bookmark this set">☆</button>
+      <button class="icon-btn" id="btn-devtools" title="Open webview DevTools">🛠</button>
+      <button class="icon-btn" id="btn-sidebar-toggle" title="Toggle sidebar">☰</button>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <div id="layout">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <nav id="sidebar-nav">
+        <button class="nav-btn active" data-panel="favorites">★ Favorites</button>
+        <button class="nav-btn" data-panel="history">⌚ History</button>
+        <button class="nav-btn" data-panel="settings">⚙ Settings</button>
+      </nav>
+
+      <div id="panel-favorites" class="sidebar-panel active">
+        <div class="panel-title">Favorites</div>
+        <ul id="favorites-list" class="set-list"></ul>
+        <div class="empty-msg" id="fav-empty">No favorites yet.</div>
+      </div>
+
+      <div id="panel-history" class="sidebar-panel">
+        <div class="panel-title">History</div>
+        <ul id="history-list" class="set-list"></ul>
+        <div class="empty-msg" id="hist-empty">No history yet.</div>
+      </div>
+
+      <div id="panel-settings" class="sidebar-panel">
+        <div class="panel-title">Settings</div>
+        <div class="setting-group">
+          <label>Last.fm Username</label>
+          <input type="text" id="lfm-user" placeholder="username" />
+        </div>
+        <div class="setting-group">
+          <label>Last.fm API Key</label>
+          <input type="text" id="lfm-key" placeholder="API key" />
+        </div>
+        <div class="setting-group">
+          <label>Last.fm API Secret</label>
+          <input type="password" id="lfm-secret" placeholder="API secret" />
+        </div>
+        <button id="save-settings" class="btn-primary">Save Settings</button>
+        <div id="settings-status"></div>
+      </div>
+    </aside>
+
+    <!-- WebView area -->
+    <main id="main-content">
+      <div id="webview-container">
+        <div id="loading-overlay" class="hidden">
+          <div class="spinner"></div>
+          <span id="loading-msg">Searching tracklist…</span>
+        </div>
+        <div id="no-tracklist-msg" class="hidden">
+          <div class="big-icon">🔍</div>
+          <p>No tracklist found for this set.</p>
+        </div>
+        <webview id="webview" src="about:blank" allowpopups></webview>
+      </div>
+    </main>
+  </div>
+
+  <!-- Now-playing footer -->
+  <footer id="now-playing-bar">
+    <div id="np-left">
+      <button id="btn-playpause" class="play-btn" title="Play / Pause">
+        <span id="pp-icon">▶</span>
+      </button>
+      <div id="np-tracknum"></div>
+    </div>
+    <div id="np-info">
+      <div id="np-track">—</div>
+      <div id="np-artist">Waiting for playback…</div>
+    </div>
+    <div id="np-right">
+      <div id="np-set">—</div>
+      <div id="np-source"></div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

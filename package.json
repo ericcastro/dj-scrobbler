@@ -1,0 +1,12 @@
+{
+  "name": "dj-scrobbler",
+  "version": "0.1.0",
+  "description": "Scrobble tracks from DJ sets on YouTube and SoundCloud",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^41.3.0"
+  }
+}
