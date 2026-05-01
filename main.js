@@ -327,6 +327,18 @@ function wireWebview(wvContents) {
           tlPlugin.autoplayDelay || 0
         )
       }
+
+      // Extract full tracklist and send to renderer for native display
+      if (tlPlugin.tracklistExtractScript) {
+        try {
+          const tracks = await wvContents.executeJavaScript(tlPlugin.tracklistExtractScript)
+          if (Array.isArray(tracks) && tracks.length) {
+            mainWindow.webContents.send('tracklist-data', tracks)
+          }
+        } catch (e) {
+          console.error('[tracklist] extraction failed:', e.message)
+        }
+      }
     } else {
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       stopMonitoring()
@@ -540,6 +552,13 @@ ipcMain.handle('open-external', (_event, url) => {
     const { hostname } = new URL(url)
     if (allowed.some(d => hostname === d || hostname.endsWith('.' + d))) shell.openExternal(url)
   } catch {}
+})
+
+ipcMain.handle('player-goto-track', async (_event, onclickStr) => {
+  if (!currentWvContents || !onclickStr) return
+  // Replace the DOM element reference with null — playPosition accepts it
+  const script = String(onclickStr).replace(/playPosition\s*\(\s*this/, 'playPosition(null')
+  await currentWvContents.executeJavaScript(script).catch(() => {})
 })
 
 // Theme change — update dock icon, persist, and live-update overlay color

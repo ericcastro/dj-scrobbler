@@ -581,10 +581,84 @@ html, body {
 /* ── Main content / WebView ── */
 #main-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   position: relative;
   overflow: hidden;
   background: var(--bg);
+  min-width: 0;
 }
+
+/* ── Video area ── */
+/* Default: fills all space (browsing, loading states) */
+#video-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Tracklist mode: collapse to 16:9 aspect ratio.
+   padding-bottom % is always relative to the element's OWN WIDTH,
+   so 56.25% here = 56.25% of #main-content width = exactly 56.25vw
+   inside the webview. They stay pixel-aligned regardless of sidebar widths. */
+#main-content.has-tracklist #video-area {
+  flex: none;
+  height: 0;
+  padding-bottom: 56.25%;
+}
+
+/* ── Tracklist below video ── */
+#tracklist-below-video {
+  display: none;
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg);
+  min-height: 0;
+  padding: 8px;
+  -webkit-app-region: no-drag;
+}
+
+#main-content.has-tracklist #tracklist-below-video {
+  display: block;
+}
+
+/* ── Right panel ── */
+#right-panel {
+  width: 260px;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: width .2s;
+  -webkit-app-region: drag;
+}
+
+#right-panel .panel-items { -webkit-app-region: no-drag; }
+#right-panel button { -webkit-app-region: no-drag; }
+
+#right-panel.collapsed { width: 0; }
+
+#right-panel,
+#right-panel-handle,
+#btn-tracklist-toggle { display: none !important; }
+
+/* Right panel resize handle (mirrors left sidebar handle) */
+#right-panel-handle {
+  width: 4px;
+  flex-shrink: 0;
+  background: transparent;
+  cursor: col-resize;
+  transition: background .15s;
+  position: relative;
+  z-index: 20;
+}
+
+#right-panel-handle:hover,
+#right-panel-handle.dragging { background: var(--accent); opacity: .4; }
+#right-panel-handle.hidden { display: none; }
 
 /* ── Intro screen ── */
 #intro-screen {
@@ -594,7 +668,7 @@ html, body {
   align-items: center;
   justify-content: center;
   background: var(--bg);
-  z-index: 4;
+  z-index: 6; /* above video-area AND tracklist-below-video */
   pointer-events: none; /* let clicks fall through to search bar */
 }
 
@@ -633,6 +707,7 @@ html, body {
 }
 
 /* ── Webview container ── */
+/* position: absolute fills #video-area exactly */
 #webview-container {
   position: absolute;
   inset: 0;
@@ -861,6 +936,129 @@ webview {
 /* "enabled" = configured but not playing — same muted look as unconfigured */
 /* "dim" = tracklist unavailable — muted with dashed border */
 #scrobble-badge.dim    { border-style: dashed; }
+
+/* ── Tracklist panel ── */
+.track-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.track-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s;
+  position: relative;
+  min-width: 0;
+}
+
+.track-item:hover { background: var(--bg3); }
+
+.track-item.active {
+  background: var(--bg3);
+  border-left: 2px solid var(--accent);
+  padding-left: 4px;
+}
+
+.track-item.track-id { opacity: .45; }
+.track-item.track-with { padding-left: 20px; }
+
+.track-num {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text2);
+  width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+  letter-spacing: .04em;
+}
+
+.track-num-with {
+  color: var(--accent2);
+  font-size: 8px;
+  width: 20px;
+  text-align: right;
+}
+
+.track-art {
+  width: 30px;
+  height: 30px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg3);
+}
+
+.track-art-empty {
+  background: var(--border);
+  opacity: .5;
+}
+
+.track-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.track-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.track-item.active .track-title { color: var(--accent); }
+
+.track-artist {
+  font-size: 10px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.track-cue {
+  font-size: 9px;
+  color: var(--text2);
+  flex-shrink: 0;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
+
+.track-item.active .track-cue { color: var(--accent); }
+
+/* ── Compact track list (right panel) ── */
+.track-list.compact .track-item {
+  padding: 4px 6px;
+  gap: 6px;
+}
+
+.track-list.compact .track-art { display: none; }
+.track-list.compact .track-artist { display: none; }
+
+.track-list.compact .track-num {
+  font-size: 8px;
+  width: 16px;
+}
+
+.track-list.compact .track-title {
+  font-size: 10px;
+}
+
+.track-list.compact .track-cue {
+  font-size: 9px;
+}
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; }

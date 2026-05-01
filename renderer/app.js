@@ -46,7 +46,14 @@ const favoritesList      = document.getElementById('favorites-list')
 const historyList        = document.getElementById('history-list')
 const favEmpty           = document.getElementById('fav-empty')
 const histEmpty          = document.getElementById('hist-empty')
-const btnPlayPause       = document.getElementById('btn-playpause')
+const mainContent           = document.getElementById('main-content')
+const tracklistBelowVideo   = document.getElementById('tracklist-below-video')
+const tracklistList         = document.getElementById('tracklist-list')
+const tracklistCompactList  = document.getElementById('tracklist-compact-list')
+const rightPanel            = document.getElementById('right-panel')
+const rightPanelHandle      = document.getElementById('right-panel-handle')
+const btnTracklistToggle    = document.getElementById('btn-tracklist-toggle')
+const btnPlayPause          = document.getElementById('btn-playpause')
 const ppIcon             = document.getElementById('pp-icon')
 const npTracknum         = document.getElementById('np-tracknum')
 const npTrack            = document.getElementById('np-track')
@@ -104,6 +111,15 @@ async function init() {
 
   applyTheme(state.store.settings?.theme || 'neon-night', false)
   restoreSidebarWidth()
+  restoreRightPanelWidth()
+
+  // Restore right panel open/closed state (default: closed)
+  const rightPanelOpen = state.store.settings?.rightPanelOpen ?? false
+  if (rightPanelOpen) {
+    rightPanel.classList.remove('collapsed')
+    rightPanelHandle.classList.remove('hidden')
+    btnTracklistToggle.classList.add('active')
+  }
 
   const version = await window.api.getVersion()
   footerAppName.textContent = `DJ Scrobbler v${version}`
@@ -234,11 +250,16 @@ function wireMainEvents() {
     btnPlayPause.classList.toggle('playing', playing)
     state.isTrackPlaying = playing
     refreshScrobbleBadge()
+    if (data.trackNum) highlightTracklistByNum(data.trackNum)
   })
 
   window.api.on('lfm-status', (status) => {
     state.lfmStatus = status
     refreshScrobbleBadge()
+  })
+
+  window.api.on('tracklist-data', (tracks) => {
+    renderTracklist(tracks)
   })
 
   window.api.on('menu-toggle-sidebar', () => toggleSidebar())
@@ -439,6 +460,138 @@ function makeSetListItem(item, onRemove) {
   return li
 }
 
+// ── Tracklist panel ───────────────────────────────────────────────────────────
+
+function createTrackItem(track, compact) {
+  const li = document.createElement('li')
+  li.className = 'track-item' +
+    (track.isId     ? ' track-id'   : '') +
+    (track.isWWith  ? ' track-with' : '')
+  li.dataset.trackNum = track.trackNum || ''
+
+  const numHtml = track.isWWith
+    ? `<span class="track-num track-num-with">w/</span>`
+    : `<span class="track-num">${track.trackNum || ''}</span>`
+
+  const artHtml = compact ? '' : (
+    track.artUrl
+      ? `<img class="track-art" src="${escHtml(track.artUrl)}" loading="lazy" alt="" />`
+      : `<div class="track-art track-art-empty"></div>`
+  )
+
+  const titleText  = track.isId ? 'ID — ID' : escHtml(track.title || track.raw || '?')
+  const artistHtml = (!track.isId && track.artist && !compact)
+    ? `<span class="track-artist">${escHtml(track.artist)}</span>`
+    : ''
+
+  const cueHtml = track.cueDisplay
+    ? `<span class="track-cue">${escHtml(track.cueDisplay)}</span>`
+    : ''
+
+  li.innerHTML = `
+    ${numHtml}
+    ${artHtml}
+    <div class="track-info">
+      <span class="track-title">${titleText}</span>
+      ${artistHtml}
+    </div>
+    ${cueHtml}
+  `
+
+  if (track.onclickStr) {
+    li.addEventListener('click', () => window.api.playerGotoTrack(track.onclickStr))
+  }
+
+  return li
+}
+
+function renderTracklist(tracks) {
+  tracklistList.innerHTML = ''
+  tracklistCompactList.innerHTML = ''
+
+  tracks.forEach(track => {
+    tracklistList.appendChild(createTrackItem(track, false))
+    tracklistCompactList.appendChild(createTrackItem(track, false))
+  })
+
+  mainContent.classList.toggle('has-tracklist', tracks.length > 0)
+}
+
+function highlightTracklistByNum(trackNum) {
+  for (const list of [tracklistList, tracklistCompactList]) {
+    let found = null
+    list.querySelectorAll('.track-item').forEach(li => {
+      const active = li.dataset.trackNum === String(trackNum)
+      li.classList.toggle('active', active)
+      if (active) found = li
+    })
+    if (found) found.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+}
+
+function clearTracklist() {
+  tracklistList.innerHTML = ''
+  tracklistCompactList.innerHTML = ''
+  mainContent.classList.remove('has-tracklist')
+}
+
+// ── Right panel ───────────────────────────────────────────────────────────────
+
+function toggleRightPanel() {
+  const open = rightPanel.classList.toggle('collapsed')
+  // 'collapsed' class present = panel is closed
+  rightPanelHandle.classList.toggle('hidden', rightPanel.classList.contains('collapsed'))
+  btnTracklistToggle.classList.toggle('active', !rightPanel.classList.contains('collapsed'))
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings.rightPanelOpen = !rightPanel.classList.contains('collapsed')
+  persist()
+}
+
+function restoreRightPanelWidth() {
+  const w = state.store.settings?.rightPanelWidth || 260
+  rightPanel.style.width = w + 'px'
+}
+
+function wireRightPanelResize() {
+  let isResizing = false
+
+  const dragOverlay = document.createElement('div')
+  dragOverlay.style.cssText =
+    'position:fixed;inset:0;z-index:99999;cursor:col-resize;display:none'
+  document.body.appendChild(dragOverlay)
+
+  rightPanelHandle.addEventListener('mousedown', (e) => {
+    isResizing = true
+    dragOverlay.style.display = 'block'
+    rightPanelHandle.classList.add('dragging')
+    e.preventDefault()
+  })
+
+  const onMove = (e) => {
+    if (!isResizing) return
+    // Dragging left = wider panel; width = distance from cursor to right edge
+    const w = Math.max(180, Math.min(400, window.innerWidth - e.clientX))
+    rightPanel.style.width = w + 'px'
+  }
+
+  const onUp = () => {
+    if (!isResizing) return
+    isResizing = false
+    dragOverlay.style.display = 'none'
+    rightPanelHandle.classList.remove('dragging')
+    const w = parseInt(rightPanel.style.width, 10)
+    if (w) {
+      if (!state.store.settings) state.store.settings = {}
+      state.store.settings.rightPanelWidth = w
+      persist()
+    }
+  }
+
+  dragOverlay.addEventListener('mousemove', onMove)
+  dragOverlay.addEventListener('mouseup', onUp)
+  document.addEventListener('mouseup', onUp)
+}
+
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
 function applyTheme(theme, shouldPersist = true) {
@@ -508,8 +661,9 @@ function showLoading(msg = 'Loading…') {
   loadingOverlay.classList.remove('hidden')
   noTracklistMsg.classList.add('hidden')
   noTracklistPrompt.classList.add('hidden')
-  // A new search is starting — clear the unavailable state
+  // A new search is starting — clear the unavailable state + stale tracklist
   state.tracklistUnavailable = false
+  clearTracklist()
   refreshScrobbleBadge()
 }
 
@@ -590,6 +744,7 @@ function wireEvents() {
 
   btnDevtools.addEventListener('click', () => window.api.openDevTools())
   btnSidebarToggle.addEventListener('click', () => toggleSidebar())
+  btnTracklistToggle.addEventListener('click', () => toggleRightPanel())
 
   navBtns.forEach((btn) =>
     btn.addEventListener('click', () => switchSidebarPanel(btn.dataset.panel))
@@ -658,6 +813,7 @@ function wireEvents() {
   })
 
   wireSidebarResize()
+  wireRightPanelResize()
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

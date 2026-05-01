@@ -81,6 +81,34 @@ module.exports = {
     }
   `,
 
+  // Extracts the full tracklist from the #tlTab DOM.
+  // Returns an array of track objects; executed once after the page loads.
+  tracklistExtractScript: `(() => {
+    const rows = Array.from(document.querySelectorAll('.tlpItem'))
+    return rows.map(row => {
+      const trackNumEl   = row.querySelector('.fontXL')
+      const trackNumText = trackNumEl ? trackNumEl.textContent.trim() : ''
+      const isWWith      = /^w\\//.test(trackNumText)
+      const trackNum     = isWWith ? null : (parseInt(trackNumText) || null)
+      const isId         = !!row.querySelector('.trackValue.redTxt')
+      const nameMeta     = row.querySelector('meta[itemprop="name"]')
+      const artistMeta   = row.querySelector('meta[itemprop="byArtist"]')
+      const rawName      = nameMeta   ? (nameMeta.getAttribute('content')   || '') : ''
+      const artist       = artistMeta ? (artistMeta.getAttribute('content') || '') : ''
+      const prefix       = artist ? artist + ' - ' : ''
+      const title        = prefix && rawName.startsWith(prefix) ? rawName.substring(prefix.length) : rawName
+      const cueInput     = row.querySelector('input[id$="_cue_seconds"]')
+      const cueSeconds   = cueInput ? (parseInt(cueInput.value) || 0) : 0
+      const cueEl        = row.querySelector('.cue')
+      const cueDisplay   = cueEl ? cueEl.textContent.trim() : ''
+      const artImg       = row.querySelector('img.artM')
+      const artUrl       = artImg ? (artImg.dataset.src || artImg.src || '') : ''
+      const playEl    = row.querySelector('i[onclick*="playPosition"]')
+      const onclickStr = playEl ? (playEl.getAttribute('onclick') || null) : null
+      return { trackNum, trackNumText, isWWith, isId, artist, title, raw: rawName, cueSeconds, cueDisplay, artUrl, onclickStr }
+    }).filter(t => t.raw || t.onclickStr)
+  })()`,
+
   nowPlayingScript: `(() => {
     const row = document.getElementsByClassName('cPlay')[0]
     if (!row) return null

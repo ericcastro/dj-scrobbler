@@ -39,12 +39,15 @@
       <button class="icon-btn" id="btn-sidebar-toggle" title="Toggle sidebar">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
       </button>
+      <button class="icon-btn" id="btn-tracklist-toggle" title="Toggle tracklist panel">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></svg>
+      </button>
     </div>
   </header>
 
   <!-- Main layout -->
   <div id="layout">
-    <!-- Sidebar -->
+    <!-- Left sidebar — DJ set navigation only -->
     <aside id="sidebar">
       <nav id="sidebar-nav">
         <button class="nav-btn active" data-panel="favorites">
@@ -135,9 +138,9 @@
 
     <div id="sidebar-resize-handle"></div>
 
-    <!-- WebView area -->
+    <!-- WebView area — flex column: video on top, tracklist below -->
     <main id="main-content">
-      <!-- Intro screen -->
+      <!-- Intro screen: covers full main area -->
       <div id="intro-screen">
         <div id="intro-content">
           <div id="intro-logo">
@@ -192,28 +195,45 @@
         </div>
       </div>
 
-      <div id="webview-container">
-        <div id="loading-overlay" class="hidden">
-          <div class="spinner"></div>
-          <span id="loading-msg">Searching tracklist…</span>
-        </div>
-        <div id="no-tracklist-msg" class="hidden">
-          <div class="big-icon">
-            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <!-- Video area: fills full height normally; collapses to 16:9 in tracklist mode -->
+      <div id="video-area">
+        <div id="webview-container">
+          <div id="loading-overlay" class="hidden">
+            <div class="spinner"></div>
+            <span id="loading-msg">Searching tracklist…</span>
           </div>
-          <p>No tracklist found for this set.</p>
-        </div>
-        <div id="no-tracklist-prompt" class="hidden">
-          <div class="big-icon">
-            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+          <div id="no-tracklist-msg" class="hidden">
+            <div class="big-icon">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </div>
+            <p>No tracklist found for this set.</p>
           </div>
-          <p id="no-tl-prompt-title">No tracklist found for this DJ set :(</p>
-          <p class="no-tl-prompt-sub">This set might not have a tracklist yet.</p>
-          <button id="btn-play-anyway" class="btn-play-anyway">Play set anyway</button>
+          <div id="no-tracklist-prompt" class="hidden">
+            <div class="big-icon">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+            </div>
+            <p id="no-tl-prompt-title">No tracklist found for this DJ set :(</p>
+            <p class="no-tl-prompt-sub">This set might not have a tracklist yet.</p>
+            <button id="btn-play-anyway" class="btn-play-anyway">Play set anyway</button>
+          </div>
+          <webview id="webview" src="about:blank" allowpopups></webview>
         </div>
-        <webview id="webview" src="about:blank" allowpopups></webview>
+      </div>
+
+      <!-- Tracklist below the video — only visible when a tracklist is loaded -->
+      <div id="tracklist-below-video">
+        <ul id="tracklist-list" class="track-list"></ul>
       </div>
     </main>
+
+    <!-- Right panel: compact tracklist, toggleable -->
+    <div id="right-panel-handle"></div>
+    <aside id="right-panel" class="collapsed">
+      <div class="panel-items">
+        <div class="panel-title">Tracklist</div>
+        <ul id="tracklist-compact-list" class="track-list"></ul>
+      </div>
+    </aside>
   </div>
 
   <!-- Now-playing footer -->

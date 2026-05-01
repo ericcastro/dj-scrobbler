@@ -5,7 +5,8 @@ contextBridge.exposeInMainWorld('api', {
   setStore:     (data)  => ipcRenderer.invoke('store-set', data),
   getSources:   ()      => ipcRenderer.invoke('get-sources'),
 
-  playerToggle: ()      => ipcRenderer.invoke('player-toggle'),
+  playerToggle:    ()      => ipcRenderer.invoke('player-toggle'),
+  playerGotoTrack: (args) => ipcRenderer.invoke('player-goto-track', args),
   openDevTools: ()      => ipcRenderer.invoke('open-devtools'),
 
   lfmConnect:    ()     => ipcRenderer.invoke('lfm-connect'),
@@ -18,8 +19,8 @@ contextBridge.exposeInMainWorld('api', {
   openExternal: (url)   => ipcRenderer.invoke('open-external', url),
 
   on: (channel, callback) => {
-    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'lfm-status',
-                     'menu-toggle-sidebar', 'menu-reload']
+    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data',
+                     'lfm-status', 'menu-toggle-sidebar', 'menu-reload']
     if (!allowed.includes(channel)) return
     ipcRenderer.on(channel, (_event, ...args) => callback(...args))
   },
