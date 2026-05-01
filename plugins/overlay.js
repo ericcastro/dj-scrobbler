@@ -59,7 +59,7 @@ function buildOverlayScript({ finderScript = null, selectors = [] }, bgColor) {
   const overlay = document.createElement('div');
   overlay.id = '_djs_overlay';
   overlay.style.cssText =
-    'position:fixed;inset:0;background:${bgColor};opacity:0.5;' +
+    'position:fixed;inset:0;background:${bgColor};opacity:1;' +
     'z-index:9000;pointer-events:none;transition:background .3s;';
   document.body.appendChild(overlay);
 
