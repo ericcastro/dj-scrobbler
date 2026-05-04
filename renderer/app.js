@@ -567,10 +567,10 @@ let resumeCountdownTimer  = null
 
 function showResumeDialog(item) {
   resumeDialogTarget = item
-  resumeCountdownNum.textContent = '3'
+  resumeCountdownNum.textContent = '5'
   resumeDontAsk.checked = false
   resumeDialog.classList.remove('hidden')
-  let count = 3
+  let count = 5
   resumeCountdownTimer = setInterval(() => {
     count--
     if (count <= 0) {
