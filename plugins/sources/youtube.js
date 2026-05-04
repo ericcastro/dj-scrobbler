@@ -50,8 +50,16 @@ module.exports = {
   },
 
   async getMeta(watchUrl) {
+    // Strip every parameter except `v` so 1001tracklists always gets the
+    // canonical URL (e.g. no &list=, &start_radio=, &pp=, etc.)
+    let canonicalUrl = watchUrl
+    try {
+      const u = new URL(watchUrl)
+      canonicalUrl = `https://www.youtube.com/watch?v=${u.searchParams.get('v')}`
+    } catch {}
+
     return new Promise((resolve) => {
-      const oembed = `https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`
+      const oembed = `https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`
       const u = new URL(oembed)
       const req = https.request({
         hostname: u.hostname,
@@ -64,11 +72,11 @@ module.exports = {
         res.on('end', () => {
           try {
             const d = JSON.parse(Buffer.concat(chunks).toString())
-            resolve({ title: d.title || null, channel: d.author_name || null, url: watchUrl })
-          } catch { resolve({ title: null, channel: null, url: watchUrl }) }
+            resolve({ title: d.title || null, channel: d.author_name || null, url: canonicalUrl })
+          } catch { resolve({ title: null, channel: null, url: canonicalUrl }) }
         })
       })
-      req.on('error', () => resolve({ title: null, channel: null, url: watchUrl }))
+      req.on('error', () => resolve({ title: null, channel: null, url: canonicalUrl }))
       req.end()
     })
   },

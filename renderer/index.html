@@ -210,7 +210,7 @@
           </div>
           <div id="no-tracklist-prompt" class="hidden">
             <div class="big-icon">
-              <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
             </div>
             <p id="no-tl-prompt-title">No tracklist found for this DJ set :(</p>
             <p class="no-tl-prompt-sub">This set might not have a tracklist yet.</p>
@@ -222,6 +222,13 @@
 
       <!-- Tracklist below the video — only visible when a tracklist is loaded -->
       <div id="tracklist-below-video">
+        <div id="tracklist-unavailable" class="hidden">
+          <div class="tl-unavailable-icon">
+            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <p class="tl-unavailable-title">Tracklist not yet available</p>
+          <p class="tl-unavailable-sub">No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.</p>
+        </div>
         <ul id="tracklist-list" class="track-list"></ul>
       </div>
     </main>

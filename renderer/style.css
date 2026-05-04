@@ -381,10 +381,33 @@ html, body {
   line-height: 1.4;
   transition: background .15s;
   position: relative;
-  overflow: hidden; /* clip boundary for marquee title */
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .set-list li:hover { background: var(--border); }
+
+.set-item-thumb {
+  width: 48px;
+  height: 27px; /* 16:9 */
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.set-item-thumb-empty {
+  background: var(--border);
+  opacity: .5;
+}
+
+.set-item-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden; /* clip boundary for marquee */
+}
 
 .set-list li .set-item-title {
   font-weight: 500;
@@ -420,11 +443,13 @@ html, body {
   color: var(--text2);
   opacity: 0;
   transition: opacity .15s;
-  background: none;
+  background: var(--bg3); /* small backing so it reads over the thumbnail */
   border: none;
+  border-radius: 3px;
   cursor: pointer;
   padding: 2px 4px;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .set-list li:hover .set-item-remove { opacity: 1; }
@@ -937,6 +962,34 @@ webview {
 /* "dim" = tracklist unavailable — muted with dashed border */
 #scrobble-badge.dim    { border-style: dashed; }
 
+/* ── Tracklist unavailable message ── */
+#tracklist-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 40px;
+  text-align: center;
+  color: var(--text2);
+}
+
+.tl-unavailable-icon { opacity: .3; }
+
+.tl-unavailable-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  opacity: .7;
+}
+
+.tl-unavailable-sub {
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.6;
+  max-width: 400px;
+}
+
 /* ── Tracklist panel ── */
 .track-list {
   list-style: none;
@@ -967,6 +1020,15 @@ webview {
 
 .track-item.track-id { opacity: .45; }
 .track-item.track-with { padding-left: 20px; }
+
+/* Mashup component sub-tracks — informational only, not seekable */
+.track-item.track-mashup {
+  padding-left: 28px;
+  cursor: default;
+  opacity: .55;
+}
+.track-item.track-mashup:hover { background: transparent; }
+.track-list.compact .track-item.track-mashup { display: none; }
 
 .track-num {
   font-size: 9px;

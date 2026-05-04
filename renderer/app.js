@@ -12,6 +12,7 @@ const state = {
   currentSetTitle: '',
   currentSetUrl: '',
   currentSource: '',
+  currentThumbnailUrl: null,
   nowPlaying: null,
   lfmStatus: 'unconfigured',
   isTrackPlaying: false,
@@ -46,9 +47,10 @@ const favoritesList      = document.getElementById('favorites-list')
 const historyList        = document.getElementById('history-list')
 const favEmpty           = document.getElementById('fav-empty')
 const histEmpty          = document.getElementById('hist-empty')
-const mainContent           = document.getElementById('main-content')
-const tracklistBelowVideo   = document.getElementById('tracklist-below-video')
-const tracklistList         = document.getElementById('tracklist-list')
+const mainContent              = document.getElementById('main-content')
+const tracklistBelowVideo      = document.getElementById('tracklist-below-video')
+const tracklistList            = document.getElementById('tracklist-list')
+const tracklistUnavailableEl   = document.getElementById('tracklist-unavailable')
 const tracklistCompactList  = document.getElementById('tracklist-compact-list')
 const rightPanel            = document.getElementById('right-panel')
 const rightPanelHandle      = document.getElementById('right-panel-handle')
@@ -227,30 +229,57 @@ function wireMainEvents() {
     }
   })
 
-  window.api.on('tracklist-loaded', ({ url, title }) => {
-    state.tracklistUnavailable = false
-    state.currentSetTitle = title
-    state.currentSetUrl   = url
-    state.currentSource   = url.includes('1001tracklists') ? '1001tl' : 'set79'
-    npSet.textContent     = title
-    npSource.textContent  = url.includes('1001tracklists')
-      ? 'tracklist courtesy of 1001tracklists'
-      : 'tracklist courtesy of set79'
+  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback }) => {
+    state.tracklistUnavailable = !!isFallback
+    state.currentSetTitle      = title
+    state.currentSetUrl        = url
+    state.currentThumbnailUrl  = thumbnailUrl || null
+
+    if (isFallback) {
+      state.currentSource   = 'youtube'
+      npSet.textContent     = title
+      npSource.textContent  = 'youtube (no tracklist yet)'
+      // Show the below-video area with the unavailable message
+      tracklistUnavailableEl.classList.remove('hidden')
+      tracklistList.innerHTML = ''
+      tracklistCompactList.innerHTML = ''
+      mainContent.classList.add('has-tracklist')
+      // Clear any stale track info from a previous set
+      state.nowPlaying      = null
+      state.isTrackPlaying  = false
+      npTrack.textContent   = '—'
+      npArtist.textContent  = 'Waiting for playback…'
+      npTracknum.textContent = ''
+      ppIcon.innerHTML      = icon(ICON.play, 16)
+      btnPlayPause.classList.remove('playing')
+    } else {
+      state.currentSource  = url.includes('1001tracklists') ? '1001tl' : 'set79'
+      npSet.textContent    = title
+      npSource.textContent = url.includes('1001tracklists')
+        ? 'tracklist courtesy of 1001tracklists'
+        : 'tracklist courtesy of set79'
+      tracklistUnavailableEl.classList.add('hidden')
+    }
+
     updateBookmarkBtn()
-    addToHistory({ title, url, source: state.currentSource })
+    refreshScrobbleBadge()
+    addToHistory({ title, url, source: state.currentSource, thumbnailUrl: state.currentThumbnailUrl })
   })
 
   window.api.on('now-playing', (data) => {
     state.nowPlaying = data
-    npTrack.textContent    = data.title  || data.raw || '—'
-    npArtist.textContent   = data.artist || '—'
-    npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
     const playing = data.isPlaying !== false
     ppIcon.innerHTML = playing ? icon(ICON.pause, 16) : icon(ICON.play, 16)
     btnPlayPause.classList.toggle('playing', playing)
     state.isTrackPlaying = playing
+    // Fallback events only carry play/pause state — don't overwrite track display
+    if (data.source !== 'youtube-fallback') {
+      npTrack.textContent    = data.title  || data.raw || '—'
+      npArtist.textContent   = data.artist || '—'
+      npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
+      if (data.trackNum) highlightTracklistByNum(data.trackNum)
+    }
     refreshScrobbleBadge()
-    if (data.trackNum) highlightTracklistByNum(data.trackNum)
   })
 
   window.api.on('lfm-status', (status) => {
@@ -260,6 +289,18 @@ function wireMainEvents() {
 
   window.api.on('tracklist-data', (tracks) => {
     renderTracklist(tracks)
+    // Persist track count on the history/favorites entry so the sidebar can
+    // show "XX tracks" instead of a source name
+    const count = tracks.length
+    state.store.history   = state.store.history.map(item =>
+      item.url === state.currentSetUrl ? { ...item, trackCount: count } : item
+    )
+    state.store.favorites = state.store.favorites.map(item =>
+      item.url === state.currentSetUrl ? { ...item, trackCount: count } : item
+    )
+    persist()
+    renderHistory()
+    renderFavorites()
   })
 
   window.api.on('menu-toggle-sidebar', () => toggleSidebar())
@@ -438,17 +479,37 @@ function wireMarquee(li) {
   })
 }
 
+function isYouTubeSourceUrl(url) {
+  try {
+    const { hostname } = new URL(url)
+    return hostname.includes('youtube.com') || hostname === 'youtu.be'
+  } catch { return false }
+}
+
 function makeSetListItem(item, onRemove) {
   const li = document.createElement('li')
+  const thumbHtml = item.thumbnailUrl
+    ? `<img class="set-item-thumb" src="${escHtml(item.thumbnailUrl)}" alt="" loading="lazy" />`
+    : `<div class="set-item-thumb set-item-thumb-empty"></div>`
   li.innerHTML = `
-    <div class="set-item-title">${escHtml(item.title)}</div>
-    <div class="set-item-src">${escHtml(item.source === '1001tl' ? '1001Tracklists' : 'set79')}</div>
+    ${thumbHtml}
+    <div class="set-item-meta">
+      <div class="set-item-title">${escHtml(item.title)}</div>
+      <div class="set-item-src">${item.trackCount != null ? `${item.trackCount} tracks` : 'tracklist unavailable'}</div>
+    </div>
     ${onRemove ? '<button class="set-item-remove" title="Remove">✕</button>' : ''}
   `
   li.addEventListener('click', (e) => {
     if (e.target.classList.contains('set-item-remove')) return
-    navigateTo(item.url)
-    hideOverlays()
+    // YouTube URLs: re-run the full tracklist lookup (gives it another chance)
+    // 1001tracklists / set79 URLs: navigate directly (tracklist page is stable)
+    if (isYouTubeSourceUrl(item.url)) {
+      showLoading('Searching tracklist…')
+      window.api.loadSourceUrl(item.url)
+    } else {
+      navigateTo(item.url)
+      hideOverlays()
+    }
   })
   if (onRemove) {
     li.querySelector('.set-item-remove').addEventListener('click', (e) => {
@@ -465,8 +526,9 @@ function makeSetListItem(item, onRemove) {
 function createTrackItem(track, compact) {
   const li = document.createElement('li')
   li.className = 'track-item' +
-    (track.isId     ? ' track-id'   : '') +
-    (track.isWWith  ? ' track-with' : '')
+    (track.isId             ? ' track-id'      : '') +
+    (track.isWWith          ? ' track-with'    : '') +
+    (track.isMashupComponent ? ' track-mashup' : '')
   li.dataset.trackNum = track.trackNum || ''
 
   const numHtml = track.isWWith
@@ -498,7 +560,7 @@ function createTrackItem(track, compact) {
     ${cueHtml}
   `
 
-  if (track.onclickStr) {
+  if (track.onclickStr && !track.isMashupComponent) {
     li.addEventListener('click', () => window.api.playerGotoTrack(track.onclickStr))
   }
 
@@ -533,6 +595,7 @@ function clearTracklist() {
   tracklistList.innerHTML = ''
   tracklistCompactList.innerHTML = ''
   mainContent.classList.remove('has-tracklist')
+  tracklistUnavailableEl.classList.add('hidden')
 }
 
 // ── Right panel ───────────────────────────────────────────────────────────────
@@ -637,11 +700,12 @@ function persist() {
 // ── Now-playing reset ─────────────────────────────────────────────────────────
 
 function resetNowPlaying() {
-  state.nowPlaying      = null
-  state.currentSetTitle = ''
-  state.currentSetUrl   = ''
-  state.currentSource   = ''
-  state.isTrackPlaying  = false
+  state.nowPlaying         = null
+  state.currentSetTitle    = ''
+  state.currentSetUrl      = ''
+  state.currentSource      = ''
+  state.currentThumbnailUrl = null
+  state.isTrackPlaying     = false
   npTrack.textContent   = '—'
   npArtist.textContent  = 'Waiting for playback…'
   npTracknum.textContent = ''
@@ -755,7 +819,7 @@ function wireEvents() {
     if (isFavorited(state.currentSetUrl)) {
       removeFromFavorites(state.currentSetUrl)
     } else {
-      addToFavorites({ title: state.currentSetTitle || state.currentSetUrl, url: state.currentSetUrl, source: state.currentSource })
+      addToFavorites({ title: state.currentSetTitle || state.currentSetUrl, url: state.currentSetUrl, source: state.currentSource, thumbnailUrl: state.currentThumbnailUrl })
       updateBookmarkBtn()
     }
   })

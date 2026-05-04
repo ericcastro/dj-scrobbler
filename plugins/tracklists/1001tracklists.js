@@ -31,6 +31,17 @@ function searchHttp(sourceUrl) {
       res.on('data', c => chunks.push(c))
       res.on('end', () => {
         const html = Buffer.concat(chunks).toString()
+
+        // Bail out immediately when 1001tl says it found nothing.
+        // The "returns nothing!" string only appears when the search has zero
+        // real results; the page still renders sidebar "most viewed" links, but
+        // the title-similarity ranking in handleSourceUrl will score those at 0
+        // (artist-anchor check fails) so they're never picked.
+        if (html.includes('returns nothing')) {
+          resolve([])
+          return
+        }
+
         const seen = new Set()
         const results = []
         const re = /href="(\/tracklist\/[a-z0-9]+\/([^"]+)\.html)"/g
@@ -105,7 +116,10 @@ module.exports = {
       const artUrl       = artImg ? (artImg.dataset.src || artImg.src || '') : ''
       const playEl    = row.querySelector('i[onclick*="playPosition"]')
       const onclickStr = playEl ? (playEl.getAttribute('onclick') || null) : null
-      return { trackNum, trackNumText, isWWith, isId, artist, title, raw: rawName, cueSeconds, cueDisplay, artUrl, onclickStr }
+      // Mashup component: a named sub-track with no play position and no track number.
+      // These are the source songs blended into a mashup — display-only, not seekable.
+      const isMashupComponent = !onclickStr && !isWWith && trackNum === null
+      return { trackNum, trackNumText, isWWith, isMashupComponent, isId, artist, title, raw: rawName, cueSeconds, cueDisplay, artUrl, onclickStr }
     }).filter(t => t.raw || t.onclickStr)
   })()`,
 

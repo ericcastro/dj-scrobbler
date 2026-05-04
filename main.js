@@ -9,6 +9,11 @@ const overlay  = require('./plugins/overlay')
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
 
+// ── Verbose logging ───────────────────────────────────────────────────────────
+// Enable with:  DJ_VERBOSE=1 npm start
+const VERBOSE = !!process.env.DJ_VERBOSE
+function log(...args) { if (VERBOSE) console.log(...args) }
+
 let mainWindow
 let currentWvContents = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
@@ -177,11 +182,35 @@ function lfmScrobble(artist, title, startedAt, album) {
 
 // ── Now-playing polling ───────────────────────────────────────────────────────
 
-let monitorInterval  = null
-let lastNowPlaying   = null
-let lastTrackData    = null
-let trackStartedAt   = null
-let currentSetTitle  = null   // DJ set title used as album in Last.fm scrobbles
+let monitorInterval      = null
+let lastNowPlaying       = null
+let lastTrackData        = null
+let trackStartedAt       = null
+let currentSetTitle      = null   // DJ set title used as album in Last.fm scrobbles
+let currentThumbnailUrl  = null   // YouTube thumbnail for history/favorites
+let isFallbackMode       = false  // true when showing YouTube fallback player
+let lastFallbackPlaying  = null   // last known play state in fallback mode
+
+function extractVideoId(url) {
+  try {
+    const u = new URL(url)
+    if (u.hostname.includes('youtube.com')) return u.searchParams.get('v')
+    if (u.hostname === 'youtu.be')          return u.pathname.slice(1).split('?')[0]
+  } catch {}
+  return null
+}
+
+function thumbnailForSourceUrl(sourceUrl) {
+  if (!sourceUrl) return null
+  try {
+    const u = new URL(sourceUrl)
+    let videoId = null
+    if (u.hostname.includes('youtube.com')) videoId = u.searchParams.get('v')
+    else if (u.hostname === 'youtu.be')     videoId = u.pathname.slice(1).split('?')[0]
+    if (videoId) return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
+  } catch {}
+  return null
+}
 
 function stopMonitoring() {
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null }
@@ -221,30 +250,119 @@ async function handleSourceUrl(source, url, wvContents) {
   const tlPlugin = plugins.tracklistForSource(source.id)
   if (!tlPlugin) return
 
+  log(`[lookup] source=${source.id} url=${url}`)
+
+  currentThumbnailUrl = thumbnailForSourceUrl(url)
   mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
 
-  const meta    = await source.getMeta(url)
+  const meta = await source.getMeta(url)
+  log(`[lookup] meta title="${meta.title}"`)
+
   const results = await tlPlugin.findTracklists(meta)
+  log(`[lookup] results=${results.length}`, results.map(r => r.title))
 
   if (results.length === 0) {
-    mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
-    return
+    log('[lookup] → fallback (no results)')
+    return startFallbackForSource(source, url, meta, wvContents)
   }
 
   const scored = results
-    .map(r => ({ ...r, score: plugins.titleSimilarity(meta.title || '', r.title) }))
+    .map(r => ({ ...r, score: plugins.titleSimilarity(meta, r.title) }))
     .sort((a, b) => b.score - a.score)
 
-  console.log(`[${tlPlugin.id}] ${scored.length} results for: "${meta.title}"`)
-  scored.forEach((r, i) => console.log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
+  log(`[${tlPlugin.id}] ${scored.length} results for: "${meta.title}"`)
+  scored.forEach((r, i) => log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
 
-  // All results at 0% confidence — tracklist likely doesn't exist yet for this set
   if (scored[0].score === 0) {
-    mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
-    return
+    log('[lookup] → fallback (all scores 0)')
+    return startFallbackForSource(source, url, meta, wvContents)
   }
 
+  log(`[lookup] → loading tracklist: ${scored[0].url}`)
+  isFallbackMode = false
   wvContents.loadURL(scored[0].url)
+}
+
+// Handles the "no tracklist found" case.
+// YouTube → load native iframe fallback. Other sources → show the prompt.
+function startFallbackForSource(source, url, meta, wvContents) {
+  if (source.id === 'youtube') {
+    const videoId = extractVideoId(url)
+    if (videoId) {
+      isFallbackMode    = true
+      currentSetTitle   = meta.title || null
+      mainWindow.webContents.send('tracklist-loaded', {
+        url,
+        title:        meta.title || url,
+        thumbnailUrl: currentThumbnailUrl,
+        isFallback:   true,
+      })
+      // Use the custom embed page — ad-free, always embeddable
+      const embedUrl = `https://www.djscrobbler.com/embed/youtube?id=${videoId}`
+      wvContents.loadURL(embedUrl)
+      return
+    }
+  }
+  // Non-YouTube or no video ID → original prompt
+  mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
+}
+
+// Scripts run inside the fallback embed page to get/set player state.
+// Strategy: window.ytPlayer (IFrame API) → direct <video> element.
+// The djscrobbler.com embed page should expose window.ytPlayer; direct <video>
+// is the fallback for any page where the element is in the top-level DOM.
+const FALLBACK_STATE_SCRIPT = `
+  (() => {
+    if (window.ytPlayer && typeof window.ytPlayer.getPlayerState === 'function')
+      return window.ytPlayer.getPlayerState() === 1   // 1 = YT.PlayerState.PLAYING
+    const v = document.querySelector('video')
+    if (v) return !v.paused
+    return null  // unknown — skip this tick
+  })()
+`
+
+const FALLBACK_PLAY_SCRIPT = `
+  (() => {
+    if (window.ytPlayer && typeof window.ytPlayer.playVideo === 'function')
+      { window.ytPlayer.playVideo(); return }
+    const v = document.querySelector('video')
+    if (v) v.play().catch(() => {})
+  })()
+`
+
+const FALLBACK_PAUSE_SCRIPT = `
+  (() => {
+    if (window.ytPlayer && typeof window.ytPlayer.pauseVideo === 'function')
+      { window.ytPlayer.pauseVideo(); return }
+    const v = document.querySelector('video')
+    if (v) v.pause()
+  })()
+`
+
+function startFallbackMonitoring(wvContents) {
+  stopMonitoring()
+  lastFallbackPlaying = null
+  // Give the embed page a moment to initialise, then kick play
+  setTimeout(() => {
+    wvContents.executeJavaScript(FALLBACK_PLAY_SCRIPT).catch(() => {})
+  }, 1500)
+  monitorInterval = setInterval(async () => {
+    try {
+      const isPlaying = await wvContents.executeJavaScript(FALLBACK_STATE_SCRIPT)
+      if (isPlaying === null) return   // player not ready yet — try next tick
+      if (isPlaying !== lastFallbackPlaying) {
+        lastFallbackPlaying = isPlaying
+        mainWindow.webContents.send('now-playing', {
+          artist:   '',
+          title:    '',
+          raw:      'fallback',
+          trackNum: null,
+          isPlaying,
+          source:   'youtube-fallback',
+        })
+      }
+    } catch {}
+  }, 500)
 }
 
 // ── WebView wiring ────────────────────────────────────────────────────────────
@@ -300,15 +418,23 @@ function wireWebview(wvContents) {
       }
     }
 
+    // djscrobbler.com custom embed page (YouTube fallback) — start monitoring play state
+    if (isFallbackMode && url.includes('djscrobbler.com/embed/youtube')) {
+      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+      startFallbackMonitoring(wvContents)
+      return
+    }
+
     const tlPlugin = plugins.tracklistForUrl(url)
     if (tlPlugin) {
+      isFallbackMode = false
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       try {
         const title = await wvContents.executeJavaScript(
           `document.querySelector('h1')?.textContent?.trim() || document.title`
         )
         currentSetTitle = title || null
-        mainWindow.webContents.send('tracklist-loaded', { url, title })
+        mainWindow.webContents.send('tracklist-loaded', { url, title, thumbnailUrl: currentThumbnailUrl })
       } catch {}
       startMonitoring(wvContents, tlPlugin)
 
@@ -524,6 +650,12 @@ ipcMain.handle('open-devtools', () => {
 
 ipcMain.handle('player-toggle', async () => {
   if (!currentWvContents) return
+  if (isFallbackMode) {
+    const isPlaying = await currentWvContents.executeJavaScript(FALLBACK_STATE_SCRIPT).catch(() => null)
+    const script = isPlaying ? FALLBACK_PAUSE_SCRIPT : FALLBACK_PLAY_SCRIPT
+    await currentWvContents.executeJavaScript(script).catch(() => {})
+    return
+  }
   const url = currentWvContents.getURL()
   const tlPlugin = plugins.tracklistForUrl(url)
   if (!tlPlugin) return
@@ -559,6 +691,16 @@ ipcMain.handle('player-goto-track', async (_event, onclickStr) => {
   // Replace the DOM element reference with null — playPosition accepts it
   const script = String(onclickStr).replace(/playPosition\s*\(\s*this/, 'playPosition(null')
   await currentWvContents.executeJavaScript(script).catch(() => {})
+})
+
+// Re-run the full source → tracklist lookup for a URL (used when reopening a
+// YouTube set that was previously saved as a fallback — gives it another chance
+// to find a tracklist, while still falling back gracefully if none exists yet).
+ipcMain.handle('load-source-url', async (_event, url) => {
+  if (!currentWvContents) return
+  const source = plugins.sourceForUrl(url)
+  if (!source) return
+  await handleSourceUrl(source, url, currentWvContents)
 })
 
 // Theme change — update dock icon, persist, and live-update overlay color

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
 
   playerToggle:    ()      => ipcRenderer.invoke('player-toggle'),
   playerGotoTrack: (args) => ipcRenderer.invoke('player-goto-track', args),
+  loadSourceUrl:   (url)  => ipcRenderer.invoke('load-source-url', url),
   openDevTools: ()      => ipcRenderer.invoke('open-devtools'),
 
   lfmConnect:    ()     => ipcRenderer.invoke('lfm-connect'),
