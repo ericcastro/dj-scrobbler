@@ -19,8 +19,9 @@ const state = {
   isIdTrack: false,
   tracklistUnavailable: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
-  currentTracks: [],    // full track array from tracklist-data, used for progress lookups
-  pendingResume: null,  // onclickStr to fire after tracklist loads (resume mode)
+  currentTracks: [],       // full track array from tracklist-data, used for progress lookups
+  pendingResume: null,     // onclickStr to fire after tracklist loads (1001tl resume)
+  pendingResumeTime: null, // seconds to seek to after first fallback-progress tick
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
@@ -257,10 +258,10 @@ function wireMainEvents() {
       tracklistCompactList.innerHTML = ''
       mainContent.classList.add('has-tracklist')
       // Clear any stale track info from a previous set
-      state.nowPlaying      = null
-      state.isTrackPlaying  = false
-      npTrack.textContent   = '—'
-      npArtist.textContent  = 'Waiting for playback…'
+      state.nowPlaying       = null
+      state.isTrackPlaying   = false
+      npTrack.textContent    = ''
+      npArtist.textContent   = ''
       npTracknum.textContent = ''
       ppIcon.innerHTML      = icon(ICON.play, 16)
       btnPlayPause.classList.remove('playing')
@@ -304,6 +305,20 @@ function wireMainEvents() {
   window.api.on('lfm-status', (status) => {
     state.lfmStatus = status
     refreshScrobbleBadge()
+  })
+
+  window.api.on('fallback-progress', ({ currentTime, duration }) => {
+    if (!state.currentSetUrl || !duration) return
+    // On first valid tick after a resume load, seek to the saved position then clear
+    if (state.pendingResumeTime !== null) {
+      const t = state.pendingResumeTime
+      state.pendingResumeTime = null
+      window.api.fallbackSeek(t)
+      return  // progress bar will update on the next tick at the new position
+    }
+    const pct = Math.min(99, Math.round((currentTime / duration) * 100))
+    if (pct < 1) return
+    updateFallbackProgress(state.currentSetUrl, pct, currentTime)
   })
 
   window.api.on('tracklist-data', (tracks) => {
@@ -436,6 +451,8 @@ function syncProgressToItem(url) {
   if (histEntry.trackCount       != null) patch.trackCount       = histEntry.trackCount
   if (histEntry.progressTrackNum != null) patch.progressTrackNum = histEntry.progressTrackNum
   if (histEntry.lastTrackOnclick != null) patch.lastTrackOnclick  = histEntry.lastTrackOnclick
+  if (histEntry.progressTimePct  != null) patch.progressTimePct  = histEntry.progressTimePct
+  if (histEntry.progressTime     != null) patch.progressTime     = histEntry.progressTime
   if (!Object.keys(patch).length) return
   state.store.favorites = state.store.favorites.map(f =>
     f.url === url ? { ...patch, ...f } : f   // patch fills gaps; f's own values win
@@ -477,6 +494,8 @@ function addToHistory(item) {
     trackCount:       existing.trackCount,
     progressTrackNum: existing.progressTrackNum,
     lastTrackOnclick: existing.lastTrackOnclick,
+    progressTimePct:  existing.progressTimePct,
+    progressTime:     existing.progressTime,
   } : {}
   state.store.history = state.store.history.filter(h => h.url !== item.url)
   state.store.history.unshift({ ...preserved, ...item, playedAt: Date.now() })
@@ -540,8 +559,10 @@ function isYouTubeSourceUrl(url) {
 }
 
 function getProgressPct(item) {
-  if (!item.progressTrackNum || !item.trackCount || item.trackCount < 2) return 0
-  return Math.min(99, Math.round((item.progressTrackNum / item.trackCount) * 100))
+  if (item.progressTrackNum && item.trackCount && item.trackCount >= 2) {
+    return Math.min(99, Math.round((item.progressTrackNum / item.trackCount) * 100))
+  }
+  return item.progressTimePct || 0
 }
 
 function updateSetProgress(url, trackNum, onclickStr) {
@@ -556,8 +577,46 @@ function updateSetProgress(url, trackNum, onclickStr) {
   renderFavorites()
 }
 
+// Directly paint progress bars in history/favorites list items without a full re-render.
+function paintProgressBars(url, pct) {
+  document.querySelectorAll(`[data-url="${CSS.escape(url)}"]`).forEach(li => {
+    let bar = li.querySelector('.set-progress-bar')
+    if (!bar) {
+      const wrap = document.createElement('div')
+      wrap.className = 'set-progress'
+      wrap.innerHTML = '<div class="set-progress-bar"></div>'
+      li.appendChild(wrap)
+      bar = wrap.querySelector('.set-progress-bar')
+    }
+    bar.style.width = pct + '%'
+  })
+}
+
+let _fallbackPersistTimer = null
+
+function updateFallbackProgress(url, pct, currentTime) {
+  // Mutate in-memory store
+  ;['history', 'favorites'].forEach(key => {
+    state.store[key] = state.store[key].map(item =>
+      item.url === url ? { ...item, progressTimePct: pct, progressTime: currentTime } : item
+    )
+  })
+  // Update DOM immediately (cheap)
+  paintProgressBars(url, pct)
+  // Throttle the expensive persist + full re-render to once every 10 s
+  if (!_fallbackPersistTimer) {
+    _fallbackPersistTimer = setTimeout(() => {
+      _fallbackPersistTimer = null
+      persist()
+      renderHistory()
+      renderFavorites()
+    }, 10_000)
+  }
+}
+
 function loadSet(item, resume) {
-  state.pendingResume = resume && item.lastTrackOnclick ? item.lastTrackOnclick : null
+  state.pendingResume     = resume && item.lastTrackOnclick ? item.lastTrackOnclick : null
+  state.pendingResumeTime = resume && item.progressTime     ? item.progressTime     : null
   if (isYouTubeSourceUrl(item.url)) {
     hideIntro()
     showLoading('Searching tracklist…')
@@ -638,6 +697,7 @@ function makeSetListItem(item, onRemove) {
   li.addEventListener('click', (e) => {
     if (e.target.classList.contains('set-item-remove')) return
     const hasProgress = !!(item.progressTrackNum > 1 && item.lastTrackOnclick)
+                     || !!(item.progressTimePct > 5 && item.progressTime)
     const resumeSetting = state.store.settings?.resumeBehavior || 'ask'
     if (hasProgress) {
       if      (resumeSetting === 'always') loadSet(item, true)
@@ -842,12 +902,12 @@ function resetNowPlaying() {
   state.currentSource      = ''
   state.currentThumbnailUrl = null
   state.isTrackPlaying     = false
-  npTrack.textContent   = '—'
-  npArtist.textContent  = 'Waiting for playback…'
+  npTrack.textContent    = ''
+  npArtist.textContent   = ''
   npTracknum.textContent = ''
-  npSet.textContent     = '—'
-  npSource.textContent  = ''
-  ppIcon.innerHTML      = icon(ICON.play, 16)
+  npSet.textContent      = ''
+  npSource.textContent   = ''
+  ppIcon.innerHTML       = icon(ICON.play, 16)
   btnPlayPause.classList.remove('playing')
   updateBookmarkBtn()
 }

@@ -126,12 +126,7 @@ html, body {
 }
 
 #source-toggle {
-  display: flex;
-  background: var(--bg3);
-  border-radius: 6px;
-  padding: 2px;
-  gap: 2px;
-  flex-shrink: 0;
+  display: none;
 }
 
 .toggle-btn {
@@ -665,7 +660,12 @@ html, body {
 }
 
 #main-content.has-tracklist #tracklist-below-video {
-  display: block;
+  display: flex;
+  flex-direction: column;
+}
+
+#tracklist-unavailable {
+  flex: 1;
 }
 
 /* ── Right panel ── */
@@ -922,8 +922,9 @@ webview {
 
 #np-right {
   text-align: right;
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 40%;
 }
 
 #np-set {

@@ -312,58 +312,75 @@ function startFallbackForSource(source, url, meta, wvContents) {
   mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
 }
 
-// Scripts run inside the fallback embed page to get/set player state.
-// Strategy: window.ytPlayer (IFrame API) → direct <video> element.
-// The djscrobbler.com embed page should expose window.ytPlayer; direct <video>
-// is the fallback for any page where the element is in the top-level DOM.
+// Scripts run inside the djscrobbler.com/embed/youtube page.
+// window.ytPlayer is a real YT.Player object exposed by the embed page via the
+// YouTube IFrame API — so these calls are direct and reliable.
 const FALLBACK_STATE_SCRIPT = `
   (() => {
     if (window.ytPlayer && typeof window.ytPlayer.getPlayerState === 'function')
       return window.ytPlayer.getPlayerState() === 1   // 1 = YT.PlayerState.PLAYING
-    const v = document.querySelector('video')
-    if (v) return !v.paused
-    return null  // unknown — skip this tick
+    return null  // API not ready yet — skip this tick
   })()
 `
 
 const FALLBACK_PLAY_SCRIPT = `
   (() => {
     if (window.ytPlayer && typeof window.ytPlayer.playVideo === 'function')
-      { window.ytPlayer.playVideo(); return }
-    const v = document.querySelector('video')
-    if (v) v.play().catch(() => {})
+      window.ytPlayer.playVideo()
   })()
 `
 
 const FALLBACK_PAUSE_SCRIPT = `
   (() => {
     if (window.ytPlayer && typeof window.ytPlayer.pauseVideo === 'function')
-      { window.ytPlayer.pauseVideo(); return }
-    const v = document.querySelector('video')
-    if (v) v.pause()
+      window.ytPlayer.pauseVideo()
+  })()
+`
+
+// Returns { isPlaying, currentTime, duration } or null if not ready.
+const FALLBACK_POLL_SCRIPT = `
+  (() => {
+    const p = window.ytPlayer
+    if (!p || typeof p.getPlayerState !== 'function') return null
+    const state = p.getPlayerState()
+    if (state === -1) return null  // unstarted — not ready
+    return {
+      isPlaying:   state === 1,
+      currentTime: p.getCurrentTime()  || 0,
+      duration:    p.getDuration()     || 0,
+    }
   })()
 `
 
 function startFallbackMonitoring(wvContents) {
   stopMonitoring()
   lastFallbackPlaying = null
-  // Give the embed page a moment to initialise, then kick play
+  // Give the embed page time to load the IFrame API and fire onYouTubeIframeAPIReady
   setTimeout(() => {
     wvContents.executeJavaScript(FALLBACK_PLAY_SCRIPT).catch(() => {})
   }, 1500)
   monitorInterval = setInterval(async () => {
     try {
-      const isPlaying = await wvContents.executeJavaScript(FALLBACK_STATE_SCRIPT)
-      if (isPlaying === null) return   // player not ready yet — try next tick
-      if (isPlaying !== lastFallbackPlaying) {
-        lastFallbackPlaying = isPlaying
+      const poll = await wvContents.executeJavaScript(FALLBACK_POLL_SCRIPT)
+      if (!poll) return   // player not ready yet — try next tick
+      if (poll.isPlaying !== lastFallbackPlaying) {
+        lastFallbackPlaying = poll.isPlaying
         mainWindow.webContents.send('now-playing', {
-          artist:   '',
-          title:    '',
-          raw:      'fallback',
-          trackNum: null,
-          isPlaying,
-          source:   'youtube-fallback',
+          artist:      '',
+          title:       '',
+          raw:         'fallback',
+          trackNum:    null,
+          isPlaying:   poll.isPlaying,
+          currentTime: poll.currentTime,
+          duration:    poll.duration,
+          source:      'youtube-fallback',
+        })
+      }
+      // Always emit progress so the renderer can update the time-based bar
+      if (poll.duration > 0) {
+        mainWindow.webContents.send('fallback-progress', {
+          currentTime: poll.currentTime,
+          duration:    poll.duration,
         })
       }
     } catch {}
@@ -696,6 +713,22 @@ ipcMain.handle('player-goto-track', async (_event, onclickStr) => {
   // Replace the DOM element reference with null — playPosition accepts it
   const script = String(onclickStr).replace(/playPosition\s*\(\s*this/, 'playPosition(null')
   await currentWvContents.executeJavaScript(script).catch(() => {})
+})
+
+ipcMain.handle('fallback-seek', (_event, seconds) => {
+  if (!currentWvContents) return
+  const s = Number(seconds)
+  if (!isFinite(s) || s < 0) return
+  log('[fallback-seek] seeking to', s)
+  currentWvContents.executeJavaScript(`
+    (() => {
+      if (window.ytPlayer && typeof window.ytPlayer.seekTo === 'function') {
+        window.ytPlayer.seekTo(${s}, true)
+        return 'ok'
+      }
+      return 'not-ready'
+    })()
+  `).then(r => log('[fallback-seek] result:', r)).catch(() => {})
 })
 
 // Re-run the full source → tracklist lookup for a URL (used when reopening a
