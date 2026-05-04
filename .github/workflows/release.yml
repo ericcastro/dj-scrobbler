@@ -10,8 +10,27 @@ permissions:
   contents: write
 
 jobs:
+  # ── Delete any existing draft release so re-runs don't hit 422 on .blockmap ──
+  delete-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete existing draft release for this tag (if any)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases \
+            --jq ".[] | select(.tag_name==\"$TAG\" and .draft==true) | .id" | head -1)
+          if [ -n "$RELEASE_ID" ]; then
+            echo "Deleting draft release $RELEASE_ID for $TAG"
+            gh api -X DELETE repos/${{ github.repository }}/releases/$RELEASE_ID
+          else
+            echo "No existing draft release found for $TAG"
+          fi
+
   # ── macOS ─────────────────────────────────────────────────────────────────────
   build-mac:
+    needs: delete-draft
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +59,7 @@ jobs:
 
   # ── Windows ───────────────────────────────────────────────────────────────────
   build-win:
+    needs: delete-draft
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +78,7 @@ jobs:
 
   # ── Linux ─────────────────────────────────────────────────────────────────────
   build-linux:
+    needs: delete-draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

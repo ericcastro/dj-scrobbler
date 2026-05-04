@@ -55,23 +55,31 @@ exports.default = async function afterPack(context) {
       .forEach(sign)
   } catch {}
 
-  // 2. Sign the Electron Framework binary directly (versioned path)
+  // 2. Sign all files inside Electron Framework's Helpers directory
+  const helpersDir = path.join(frameworks, 'Electron Framework.framework', 'Versions', 'A', 'Helpers')
+  try {
+    execSync(`find "${helpersDir}" -type f`, { encoding: 'utf8' })
+      .trim().split('\n').filter(Boolean)
+      .forEach(sign)
+  } catch {}
+
+  // 3. Sign the Electron Framework binary directly (versioned path)
   sign(path.join(frameworks, 'Electron Framework.framework', 'Versions', 'A', 'Electron Framework'))
 
-  // 3. Sign the Electron Framework bundle (must come after the binary)
+  // 4. Sign the Electron Framework bundle (must come after the binary)
   sign(path.join(frameworks, 'Electron Framework.framework'))
 
-  // 4. Sign each Helper .app
+  // 5. Sign each Helper .app
   try {
     execSync(`find "${frameworks}" -maxdepth 1 -name "*.app" -type d`, { encoding: 'utf8' })
       .trim().split('\n').filter(Boolean)
       .forEach(sign)
   } catch {}
 
-  // 5. Sign the main executable
+  // 6. Sign the main executable
   sign(path.join(macOS, context.packager.appInfo.productName))
 
-  // 6. Sign the outer app bundle last
+  // 7. Sign the outer app bundle last
   sign(appPath)
 
   console.log('\n[afterPack] done\n')
