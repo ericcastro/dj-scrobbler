@@ -126,10 +126,12 @@ module.exports = {
   nowPlayingScript: `(() => {
     const row = document.getElementsByClassName('cPlay')[0]
     if (!row) return null
+    const isId     = !!row.querySelector('.trackValue.redTxt')
     const nameMeta   = row.querySelector('meta[itemprop="name"]')
     const artistMeta = row.querySelector('meta[itemprop="byArtist"]')
-    if (!nameMeta) return null
-    const fullName = nameMeta.getAttribute('content') || ''
+    // ID tracks often have no nameMeta — allow them through with a synthetic raw key
+    if (!nameMeta && !isId) return null
+    const fullName = nameMeta ? (nameMeta.getAttribute('content') || '') : ''
     const artist   = artistMeta ? (artistMeta.getAttribute('content') || '') : ''
     const prefix   = artist ? artist + ' - ' : ''
     const title    = prefix && fullName.startsWith(prefix)
@@ -138,6 +140,8 @@ module.exports = {
     const trackNum   = trackNumEl ? parseInt(trackNumEl.textContent.trim()) : null
     const pauseBtn   = document.getElementById('playerWidgetPause')
     const isPlaying  = pauseBtn ? pauseBtn.classList.contains('fa-pause') : true
-    return { artist, title, raw: fullName, trackNum, isPlaying, source: '1001tl' }
+    // Give ID tracks a unique raw key so emitNowPlaying fires when entering one
+    const raw = fullName || (isId ? ('__id__:' + (trackNum ?? '?')) : '')
+    return { artist, title, raw, trackNum, isPlaying, isId, source: '1001tl' }
   })()`,
 }

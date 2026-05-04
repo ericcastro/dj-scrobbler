@@ -1039,6 +1039,7 @@ webview {
 }
 
 .track-item.track-id { opacity: .45; }
+.track-item.track-id.active { opacity: 1; }
 .track-item.track-with { padding-left: 20px; }
 
 /* Mashup component sub-tracks — informational only, not seekable */

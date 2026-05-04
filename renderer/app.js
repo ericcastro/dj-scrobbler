@@ -16,6 +16,7 @@ const state = {
   nowPlaying: null,
   lfmStatus: 'unconfigured',
   isTrackPlaying: false,
+  isIdTrack: false,
   tracklistUnavailable: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
   currentTracks: [],    // full track array from tracklist-data, used for progress lookups
@@ -270,6 +271,7 @@ function wireMainEvents() {
       tracklistUnavailableEl.classList.add('hidden')
     }
 
+    state.isIdTrack = false
     updateBookmarkBtn()
     refreshScrobbleBadge()
     addToHistory({ title, url, source: state.currentSource, thumbnailUrl: state.currentThumbnailUrl })
@@ -281,10 +283,11 @@ function wireMainEvents() {
     ppIcon.innerHTML = playing ? icon(ICON.pause, 16) : icon(ICON.play, 16)
     btnPlayPause.classList.toggle('playing', playing)
     state.isTrackPlaying = playing
+    state.isIdTrack      = !!data.isId
     // Fallback events only carry play/pause state — don't overwrite track display
     if (data.source !== 'youtube-fallback') {
-      npTrack.textContent    = data.title  || data.raw || '—'
-      npArtist.textContent   = data.artist || '—'
+      npTrack.textContent    = data.isId ? 'ID' : (data.title || data.raw || '—')
+      npArtist.textContent   = data.isId ? '—' : (data.artist || '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
       if (data.trackNum) highlightTracklistByNum(data.trackNum)
     }
@@ -334,8 +337,9 @@ const BADGE = {
   unconfigured:  { label: 'Scrobbling not configured', cls: '' },
   enabled:       { label: 'Scrobbling enabled',        cls: '' },
   scrobbling:    { label: 'Scrobbling',                cls: 'ok' },
+  idtrack:       { label: 'Unidentified track',        cls: 'dim' },
   error:         { label: 'Error',                     cls: 'error' },
-  unavailable:   { label: 'tracklist unavailable',     cls: 'dim' },
+  unavailable:   { label: 'Tracklist unavailable',     cls: 'dim' },
 }
 
 function refreshScrobbleBadge() {
@@ -343,6 +347,7 @@ function refreshScrobbleBadge() {
   if (state.tracklistUnavailable) key = 'unavailable'
   else if (state.lfmStatus === 'error') key = 'error'
   else if (state.lfmStatus === 'unconfigured') key = 'unconfigured'
+  else if (state.isIdTrack && state.isTrackPlaying) key = 'idtrack'
   else if (state.isTrackPlaying) key = 'scrobbling'
   else key = 'enabled'
   const cfg = BADGE[key]
