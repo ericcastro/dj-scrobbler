@@ -47,7 +47,8 @@
       "icon": "images/electron-icons/neon-night/icon.icns",
       "category": "public.app-category.music",
       "darkModeSupport": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "identity": null
     },
 
     "dmg": {
