@@ -169,6 +169,7 @@ const SOURCE_URLS = {
 
 function navigateToSearch(query = '') {
   hideOverlays()
+  clearTracklist()
   navigateTo(SOURCE_URLS[state.source](query))
 }
 
@@ -245,8 +246,9 @@ function wireMainEvents() {
     state.currentThumbnailUrl  = thumbnailUrl || null
 
     if (isFallback) {
-      state.pendingResume = null
-      state.currentSource   = 'youtube'
+      state.pendingResume  = null
+      state.currentTracks  = []   // prevent stale count leaking into bookmark
+      state.currentSource  = 'youtube'
       npSet.textContent     = title
       npSource.textContent  = 'youtube (no tracklist yet)'
       // Show the below-video area with the unavailable message
@@ -557,6 +559,7 @@ function updateSetProgress(url, trackNum, onclickStr) {
 function loadSet(item, resume) {
   state.pendingResume = resume && item.lastTrackOnclick ? item.lastTrackOnclick : null
   if (isYouTubeSourceUrl(item.url)) {
+    hideIntro()
     showLoading('Searching tracklist…')
     window.api.loadSourceUrl(item.url)
   } else {
