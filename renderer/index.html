@@ -234,6 +234,21 @@
         </div>
       </div>
 
+      <!-- Resume dialog — scoped to the main content area, not the full app -->
+      <div id="resume-dialog" class="hidden">
+        <div id="resume-dialog-box">
+          <p class="resume-dialog-title">You've already started this set</p>
+          <p class="resume-dialog-sub">Pick up where you left off, or start from the beginning?</p>
+          <label class="resume-dont-ask-label">
+            <input type="checkbox" id="resume-dont-ask"> Don't ask again
+          </label>
+          <div class="resume-dialog-btns">
+            <button id="btn-resume-start">Start from beginning</button>
+            <button id="btn-resume-resume" class="btn-primary">Resume (<span id="resume-countdown-num">3</span>)</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Tracklist below the video — only visible when a tracklist is loaded -->
       <div id="tracklist-below-video">
         <div id="tracklist-unavailable" class="hidden">
@@ -283,21 +298,6 @@
       <span id="scrobble-label">Scrobbling not configured</span>
     </div>
   </footer>
-
-  <!-- Resume dialog -->
-  <div id="resume-dialog" class="hidden">
-    <div id="resume-dialog-box">
-      <p class="resume-dialog-title">You've already started this set</p>
-      <p class="resume-dialog-sub">Pick up where you left off, or start from the beginning?</p>
-      <label class="resume-dont-ask-label">
-        <input type="checkbox" id="resume-dont-ask"> Don't ask again
-      </label>
-      <div class="resume-dialog-btns">
-        <button id="btn-resume-start">Start from beginning</button>
-        <button id="btn-resume-resume" class="btn-primary">Resume (<span id="resume-countdown-num">3</span>)</button>
-      </div>
-    </div>
-  </div>
 
   <script src="app.js"></script>
 </body>

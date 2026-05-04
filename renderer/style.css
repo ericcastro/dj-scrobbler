@@ -1149,7 +1149,7 @@ webview {
 
 /* ── Resume dialog ── */
 #resume-dialog {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, .55);
   backdrop-filter: blur(6px);
@@ -1166,7 +1166,7 @@ webview {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 24px 24px 20px;
-  width: 300px;
+  width: 420px;
   display: flex;
   flex-direction: column;
   gap: 14px;
