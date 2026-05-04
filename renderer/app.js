@@ -345,9 +345,9 @@ const BADGE = {
 function refreshScrobbleBadge() {
   let key
   if (state.tracklistUnavailable) key = 'unavailable'
+  else if (state.isIdTrack && state.isTrackPlaying) key = 'idtrack'
   else if (state.lfmStatus === 'error') key = 'error'
   else if (state.lfmStatus === 'unconfigured') key = 'unconfigured'
-  else if (state.isIdTrack && state.isTrackPlaying) key = 'idtrack'
   else if (state.isTrackPlaying) key = 'scrobbling'
   else key = 'enabled'
   const cfg = BADGE[key]

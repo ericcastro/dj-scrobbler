@@ -234,9 +234,9 @@ function startMonitoring(wvContents, tlPlugin) {
 function emitNowPlaying(data) {
   if (data.raw === lastNowPlaying) return
 
-  // Scrobble the track that just ended (must have played ≥30s)
-  // DJ set title is sent as album so it appears correctly in Last.fm history
-  if (lastTrackData && trackStartedAt && (Date.now() - trackStartedAt) >= 30000) {
+  // Scrobble the track that just ended (must have played ≥30s).
+  // Skip ID tracks — they have no artist/title to scrobble.
+  if (lastTrackData && !lastTrackData.isId && trackStartedAt && (Date.now() - trackStartedAt) >= 30000) {
     lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt, currentSetTitle)
   }
 
@@ -244,7 +244,8 @@ function emitNowPlaying(data) {
   lastTrackData  = data
   trackStartedAt = Date.now()
 
-  lfmUpdateNowPlaying(data.artist, data.title)
+  // Don't hit Last.fm for unidentified tracks — it would error and flip the badge.
+  if (!data.isId) lfmUpdateNowPlaying(data.artist, data.title)
   mainWindow.webContents.send('now-playing', data)
 }
 
