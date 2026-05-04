@@ -27,9 +27,14 @@ exports.default = async function afterPack(context) {
 
   console.log(`\n[afterPack] ad-hoc signing: ${appPath}`)
 
-  // codesign --deep signs nested helpers and frameworks in the right order
-  // (deepest first). --force replaces Electron's existing signatures.
-  execSync(`codesign --force --deep --sign - "${appPath}"`, { stdio: 'inherit' })
-
-  console.log('[afterPack] done\n')
+  try {
+    // codesign --deep signs nested helpers and frameworks in the right order
+    // (deepest first). --force replaces Electron's existing signatures.
+    execSync(`codesign --force --deep --sign - "${appPath}"`, { stdio: 'inherit' })
+    console.log('[afterPack] done\n')
+  } catch (e) {
+    // Log but don't throw — a codesign failure should not abort the release.
+    // The app will still run; it just won't have the ad-hoc fix for macOS 15.
+    console.warn('[afterPack] codesign failed (non-fatal):', e.message)
+  }
 }
