@@ -405,6 +405,7 @@ html, body {
   background: var(--accent);
   opacity: .6;
   border-radius: 0 1px 1px 0;
+  min-width: 6px;
   transition: width .4s ease;
 }
 

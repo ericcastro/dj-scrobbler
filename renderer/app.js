@@ -419,6 +419,24 @@ function addToFavorites(item) {
   renderFavorites()
 }
 
+// Ensure a history/favorites item is up to date with the latest known trackCount
+// and progress. Called after addToFavorites so a newly-bookmarked set gets the
+// same data that tracklist-data / updateSetProgress would have written earlier.
+function syncProgressToItem(url) {
+  const histEntry = state.store.history.find(h => h.url === url)
+  if (!histEntry) return
+  const patch = {}
+  if (histEntry.trackCount       != null) patch.trackCount       = histEntry.trackCount
+  if (histEntry.progressTrackNum != null) patch.progressTrackNum = histEntry.progressTrackNum
+  if (histEntry.lastTrackOnclick != null) patch.lastTrackOnclick  = histEntry.lastTrackOnclick
+  if (!Object.keys(patch).length) return
+  state.store.favorites = state.store.favorites.map(f =>
+    f.url === url ? { ...patch, ...f } : f   // patch fills gaps; f's own values win
+  )
+  persist()
+  renderFavorites()
+}
+
 function removeFromFavorites(url) {
   state.store.favorites = state.store.favorites.filter((f) => f.url !== url)
   persist()
@@ -446,8 +464,15 @@ function updateBookmarkBtn() {
 // ── History ──────────────────────────────────────────────────────────────────
 
 function addToHistory(item) {
-  state.store.history = state.store.history.filter((h) => h.url !== item.url)
-  state.store.history.unshift({ ...item, playedAt: Date.now() })
+  const existing = state.store.history.find(h => h.url === item.url)
+  // Preserve progress fields from the previous entry so they survive re-opens
+  const preserved = existing ? {
+    trackCount:       existing.trackCount,
+    progressTrackNum: existing.progressTrackNum,
+    lastTrackOnclick: existing.lastTrackOnclick,
+  } : {}
+  state.store.history = state.store.history.filter(h => h.url !== item.url)
+  state.store.history.unshift({ ...preserved, ...item, playedAt: Date.now() })
   if (state.store.history.length > 100) state.store.history.pop()
   persist()
   renderHistory()
@@ -922,7 +947,19 @@ function wireEvents() {
     if (isFavorited(state.currentSetUrl)) {
       removeFromFavorites(state.currentSetUrl)
     } else {
-      addToFavorites({ title: state.currentSetTitle || state.currentSetUrl, url: state.currentSetUrl, source: state.currentSource, thumbnailUrl: state.currentThumbnailUrl })
+      // Include whatever we already know at bookmark time — trackCount from the
+      // current tracklist, plus progress if a track has played this session.
+      const histEntry = state.store.history.find(h => h.url === state.currentSetUrl)
+      addToFavorites({
+        title:            state.currentSetTitle || state.currentSetUrl,
+        url:              state.currentSetUrl,
+        source:           state.currentSource,
+        thumbnailUrl:     state.currentThumbnailUrl,
+        trackCount:       state.currentTracks.length || histEntry?.trackCount || undefined,
+        progressTrackNum: histEntry?.progressTrackNum || undefined,
+        lastTrackOnclick: histEntry?.lastTrackOnclick || undefined,
+      })
+      syncProgressToItem(state.currentSetUrl)
       updateBookmarkBtn()
     }
   })
