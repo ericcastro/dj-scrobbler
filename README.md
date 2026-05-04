@@ -33,75 +33,6 @@ DJ Scrobbler is built for:
 - Windows
 - Linux
 
-## Development
-
-Requirements:
-
-- Node.js 20 or newer
-- npm
-
-Install dependencies:
-
-```sh
-npm install
-```
-
-Run the app locally:
-
-```sh
-npm start
-```
-
-Build for the current platform:
-
-```sh
-npm run build
-```
-
-Platform-specific builds:
-
-```sh
-npm run build:mac
-npm run build:win
-npm run build:linux
-```
-
-## Release
-
-The app uses Electron Builder and publishes release assets to GitHub.
-
-Create and push a version tag:
-
-```sh
-git tag v0.4.0
-git push origin v0.4.0
-```
-
-The release workflow builds macOS, Windows, and Linux packages and uploads them to GitHub Releases.
-
-You can also publish from a configured local environment:
-
-```sh
-npm run release
-```
-
-## Project Structure
-
-```text
-dj-scrobbler/
-├── main.js                 # Electron main process, webview wiring, Last.fm API
-├── preload.js              # Safe renderer/main bridge
-├── webview-preload.js      # Scripts injected into source and tracklist webviews
-├── renderer/               # App UI
-├── plugins/
-│   ├── index.js            # Source and tracklist registry
-│   ├── sources/            # YouTube and SoundCloud source plugins
-│   └── tracklists/         # 1001Tracklists and set79 tracklist plugins
-├── images/                 # App icons and visual assets
-├── build-resources/        # Packaging resources
-└── ARCHITECTURE.md         # Detailed technical architecture
-```
-
 ## How It Works
 
 DJ Scrobbler has two plugin layers:
@@ -113,15 +44,9 @@ When you open a DJ set, the app extracts metadata from the source page, searches
 
 For a deeper breakdown, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-## Data
-
-DJ Scrobbler stores local app data in Electron's user data directory as `dj-scrobbler.json`.
-
-That file contains favorites, history, search queries, settings, and the Last.fm session after authorization.
-
 ## Status
 
-This is an early open-source app. Expect rough edges, especially around matching sets to external tracklists, because the app depends on source websites and tracklist providers that can change their markup or behavior.
+DJ Scrobbler is in active early development, working toward a stable 1.0 release. Rough edges are expected — particularly around tracklist matching, which depends on third-party sites that can change their structure or behavior at any time.
 
 ## License
 

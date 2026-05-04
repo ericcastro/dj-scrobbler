@@ -244,6 +244,45 @@ so the renderer can never accidentally wipe it.
 
 ---
 
+## Development
+
+Requirements: Node.js 20+, npm.
+
+```sh
+npm install   # install dependencies
+npm start     # run the app locally
+```
+
+Build for the current platform:
+
+```sh
+npm run build
+```
+
+Platform-specific builds:
+
+```sh
+npm run build:mac
+npm run build:win
+npm run build:linux
+```
+
+Enable verbose lookup logging:
+
+```sh
+DJ_VERBOSE=1 npm start
+```
+
+Releases are triggered by pushing a version tag:
+
+```sh
+git tag v0.4.0 && git push origin v0.4.0
+```
+
+GitHub Actions builds macOS, Windows, and Linux packages and publishes them to GitHub Releases.
+
+---
+
 ## File Map
 
 ```
