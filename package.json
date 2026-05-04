@@ -37,6 +37,8 @@
       "!**/*.map"
     ],
 
+    "afterPack": "./scripts/afterPack.js",
+
     "mac": {
       "target": [
         { "target": "dmg", "arch": ["arm64", "x64"] },
@@ -45,10 +47,7 @@
       "icon": "images/electron-icons/neon-night/icon.icns",
       "category": "public.app-category.music",
       "darkModeSupport": true,
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "entitlements": "build-resources/entitlements.mac.plist",
-      "entitlementsInherit": "build-resources/entitlements.mac.plist"
+      "gatekeeperAssess": false
     },
 
     "dmg": {

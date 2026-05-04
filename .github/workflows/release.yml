@@ -26,7 +26,11 @@ jobs:
       - name: Build & publish (macOS)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Code signing — leave blank for now (unsigned beta is fine for testers)
+          # Disable certificate auto-discovery — afterPack.js handles ad-hoc
+          # signing instead, which fixes the "different Team IDs" crash on macOS 15.
+          # When real code-signing + notarization is set up, uncomment these and
+          # remove the afterPack hook (or gate it on CSC_LINK being unset).
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
           # CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
           # CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
           # APPLE_ID: ${{ secrets.APPLE_ID }}
