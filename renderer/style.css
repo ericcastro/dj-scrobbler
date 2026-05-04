@@ -389,6 +389,25 @@ html, body {
 
 .set-list li:hover { background: var(--border); }
 
+/* Set progress bar — spans the full width of the card at the bottom */
+.set-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.set-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  opacity: .6;
+  border-radius: 0 1px 1px 0;
+  transition: width .4s ease;
+}
+
 .set-item-thumb {
   width: 48px;
   height: 27px; /* 16:9 */
@@ -1126,3 +1145,98 @@ webview {
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+/* ── Resume dialog ── */
+#resume-dialog {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#resume-dialog.hidden { display: none; }
+
+#resume-dialog-box {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 24px 20px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.resume-dialog-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.resume-dialog-sub {
+  font-size: 11px;
+  color: var(--text2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.resume-dont-ask-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.resume-dialog-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.resume-dialog-btns button {
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .12s;
+}
+
+.resume-dialog-btns button:hover { background: var(--border); }
+
+.resume-dialog-btns .btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 600;
+}
+
+.resume-dialog-btns .btn-primary:hover { opacity: .85; background: var(--accent); }
+
+/* Resume setting radios in the settings panel */
+.resume-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.resume-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.resume-radio-label:hover { color: var(--text); }

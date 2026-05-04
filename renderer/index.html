@@ -126,6 +126,20 @@
             <p class="setting-desc">Tracks are scrobbled automatically as they play.</p>
             <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
           </div>
+
+          <div class="panel-title" style="margin-top:12px">Playback</div>
+          <p class="setting-desc">When opening a set you've already started:</p>
+          <div class="resume-options">
+            <label class="resume-radio-label">
+              <input type="radio" name="resume-behavior" value="ask"> Ask each time
+            </label>
+            <label class="resume-radio-label">
+              <input type="radio" name="resume-behavior" value="always"> Always resume
+            </label>
+            <label class="resume-radio-label">
+              <input type="radio" name="resume-behavior" value="never"> Always start from beginning
+            </label>
+          </div>
         </div>
       </div>
 
@@ -269,6 +283,21 @@
       <span id="scrobble-label">Scrobbling not configured</span>
     </div>
   </footer>
+
+  <!-- Resume dialog -->
+  <div id="resume-dialog" class="hidden">
+    <div id="resume-dialog-box">
+      <p class="resume-dialog-title">You've already started this set</p>
+      <p class="resume-dialog-sub">Pick up where you left off, or start from the beginning?</p>
+      <label class="resume-dont-ask-label">
+        <input type="checkbox" id="resume-dont-ask"> Don't ask again
+      </label>
+      <div class="resume-dialog-btns">
+        <button id="btn-resume-start">Start from beginning</button>
+        <button id="btn-resume-resume" class="btn-primary">Resume (<span id="resume-countdown-num">3</span>)</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

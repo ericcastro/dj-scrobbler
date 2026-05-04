@@ -18,6 +18,8 @@ const state = {
   isTrackPlaying: false,
   tracklistUnavailable: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
+  currentTracks: [],    // full track array from tracklist-data, used for progress lookups
+  pendingResume: null,  // onclickStr to fire after tracklist loads (resume mode)
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
@@ -62,6 +64,11 @@ const npTrack            = document.getElementById('np-track')
 const npArtist           = document.getElementById('np-artist')
 const npSet              = document.getElementById('np-set')
 const npSource           = document.getElementById('np-source')
+const resumeDialog        = document.getElementById('resume-dialog')
+const resumeCountdownNum  = document.getElementById('resume-countdown-num')
+const resumeDontAsk       = document.getElementById('resume-dont-ask')
+const btnResumeStart      = document.getElementById('btn-resume-start')
+const btnResumeResume     = document.getElementById('btn-resume-resume')
 const scrobbleBadge      = document.getElementById('scrobble-badge')
 const scrobbleLabel      = document.getElementById('scrobble-label')
 const btnLfmConnect      = document.getElementById('btn-lfm-connect')
@@ -134,6 +141,7 @@ async function init() {
   state.lfmStatus = await window.api.lfmStatusGet()
   refreshScrobbleBadge()
   await loadSettings()
+  syncResumeSettingUI()
 
   webview.addEventListener('dom-ready', () => {
     webviewReady = true
@@ -236,6 +244,7 @@ function wireMainEvents() {
     state.currentThumbnailUrl  = thumbnailUrl || null
 
     if (isFallback) {
+      state.pendingResume = null
       state.currentSource   = 'youtube'
       npSet.textContent     = title
       npSource.textContent  = 'youtube (no tracklist yet)'
@@ -279,6 +288,11 @@ function wireMainEvents() {
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
       if (data.trackNum) highlightTracklistByNum(data.trackNum)
     }
+    // Save playback progress so history/favorites items can show a progress bar
+    if (data.trackNum && state.currentSetUrl && data.source !== 'youtube-fallback') {
+      const track = state.currentTracks.find(t => t.trackNum === data.trackNum)
+      updateSetProgress(state.currentSetUrl, data.trackNum, track?.onclickStr || null)
+    }
     refreshScrobbleBadge()
   })
 
@@ -289,6 +303,7 @@ function wireMainEvents() {
 
   window.api.on('tracklist-data', (tracks) => {
     renderTracklist(tracks)
+    state.currentTracks = tracks
     // Persist track count on the history/favorites entry so the sidebar can
     // show "XX tracks" instead of a source name
     const count = tracks.length
@@ -301,6 +316,12 @@ function wireMainEvents() {
     persist()
     renderHistory()
     renderFavorites()
+    // If a resume was requested, seek to the saved track once the page is ready
+    if (state.pendingResume) {
+      const onclick = state.pendingResume
+      state.pendingResume = null
+      setTimeout(() => window.api.playerGotoTrack(onclick), 1500)
+    }
   })
 
   window.api.on('menu-toggle-sidebar', () => toggleSidebar())
@@ -486,11 +507,92 @@ function isYouTubeSourceUrl(url) {
   } catch { return false }
 }
 
+function getProgressPct(item) {
+  if (!item.progressTrackNum || !item.trackCount || item.trackCount < 2) return 0
+  return Math.min(99, Math.round((item.progressTrackNum / item.trackCount) * 100))
+}
+
+function updateSetProgress(url, trackNum, onclickStr) {
+  const update = { progressTrackNum: trackNum, lastTrackOnclick: onclickStr || null }
+  ;['history', 'favorites'].forEach(key => {
+    state.store[key] = state.store[key].map(item =>
+      item.url === url ? { ...item, ...update } : item
+    )
+  })
+  persist()
+  renderHistory()
+  renderFavorites()
+}
+
+function loadSet(item, resume) {
+  state.pendingResume = resume && item.lastTrackOnclick ? item.lastTrackOnclick : null
+  if (isYouTubeSourceUrl(item.url)) {
+    showLoading('Searching tracklist…')
+    window.api.loadSourceUrl(item.url)
+  } else {
+    navigateTo(item.url)
+    hideOverlays()
+  }
+}
+
+// ── Resume dialog ─────────────────────────────────────────────────────────────
+
+let resumeDialogTarget    = null
+let resumeCountdownTimer  = null
+
+function showResumeDialog(item) {
+  resumeDialogTarget = item
+  resumeCountdownNum.textContent = '3'
+  resumeDontAsk.checked = false
+  resumeDialog.classList.remove('hidden')
+  let count = 3
+  resumeCountdownTimer = setInterval(() => {
+    count--
+    if (count <= 0) {
+      clearInterval(resumeCountdownTimer)
+      resumeCountdownTimer = null
+      doResumeChoice(true)
+    } else {
+      resumeCountdownNum.textContent = count
+    }
+  }, 1000)
+}
+
+function closeResumeDialog() {
+  if (resumeCountdownTimer) { clearInterval(resumeCountdownTimer); resumeCountdownTimer = null }
+  resumeDialog.classList.add('hidden')
+  resumeDialogTarget = null
+}
+
+function doResumeChoice(resume) {
+  if (resumeDontAsk.checked) {
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.resumeBehavior = resume ? 'always' : 'never'
+    persist()
+    syncResumeSettingUI()
+  }
+  const item = resumeDialogTarget
+  closeResumeDialog()
+  loadSet(item, resume)
+}
+
+function syncResumeSettingUI() {
+  const val = state.store.settings?.resumeBehavior || 'ask'
+  document.querySelectorAll('input[name="resume-behavior"]').forEach(r => {
+    r.checked = r.value === val
+  })
+}
+
 function makeSetListItem(item, onRemove) {
   const li = document.createElement('li')
+  li.dataset.url = item.url
   const thumbHtml = item.thumbnailUrl
     ? `<img class="set-item-thumb" src="${escHtml(item.thumbnailUrl)}" alt="" loading="lazy" />`
     : `<div class="set-item-thumb set-item-thumb-empty"></div>`
+  const pct = getProgressPct(item)
+  const progressHtml = pct > 0
+    ? `<div class="set-progress"><div class="set-progress-bar" style="width:${pct}%"></div></div>`
+    : ''
   li.innerHTML = `
     ${thumbHtml}
     <div class="set-item-meta">
@@ -498,17 +600,18 @@ function makeSetListItem(item, onRemove) {
       <div class="set-item-src">${item.trackCount != null ? `${item.trackCount} tracks` : 'tracklist unavailable'}</div>
     </div>
     ${onRemove ? '<button class="set-item-remove" title="Remove">✕</button>' : ''}
+    ${progressHtml}
   `
   li.addEventListener('click', (e) => {
     if (e.target.classList.contains('set-item-remove')) return
-    // YouTube URLs: re-run the full tracklist lookup (gives it another chance)
-    // 1001tracklists / set79 URLs: navigate directly (tracklist page is stable)
-    if (isYouTubeSourceUrl(item.url)) {
-      showLoading('Searching tracklist…')
-      window.api.loadSourceUrl(item.url)
+    const hasProgress = !!(item.progressTrackNum > 1 && item.lastTrackOnclick)
+    const resumeSetting = state.store.settings?.resumeBehavior || 'ask'
+    if (hasProgress) {
+      if      (resumeSetting === 'always') loadSet(item, true)
+      else if (resumeSetting === 'never')  loadSet(item, false)
+      else                                 showResumeDialog(item)
     } else {
-      navigateTo(item.url)
-      hideOverlays()
+      loadSet(item, false)
     }
   })
   if (onRemove) {
@@ -874,6 +977,22 @@ function wireEvents() {
   sidebarFooter.addEventListener('click', (e) => {
     const link = e.target.closest('.sidebar-footer-link')
     if (link?.dataset.href) window.api.openExternal(link.dataset.href)
+  })
+
+  // Resume dialog
+  btnResumeStart.addEventListener('click',  () => doResumeChoice(false))
+  btnResumeResume.addEventListener('click', () => doResumeChoice(true))
+  resumeDialog.addEventListener('click', (e) => {
+    if (e.target === resumeDialog) doResumeChoice(false)  // backdrop click = start fresh
+  })
+
+  // Resume behavior setting radio buttons
+  document.querySelectorAll('input[name="resume-behavior"]').forEach(r => {
+    r.addEventListener('change', () => {
+      if (!state.store.settings) state.store.settings = {}
+      state.store.settings.resumeBehavior = r.value
+      persist()
+    })
   })
 
   wireSidebarResize()

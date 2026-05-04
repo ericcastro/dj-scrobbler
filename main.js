@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme } = require('electron')
 const path   = require('path')
 const https  = require('https')
 const crypto = require('crypto')
@@ -8,6 +8,10 @@ const overlay  = require('./plugins/overlay')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
+
+// Force dark color scheme for all webviews — YouTube and other sources will
+// respect prefers-color-scheme: dark and render in their native dark mode.
+nativeTheme.themeSource = 'dark'
 
 // ── Verbose logging ───────────────────────────────────────────────────────────
 // Enable with:  DJ_VERBOSE=1 npm start
