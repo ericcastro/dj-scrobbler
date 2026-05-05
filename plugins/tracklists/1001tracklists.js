@@ -1,11 +1,58 @@
 /**
  * 1001Tracklists tracklist plugin.
- * Finds tracklists by POSTing the source URL to the 1001tl search endpoint,
- * then monitors the active track via the .cPlay DOM row.
+ *
+ * Matching strategy:
+ *   1. POST the source YouTube URL to the 1001tl search endpoint.
+ *   2. For each search result (in order), fetch the tracklist page over HTTPS
+ *      and look for the YouTube video ID in the embedded player markup.
+ *   3. Return the first result whose embedded ID matches the source video ID.
+ *   4. If no result matches → return [] so the caller falls back gracefully.
+ *
+ * This is more reliable than text similarity because:
+ *   - The 1001tl search already ranks by URL relevance, so result #1 is
+ *     almost always correct.
+ *   - An exact video-ID match is unambiguous regardless of title formatting,
+ *     special characters, diacritics, or version suffixes.
  */
 const https = require('https')
 
-function searchHttp(sourceUrl) {
+const COMMON_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) Gecko/20100101 Firefox/150.0',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  Cookie: 'guid=3dc62f90cce8f',
+}
+
+// Fetch a 1001tracklists page by path, following one level of redirect.
+function fetchPage(path) {
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname: 'www.1001tracklists.com',
+      path,
+      method: 'GET',
+      headers: { ...COMMON_HEADERS, Referer: 'https://www.1001tracklists.com/' },
+    }, (res) => {
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+        try {
+          const loc = new URL(res.headers.location, 'https://www.1001tracklists.com')
+          if (loc.hostname === 'www.1001tracklists.com') {
+            return fetchPage(loc.pathname + loc.search).then(resolve)
+          }
+        } catch {}
+        return resolve('')
+      }
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => resolve(Buffer.concat(chunks).toString()))
+    })
+    req.setTimeout(10_000, () => { req.destroy(); resolve('') })
+    req.on('error', () => resolve(''))
+    req.end()
+  })
+}
+
+// POST the YouTube URL to the search endpoint; return an ordered list of
+// { path, url, title } for every tracklist result found.
+function searchByUrl(sourceUrl) {
   return new Promise((resolve) => {
     const postData = new URLSearchParams({
       main_search: sourceUrl,
@@ -18,13 +65,11 @@ function searchHttp(sourceUrl) {
       path: '/search/result.php',
       method: 'POST',
       headers: {
+        ...COMMON_HEADERS,
         'Content-Type': 'application/x-www-form-urlencoded',
         'Content-Length': Buffer.byteLength(postData),
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:150.0) Gecko/20100101 Firefox/150.0',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         Origin: 'https://www.1001tracklists.com',
         Referer: 'https://www.1001tracklists.com/search/result.php',
-        Cookie: 'guid=3dc62f90cce8f',
       },
     }, (res) => {
       const chunks = []
@@ -32,17 +77,9 @@ function searchHttp(sourceUrl) {
       res.on('end', () => {
         const html = Buffer.concat(chunks).toString()
 
-        // Bail out immediately when 1001tl says it found nothing.
-        // The "returns nothing!" string only appears when the search has zero
-        // real results; the page still renders sidebar "most viewed" links, but
-        // the title-similarity ranking in handleSourceUrl will score those at 0
-        // (artist-anchor check fails) so they're never picked.
-        if (html.includes('returns nothing')) {
-          resolve([])
-          return
-        }
+        if (html.includes('returns nothing')) { resolve([]); return }
 
-        const seen = new Set()
+        const seen    = new Set()
         const results = []
         const re = /href="(\/tracklist\/[a-z0-9]+\/([^"]+)\.html)"/g
         let m
@@ -50,19 +87,39 @@ function searchHttp(sourceUrl) {
           const path = m[1]
           if (seen.has(path)) continue
           seen.add(path)
+          // Derive a human-readable title from the URL slug for logging
           const title = m[2]
             .replace(/-\d{4}-\d{2}-\d{2}(-\d{4}-\d{2}-\d{2})?$/, '')
             .replace(/-/g, ' ')
             .trim()
-          results.push({ url: 'https://www.1001tracklists.com' + path, title })
+          results.push({ path, url: 'https://www.1001tracklists.com' + path, title })
         }
         resolve(results)
       })
     })
+    req.setTimeout(10_000, () => { req.destroy(); resolve([]) })
     req.on('error', () => resolve([]))
     req.write(postData)
     req.end()
   })
+}
+
+// Extract the YouTube video ID embedded in a 1001tracklists page.
+// Checks, in order of reliability:
+//   1. YouTube / youtube-nocookie iframe src  (most common)
+//   2. ytPlayer.idPlayer JS variable          (1001tl's own player API)
+//   3. data-id / data-youtube-id attributes   (occasional markup variants)
+function extractVideoIdFromHtml(html) {
+  const m1 = html.match(/youtube(?:-nocookie)?\.com\/embed\/([a-zA-Z0-9_-]{11})/)
+  if (m1) return m1[1]
+
+  const m2 = html.match(/idPlayer\s*[:=]\s*["']([a-zA-Z0-9_-]{11})["']/)
+  if (m2) return m2[1]
+
+  const m3 = html.match(/data-(?:youtube-)?id=["']([a-zA-Z0-9_-]{11})["']/)
+  if (m3) return m3[1]
+
+  return null
 }
 
 module.exports = {
@@ -74,8 +131,24 @@ module.exports = {
     return url.includes('1001tracklists.com/tracklist/')
   },
 
+  // Returns [{ url, title, confirmed: true }] when the video ID matches,
+  // or [] when no result matches (caller falls back to YouTube embed).
   async findTracklists(meta) {
-    return searchHttp(meta.url)
+    const { url: sourceUrl, videoId } = meta
+    if (!videoId) return []
+
+    const results = await searchByUrl(sourceUrl)
+    if (results.length === 0) return []
+
+    for (const result of results) {
+      const html      = await fetchPage(result.path)
+      const foundId   = extractVideoIdFromHtml(html)
+      if (foundId === videoId) {
+        return [{ url: result.url, title: result.title, confirmed: true }]
+      }
+    }
+
+    return []
   },
 
   // Primary: direct access to the YouTube iframe via 1001tl's own JS API.

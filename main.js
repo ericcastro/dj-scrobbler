@@ -271,6 +271,15 @@ async function handleSourceUrl(source, url, wvContents) {
     return startFallbackForSource(source, url, meta, wvContents)
   }
 
+  // Plugin confirmed the match by an exact criterion (e.g. YouTube video ID) —
+  // load directly without text-similarity scoring.
+  if (results[0].confirmed) {
+    log(`[lookup] → confirmed match: ${results[0].url}`)
+    isFallbackMode = false
+    wvContents.loadURL(results[0].url)
+    return
+  }
+
   const scored = results
     .map(r => ({ ...r, score: plugins.titleSimilarity(meta, r.title) }))
     .sort((a, b) => b.score - a.score)

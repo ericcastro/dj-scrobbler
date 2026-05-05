@@ -230,8 +230,16 @@ function saveSearchQuery(query) {
 
 // ── Messages from main process ────────────────────────────────────────────────
 
+function isResumeDialogOpen() {
+  return !resumeDialog.classList.contains('hidden')
+}
+
 function wireMainEvents() {
   window.api.on('wv-status', (status) => {
+    // Don't show/hide overlays while the resume dialog is open — it would change
+    // the visible content behind the semi-transparent backdrop mid-countdown and
+    // confuse the user about what's happening.
+    if (isResumeDialogOpen()) return
     switch (status.type) {
       case 'loading':             showLoading(status.msg); break
       case 'no-tracklist':        showNoTracklist(); break
@@ -241,6 +249,8 @@ function wireMainEvents() {
   })
 
   window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback }) => {
+    // Don't update set state or history while the user is deciding in the dialog.
+    if (isResumeDialogOpen()) return
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
     state.currentSetUrl        = url
@@ -322,6 +332,7 @@ function wireMainEvents() {
   })
 
   window.api.on('tracklist-data', (tracks) => {
+    if (isResumeDialogOpen()) return
     renderTracklist(tracks)
     state.currentTracks = tracks
     // Persist track count on the history/favorites entry so the sidebar can
@@ -633,6 +644,15 @@ let resumeDialogTarget    = null
 let resumeCountdownTimer  = null
 
 function showResumeDialog(item) {
+  // Guard: if the dialog is already visible for this same item, do nothing.
+  // Without this, re-clicking the sidebar item while the dialog is open would
+  // create a second setInterval while the first (stale) one kept ticking,
+  // causing the dialog to fire early from the user's perspective.
+  if (!resumeDialog.classList.contains('hidden') && resumeDialogTarget === item) return
+
+  // Clear any existing countdown timer before starting a new one.
+  if (resumeCountdownTimer) { clearInterval(resumeCountdownTimer); resumeCountdownTimer = null }
+
   resumeDialogTarget = item
   resumeCountdownNum.textContent = '5'
   resumeDontAsk.checked = false

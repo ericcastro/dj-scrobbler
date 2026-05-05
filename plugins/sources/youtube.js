@@ -53,9 +53,11 @@ module.exports = {
     // Strip every parameter except `v` so 1001tracklists always gets the
     // canonical URL (e.g. no &list=, &start_radio=, &pp=, etc.)
     let canonicalUrl = watchUrl
+    let videoId = null
     try {
       const u = new URL(watchUrl)
-      canonicalUrl = `https://www.youtube.com/watch?v=${u.searchParams.get('v')}`
+      videoId = u.searchParams.get('v')
+      canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`
     } catch {}
 
     return new Promise((resolve) => {
@@ -72,11 +74,11 @@ module.exports = {
         res.on('end', () => {
           try {
             const d = JSON.parse(Buffer.concat(chunks).toString())
-            resolve({ title: d.title || null, channel: d.author_name || null, url: canonicalUrl })
-          } catch { resolve({ title: null, channel: null, url: canonicalUrl }) }
+            resolve({ title: d.title || null, channel: d.author_name || null, url: canonicalUrl, videoId })
+          } catch { resolve({ title: null, channel: null, url: canonicalUrl, videoId }) }
         })
       })
-      req.on('error', () => resolve({ title: null, channel: null, url: canonicalUrl }))
+      req.on('error', () => resolve({ title: null, channel: null, url: canonicalUrl, videoId }))
       req.end()
     })
   },

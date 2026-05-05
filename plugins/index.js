@@ -50,12 +50,13 @@ const GENERIC_TITLE_WORDS = new Set([
 // Normalise a string for word-level matching:
 // 1. NFD decomposition strips combining diacritics (ë→e, ö→o, etc.) so that
 //    "Tiësto" and the URL slug "tiesto" tokenise to the same word.
-// 2. Remaining non-alphanumeric chars are removed (not replaced with a space)
-//    so they never create spurious word boundaries.
+// 2. Remaining non-alphanumeric chars become spaces (not deleted) so they
+//    act as word separators — e.g. "KI/KI" → "ki ki" not "kiki", which then
+//    matches the URL-slug form "ki-ki" → "ki ki" after dash→space conversion.
 function normaliseForMatching(s) {
   return s.toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip combining diacritics
-    .replace(/[^a-z0-9\s]/g, '')                       // remove other specials
+    .replace(/[^a-z0-9\s]/g, ' ')                      // separators → space
     .replace(/\s+/g, ' ').trim()
 }
 
