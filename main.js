@@ -15,25 +15,33 @@ nativeTheme.themeSource = 'dark'
 // ── Verbose logging ───────────────────────────────────────────────────────────
 // Enable with:  DJ_VERBOSE=1 npm start
 const VERBOSE = !!process.env.DJ_VERBOSE
+const DEBUG_LOG_PATH = process.env.DJ_VERBOSE ? '/private/tmp/djscrobbler-debug.log' : null
 const recentLogs = []
 function formatLogArg(arg) {
   if (typeof arg === 'string') return arg
   try { return JSON.stringify(arg) } catch { return String(arg) }
 }
 function appendLog(args) {
-  recentLogs.push(`[${new Date().toISOString()}] ${args.map(formatLogArg).join(' ')}`)
+  const line = `[${new Date().toISOString()}] ${args.map(formatLogArg).join(' ')}`
+  recentLogs.push(line)
   if (recentLogs.length > 80) recentLogs.shift()
+  if (DEBUG_LOG_PATH) {
+    try { fs.appendFileSync(DEBUG_LOG_PATH, `${line}\n`) } catch {}
+  }
 }
 function log(...args) {
   appendLog(args)
   if (VERBOSE) console.log(...args)
 }
 const DEVELOPER_MODE = process.argv.includes('--developer')
+const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const MAX_TRACKLIST_CACHE_ENTRIES = 200
 
 let mainWindow
 let currentWvContents = null
 let playerWvContents = null
 let browserWvContents = null
+let pendingSourceUrl = null
 const attachedWebviews = new Map()
 let displayFullscreenBounds = null
 let windowDragStart = null
@@ -56,6 +64,78 @@ function readStore() {
 
 function writeStore(data) {
   fs.writeFileSync(getStorePath(), JSON.stringify(data, null, 2))
+}
+
+function tracklistCacheKey(providerId, sourceUrl) {
+  return crypto.createHash('sha1').update(`${providerId}:${sourceUrl}`).digest('hex')
+}
+
+function isUsableCachedTracklist(entry, now = Date.now()) {
+  return entry &&
+    entry.expiresAt > now &&
+    typeof entry.sourceUrl === 'string' &&
+    typeof entry.providerId === 'string' &&
+    typeof entry.tracklistUrl === 'string' &&
+    Array.isArray(entry.tracks) &&
+    entry.tracks.length > 0
+}
+
+function pruneTracklistCache(cache, now = Date.now()) {
+  for (const [key, entry] of Object.entries(cache)) {
+    if (!entry || entry.expiresAt <= now) delete cache[key]
+  }
+
+  const entries = Object.entries(cache)
+  if (entries.length <= MAX_TRACKLIST_CACHE_ENTRIES) return
+
+  entries
+    .sort(([, a], [, b]) => (b.cachedAt || 0) - (a.cachedAt || 0))
+    .slice(MAX_TRACKLIST_CACHE_ENTRIES)
+    .forEach(([key]) => delete cache[key])
+}
+
+function getCachedTracklist(providerId, sourceUrl) {
+  if (!providerId || !sourceUrl) return null
+  const store = readStore()
+  const cache = store.tracklistCache || {}
+  const key = tracklistCacheKey(providerId, sourceUrl)
+  const entry = cache[key]
+  const now = Date.now()
+
+  if (isUsableCachedTracklist(entry, now)) return entry
+
+  if (entry) {
+    delete cache[key]
+    store.tracklistCache = cache
+    pruneTracklistCache(cache, now)
+    writeStore(store)
+    log(`[cache] expired tracklist provider=${providerId} source=${sourceUrl}`)
+  }
+  return null
+}
+
+function writeCachedTracklist({ sourceUrl, providerId, tracklistUrl, title, thumbnailUrl, tracks }) {
+  if (!sourceUrl || !providerId || !tracklistUrl || !Array.isArray(tracks) || tracks.length === 0) return
+
+  const store = readStore()
+  if (!store.tracklistCache || typeof store.tracklistCache !== 'object') store.tracklistCache = {}
+
+  const now = Date.now()
+  const key = tracklistCacheKey(providerId, sourceUrl)
+  store.tracklistCache[key] = {
+    version: 1,
+    sourceUrl,
+    providerId,
+    tracklistUrl,
+    title: title || null,
+    thumbnailUrl: thumbnailUrl || null,
+    tracks,
+    cachedAt: now,
+    expiresAt: now + TRACKLIST_CACHE_TTL_MS,
+  }
+  pruneTracklistCache(store.tracklistCache, now)
+  writeStore(store)
+  log(`[cache] stored tracklist tracks=${tracks.length} provider=${providerId} source=${sourceUrl}`)
 }
 
 // ── Consent popup dismissal ───────────────────────────────────────────────────
@@ -426,6 +506,17 @@ const YT_PAUSE_SCRIPT = `
   })()
 `
 
+const YT_VOLUME_STATE_SCRIPT = `
+  (() => {
+    const p = window.ytPlayer
+    if (!p || typeof p.getVolume !== 'function') return null
+    return {
+      volume: p.getVolume(),
+      muted: typeof p.isMuted === 'function' ? p.isMuted() : false,
+    }
+  })()
+`
+
 const YT_POLL_SCRIPT = `
   (() => {
     const p = window.ytPlayer
@@ -444,6 +535,18 @@ function startYouTubePlayerMonitoring(wvContents) {
   stopMonitoring({ finalize: false })
   setTimeout(() => {
     wvContents.executeJavaScript(YT_PLAY_SCRIPT).catch(() => {})
+    const settings = readStore().settings || {}
+    const volume = Math.max(0, Math.min(100, Math.round(Number(settings.playerVolume ?? 80) || 0)))
+    const muted = !!settings.playerMuted || volume === 0
+    wvContents.executeJavaScript(`
+      (() => {
+        const p = window.ytPlayer
+        if (!p || typeof p.setVolume !== 'function') return
+        p.setVolume(${volume})
+        if (${muted} && typeof p.mute === 'function') p.mute()
+        if (!${muted} && typeof p.unMute === 'function') p.unMute()
+      })()
+    `).catch(() => {})
   }, 1000)
   monitorInterval = setInterval(async () => {
     try {
@@ -486,6 +589,7 @@ async function executeTracklistExtraction(wc, script) {
 
 function extractTracklistInBackground(tlPlugin, url) {
   return new Promise((resolve) => {
+    log(`[extract] background load ${url}`)
     const win = new BrowserWindow({
       show: false,
       width: 1280,
@@ -506,27 +610,38 @@ function extractTracklistInBackground(tlPlugin, url) {
       resolve(value)
     }
 
-    const timeout = setTimeout(() => finish({ title: null, tracks: [] }), 20000)
+    const timeout = setTimeout(() => {
+      log('[extract] timed out')
+      finish({ title: null, tracks: [] })
+    }, 20000)
 
     wc.on('did-finish-load', async () => {
       try {
+        log(`[extract] did-finish-load ${wc.getURL()}`)
         wc.executeJavaScript(CONSENT_SCRIPT).catch(() => {})
         const title = await wc.executeJavaScript(
-          `document.querySelector('h1')?.textContent?.trim() || document.title`
+          `(() => {
+            const h1 = document.querySelector('h1')?.textContent?.trim()
+            if (h1 && !/please wait, you will be forwarded/i.test(h1)) return h1
+            return document.querySelector('meta[property="og:title"]')?.content?.trim() || document.title
+          })()`
         ).catch(() => null)
         const tracks = tlPlugin.tracklistExtractScript
           ? await executeTracklistExtraction(wc, tlPlugin.tracklistExtractScript)
           : []
+        log(`[extract] tracks=${tracks.length} title="${title || ''}"`)
         clearTimeout(timeout)
         finish({ title, tracks })
-      } catch {
+      } catch (err) {
+        log('[extract] failed', err?.message || err)
         clearTimeout(timeout)
         finish({ title: null, tracks: [] })
       }
     })
 
-    wc.on('did-fail-load', (_event, _code, _desc, _failedUrl, isMainFrame) => {
+    wc.on('did-fail-load', (_event, code, desc, failedUrl, isMainFrame) => {
       if (isMainFrame) {
+        log(`[extract] did-fail-load code=${code} desc="${desc}" url=${failedUrl}`)
         clearTimeout(timeout)
         finish({ title: null, tracks: [] })
       }
@@ -555,6 +670,15 @@ async function findBestTracklist(tlPlugin, meta) {
   scored.forEach((r, i) => log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
 
   return scored[0]?.score > 0 ? scored[0] : null
+}
+
+function tracklistLookupErrorPayload(err, tlPlugin) {
+  if (!err) return null
+  return {
+    code: err.code || 'tracklist_lookup_failed',
+    message: err.message || 'Tracklist lookup failed.',
+    providerId: err.providerId || tlPlugin?.id || null,
+  }
 }
 
 // ── Source → tracklist routing ────────────────────────────────────────────────
@@ -603,9 +727,57 @@ async function handleSourceUrl(source, url, wvContents) {
     return
   }
 
+  const cached = getCachedTracklist(tlPlugin.id, currentSourceUrl)
+  if (cached) {
+    log(`[cache] hit provider=${cached.providerId} source=${currentSourceUrl} tracks=${cached.tracks.length}`)
+    isTracklistLookupPending = false
+    currentTracklistUrl = cached.tracklistUrl
+    currentTracklistProvider = cached.providerId
+    currentSetTitle = cached.title || currentSetTitle
+    currentTracks = normalizeTracks(cached.tracks, cached.providerId)
+
+    mainWindow.webContents.send('tracklist-loaded', {
+      url: currentSourceUrl,
+      sourceUrl: currentSourceUrl,
+      title: currentSetTitle,
+      thumbnailUrl: currentThumbnailUrl,
+      providerId: cached.providerId,
+      tracklistUrl: cached.tracklistUrl,
+      isFallback: false,
+      fromCache: true,
+    })
+    mainWindow.webContents.send('tracklist-data', {
+      providerId: cached.providerId,
+      url: cached.tracklistUrl,
+      tracks: currentTracks,
+      fromCache: true,
+    })
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    return
+  }
+
   mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
 
-  const best = await findBestTracklist(tlPlugin, meta)
+  let best
+  try {
+    best = await findBestTracklist(tlPlugin, meta)
+  } catch (err) {
+    const lookupError = tracklistLookupErrorPayload(err, tlPlugin)
+    log(`[lookup] provider failed code=${lookupError.code} provider=${lookupError.providerId}: ${lookupError.message}`)
+    isTracklistLookupPending = false
+    mainWindow.webContents.send('tracklist-loaded', {
+      url: currentSourceUrl,
+      sourceUrl: currentSourceUrl,
+      title: currentSetTitle,
+      thumbnailUrl: currentThumbnailUrl,
+      providerId: tlPlugin.id,
+      tracklistUrl: null,
+      isFallback: true,
+      lookupError,
+    })
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    return
+  }
   if (lookupToken !== currentLookupToken) return
 
   if (!best) {
@@ -635,6 +807,14 @@ async function handleSourceUrl(source, url, wvContents) {
   const title = currentSetTitle || extracted.title || best.title || currentSourceUrl
   currentSetTitle = title
   currentTracks = normalizeTracks(extracted.tracks, tlPlugin.id)
+  writeCachedTracklist({
+    sourceUrl: currentSourceUrl,
+    providerId: tlPlugin.id,
+    tracklistUrl: best.url,
+    title,
+    thumbnailUrl: currentThumbnailUrl,
+    tracks: currentTracks,
+  })
 
   mainWindow.webContents.send('tracklist-loaded', {
     url: currentSourceUrl,
@@ -808,11 +988,18 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+R',
           click: () => mainWindow?.webContents.send('menu-reload'),
         },
-        ...(DEVELOPER_MODE ? [{
-          label: 'Open WebView DevTools',
-          accelerator: 'CmdOrCtrl+Shift+I',
-          click: () => { if (currentWvContents) currentWvContents.openDevTools() },
-        }] : []),
+        ...(DEVELOPER_MODE ? [
+          {
+            label: 'Open App DevTools',
+            accelerator: 'CmdOrCtrl+Alt+I',
+            click: () => { if (mainWindow) mainWindow.webContents.openDevTools({ mode: 'detach' }) },
+          },
+          {
+            label: 'Open WebView DevTools',
+            accelerator: 'CmdOrCtrl+Shift+I',
+            click: () => { if (currentWvContents) currentWvContents.openDevTools() },
+          },
+        ] : []),
       ],
     },
     {
@@ -884,7 +1071,7 @@ function createWindow() {
     width:  windowBounds?.width  || 1400,
     height: windowBounds?.height || 900,
     ...(windowBounds?.x != null ? { x: windowBounds.x, y: windowBounds.y } : {}),
-    minWidth: 900,
+    minWidth: 360,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     fullscreenable: false,
@@ -901,6 +1088,13 @@ function createWindow() {
   mainWindow.on('move',   persistBounds)
   if (typeof mainWindow.setFullScreenable === 'function') mainWindow.setFullScreenable(false)
 
+  if (process.env.DJ_DEBUG_LOAD_URL) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      const url = process.env.DJ_DEBUG_LOAD_URL
+      log(`[debug] startup load ${url}`)
+      setTimeout(() => loadSourceUrl(url).catch(err => log('[debug] startup load failed', err?.stack || err?.message || err)), 250)
+    })
+  }
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
   mainWindow.webContents.on('did-attach-webview', (_event, wvContents) => wireWebview(wvContents))
@@ -945,11 +1139,14 @@ app.on('window-all-closed', () => {
 
 ipcMain.handle('store-get', () => readStore())
 ipcMain.handle('store-set', (_event, data) => {
+  const existing = readStore()
+  const next = { ...data }
   if (lfmSession) {
-    if (!data.settings) data.settings = {}
-    data.settings.lfmSession = lfmSession
+    if (!next.settings) next.settings = {}
+    next.settings.lfmSession = lfmSession
   }
-  writeStore(data)
+  if (existing.tracklistCache) next.tracklistCache = existing.tracklistCache
+  writeStore(next)
 })
 
 ipcMain.handle('register-webview-role', (_event, id, role) => {
@@ -958,6 +1155,11 @@ ipcMain.handle('register-webview-role', (_event, id, role) => {
   if (role === 'player') {
     playerWvContents = wvContents
     currentWvContents = wvContents
+    if (pendingSourceUrl) {
+      const url = pendingSourceUrl
+      pendingSourceUrl = null
+      setImmediate(() => loadSourceUrl(url, wvContents).catch(err => log('[lookup] queued source failed', err?.message || err)))
+    }
     return true
   }
   if (role === 'browser') {
@@ -978,6 +1180,48 @@ ipcMain.handle('player-toggle', async () => {
   if (isPlaying === null) return
   const script = isPlaying ? YT_PAUSE_SCRIPT : YT_PLAY_SCRIPT
   await currentWvContents.executeJavaScript(script).catch(() => {})
+})
+
+ipcMain.handle('player-volume-get', async () => {
+  if (!currentWvContents) return null
+  return currentWvContents.executeJavaScript(YT_VOLUME_STATE_SCRIPT).catch(() => null)
+})
+
+ipcMain.handle('player-volume-set', async (_event, value) => {
+  if (!currentWvContents) return null
+  const volume = Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+  return currentWvContents.executeJavaScript(`
+    (() => {
+      const p = window.ytPlayer
+      if (!p || typeof p.setVolume !== 'function') return null
+      p.setVolume(${volume})
+      if (${volume} === 0 && typeof p.mute === 'function') p.mute()
+      if (${volume} > 0 && typeof p.unMute === 'function') p.unMute()
+      return {
+        volume: typeof p.getVolume === 'function' ? p.getVolume() : ${volume},
+        muted: typeof p.isMuted === 'function' ? p.isMuted() : false,
+      }
+    })()
+  `).catch(() => null)
+})
+
+ipcMain.handle('player-mute-toggle', async () => {
+  if (!currentWvContents) return null
+  return currentWvContents.executeJavaScript(`
+    (() => {
+      const p = window.ytPlayer
+      if (!p || typeof p.isMuted !== 'function') return null
+      if (p.isMuted()) {
+        if (typeof p.unMute === 'function') p.unMute()
+      } else if (typeof p.mute === 'function') {
+        p.mute()
+      }
+      return {
+        volume: typeof p.getVolume === 'function' ? p.getVolume() : 0,
+        muted: typeof p.isMuted === 'function' ? p.isMuted() : false,
+      }
+    })()
+  `).catch(() => null)
 })
 
 ipcMain.handle('lfm-connect',    async () => lfmConnect())
@@ -1025,15 +1269,32 @@ ipcMain.handle('player-goto-track', (_event, track) => playerSeek(track?.cueSeco
 ipcMain.handle('fallback-seek', (_event, seconds) => playerSeek(seconds))
 ipcMain.handle('tl-seek', (_event, seconds) => playerSeek(seconds))
 
+async function loadSourceUrl(url, playbackContents = playerWvContents || currentWvContents) {
+  log(`[lookup] loadSourceUrl url=${url} hasPlayback=${!!playbackContents}`)
+  const source = plugins.sourceForUrl(url)
+  if (!source) {
+    log(`[lookup] no source plugin for ${url}`)
+    return false
+  }
+  if (!playbackContents) {
+    pendingSourceUrl = url
+    log(`[lookup] queued source until player webview is ready: ${url}`)
+    return true
+  }
+  try {
+    await handleSourceUrl(source, url, playbackContents)
+  } catch (err) {
+    log('[lookup] loadSourceUrl failed', err?.stack || err?.message || err)
+    throw err
+  }
+  return true
+}
+
 // Re-run the full source → tracklist lookup for a URL (used when reopening a
 // YouTube set that was previously saved as a fallback — gives it another chance
 // to find a tracklist, while still falling back gracefully if none exists yet).
 ipcMain.handle('load-source-url', async (_event, url) => {
-  const playbackContents = playerWvContents || currentWvContents
-  if (!playbackContents) return
-  const source = plugins.sourceForUrl(url)
-  if (!source) return
-  await handleSourceUrl(source, url, playbackContents)
+  await loadSourceUrl(url)
 })
 
 // Theme change — update dock icon and persist.

@@ -65,6 +65,8 @@ const mainContent              = document.getElementById('main-content')
 const tracklistBelowVideo      = document.getElementById('tracklist-below-video')
 const tracklistList            = document.getElementById('tracklist-list')
 const tracklistUnavailableEl   = document.getElementById('tracklist-unavailable')
+const tracklistUnavailableTitle = document.getElementById('tracklist-unavailable-title')
+const tracklistUnavailableSub   = document.getElementById('tracklist-unavailable-sub')
 const tracklistCompactList  = document.getElementById('tracklist-compact-list')
 const rightPanel            = document.getElementById('right-panel')
 const rightPanelHandle      = document.getElementById('right-panel-handle')
@@ -102,6 +104,8 @@ const btnSupportEmail     = document.getElementById('btn-support-email')
 const btnSupportClose     = document.getElementById('btn-support-close')
 const scrobbleBadge      = document.getElementById('scrobble-badge')
 const scrobbleLabel      = document.getElementById('scrobble-label')
+const btnVolume          = document.getElementById('btn-volume')
+const volumeSlider       = document.getElementById('volume-slider')
 const btnLfmConnect      = document.getElementById('btn-lfm-connect')
 const btnLfmDisconnect   = document.getElementById('btn-lfm-disconnect')
 const lfmConnected       = document.getElementById('lfm-connected')
@@ -129,6 +133,9 @@ const ICON = {
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   miniPlayer: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/>',
   audioOnly: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  volume: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>',
+  volume2: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+  volumeX: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 }
 
@@ -137,6 +144,7 @@ const ICON = {
 const MIN_SIDEBAR_W = 360
 const MAX_SIDEBAR_W = 480
 const DEFAULT_SIDEBAR_W = 360
+const COMPACT_SIDEBAR_BREAKPOINT = MIN_SIDEBAR_W * 2
 
 const GREETINGS = [
   'Welcome back.',
@@ -281,7 +289,11 @@ async function init() {
   applyTheme(state.store.settings?.theme || 'neon-night', false)
   restoreSidebarWidth()
   applyVideoMode(state.store.settings?.videoMode || 'inline', false)
+  applyResponsiveSidebar()
   restoreRightPanelWidth()
+  playerVolume = Math.max(0, Math.min(100, Math.round(Number(state.store.settings?.playerVolume ?? 80) || 0)))
+  playerMuted = !!state.store.settings?.playerMuted || playerVolume === 0
+  updateVolumeUI()
 
   // Restore right panel open/closed state (default: closed)
   const rightPanelOpen = state.store.settings?.rightPanelOpen ?? false
@@ -298,6 +310,7 @@ async function init() {
 
   renderFavorites()
   renderHistory()
+  wireFooterMarquees()
 
   state.lfmStatus = await window.api.lfmStatusGet()
   refreshScrobbleBadge()
@@ -331,6 +344,9 @@ function hideIntro() {
 const VIDEO_MODES = ['inline', 'mini', 'hidden', 'fullscreen']
 let currentVideoMode = 'inline'
 let progressSegmentKey = ''
+let sidebarAutoHidden = false
+let playerVolume = 80
+let playerMuted = false
 
 function setSidebarWidthVar() {
   document.documentElement.style.setProperty('--sidebar-w-current', `${sidebar.offsetWidth || DEFAULT_SIDEBAR_W}px`)
@@ -340,6 +356,10 @@ function clampSidebarWidth(width) {
   const numericWidth = Number(width)
   const fallback = Number.isFinite(numericWidth) ? numericWidth : DEFAULT_SIDEBAR_W
   return Math.max(MIN_SIDEBAR_W, Math.min(MAX_SIDEBAR_W, fallback))
+}
+
+function isCompactLayout() {
+  return window.innerWidth < COMPACT_SIDEBAR_BREAKPOINT
 }
 
 function updateMiniPlayerMetrics() {
@@ -362,7 +382,7 @@ function updateMiniPlayerMetrics() {
 
 function applyVideoMode(mode, persistSetting = true) {
   const next = VIDEO_MODES.includes(mode) ? mode : 'inline'
-  if (next === 'mini' && sidebar.classList.contains('collapsed')) {
+  if (next === 'mini' && sidebar.classList.contains('collapsed') && !isCompactLayout()) {
     sidebar.classList.remove('collapsed')
   }
   if (next !== 'mini' || !sidebar.classList.contains('collapsed')) {
@@ -597,6 +617,7 @@ const SOURCE_URLS = {
 }
 
 function navigateToSearch(query = '') {
+  document.body.classList.remove('has-active-set')
   hideOverlays()
   clearTracklist()
   const sourceUrl = SOURCE_URLS[state.source] || SOURCE_URLS.youtube
@@ -677,9 +698,10 @@ function wireMainEvents() {
     }
   })
 
-  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, tracklistUrl }) => {
+  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, tracklistUrl, lookupError }) => {
     // Don't update set state or history while the user is deciding in the dialog.
     if (isResumeDialogOpen()) return
+    document.body.classList.add('has-active-set')
     document.body.classList.remove('is-browsing')
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
@@ -693,6 +715,9 @@ function wireMainEvents() {
       state.currentSource  = 'youtube'
       npSet.textContent     = title
       npSource.textContent  = 'youtube (no tracklist yet)'
+      tracklistUnavailableTitle.textContent = lookupError ? 'Tracklist lookup paused' : 'Tracklist not yet available'
+      tracklistUnavailableSub.textContent = lookupError?.message ||
+        'No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.'
       // Show the below-video area with the unavailable message
       tracklistUnavailableEl.classList.remove('hidden')
       tracklistList.innerHTML = ''
@@ -712,6 +737,8 @@ function wireMainEvents() {
       npSource.textContent = providerId === '1001tracklists'
         ? 'tracklist courtesy of 1001tracklists'
         : 'youtube'
+      tracklistUnavailableTitle.textContent = 'Tracklist not yet available'
+      tracklistUnavailableSub.textContent = 'No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.'
       tracklistUnavailableEl.classList.add('hidden')
     }
 
@@ -832,7 +859,13 @@ function switchSidebarPanel(name) {
 }
 
 function toggleSidebar() {
-  sidebar.classList.toggle('collapsed')
+  if (isCompactLayout()) {
+    sidebarAutoHidden = true
+    sidebar.classList.add('collapsed')
+  } else {
+    sidebarAutoHidden = false
+    sidebar.classList.toggle('collapsed')
+  }
   if (sidebar.classList.contains('collapsed')) {
     if (currentVideoMode === 'mini') document.body.classList.add('sidebar-player-hidden')
   } else {
@@ -840,6 +873,75 @@ function toggleSidebar() {
   }
   setSidebarWidthVar()
   requestAnimationFrame(updateMiniPlayerMetrics)
+}
+
+function applyResponsiveSidebar() {
+  const compact = isCompactLayout()
+  document.body.classList.toggle('compact-layout', compact)
+
+  if (compact) {
+    if (!sidebar.classList.contains('collapsed')) {
+      sidebarAutoHidden = true
+      sidebar.classList.add('collapsed')
+    }
+  } else if (sidebarAutoHidden) {
+    sidebarAutoHidden = false
+    sidebar.classList.remove('collapsed')
+  }
+
+  if (sidebar.classList.contains('collapsed') && currentVideoMode === 'mini') {
+    document.body.classList.add('sidebar-player-hidden')
+  } else {
+    document.body.classList.remove('sidebar-player-hidden')
+  }
+  setSidebarWidthVar()
+  requestAnimationFrame(updateMiniPlayerMetrics)
+}
+
+function updateVolumeUI() {
+  if (!btnVolume || !volumeSlider) return
+  const effectiveVolume = playerMuted ? 0 : playerVolume
+  volumeSlider.value = String(playerVolume)
+  volumeSlider.style.setProperty('--volume-pct', `${effectiveVolume}%`)
+  btnVolume.classList.toggle('muted', playerMuted || playerVolume === 0)
+  btnVolume.innerHTML = icon(playerMuted || playerVolume === 0
+    ? ICON.volumeX
+    : (playerVolume > 50 ? ICON.volume2 : ICON.volume), 15)
+  btnVolume.title = playerMuted || playerVolume === 0 ? 'Unmute' : 'Mute'
+}
+
+async function applyPlayerVolume(volume, persistSetting = true) {
+  playerVolume = Math.max(0, Math.min(100, Math.round(Number(volume) || 0)))
+  playerMuted = playerVolume === 0
+  updateVolumeUI()
+  const result = await window.api.playerVolumeSet(playerVolume)
+  if (result) {
+    playerVolume = Math.max(0, Math.min(100, Math.round(Number(result.volume) || playerVolume)))
+    playerMuted = !!result.muted || playerVolume === 0
+    updateVolumeUI()
+  }
+  if (persistSetting) {
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.playerVolume = playerVolume
+    state.store.settings.playerMuted = playerMuted
+    persist()
+  }
+}
+
+async function togglePlayerMute() {
+  const result = await window.api.playerMuteToggle()
+  if (result) {
+    playerVolume = Math.max(0, Math.min(100, Math.round(Number(result.volume) || playerVolume)))
+    playerMuted = !!result.muted
+  } else {
+    playerMuted = !playerMuted
+  }
+  if (!playerMuted && playerVolume === 0) playerVolume = 80
+  updateVolumeUI()
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings.playerVolume = playerVolume
+  state.store.settings.playerMuted = playerMuted
+  persist()
 }
 
 // ── Sidebar resize ────────────────────────────────────────────────────────────
@@ -981,44 +1083,50 @@ function renderHistory() {
   hist.forEach((item) => historyList.appendChild(makeSetListItem(item)))
 }
 
-function wireMarquee(li) {
-  const titleEl = li.querySelector('.set-item-title')
-  if (!titleEl) return
+function wireOverflowMarquee(target, hoverTarget = target) {
+  if (!target || target.dataset.marqueeWired === 'true') return
+  target.dataset.marqueeWired = 'true'
 
-  li.addEventListener('mouseenter', () => {
-    // Cancel any in-progress return transition first
-    titleEl.style.transition = 'none'
-    titleEl.style.transform  = ''
-    titleEl.classList.remove('marquee')
+  const start = () => {
+    target.style.transition = 'none'
+    target.style.transform = ''
+    target.classList.remove('overflow-marquee')
 
     requestAnimationFrame(() => {
-      const overflow = titleEl.scrollWidth - titleEl.clientWidth
+      const overflow = target.scrollWidth - target.clientWidth
       if (overflow <= 4) return
-      const secs = Math.max(1.5, overflow / 60) // 60 px/s
-      titleEl.style.setProperty('--marquee-dist', `-${overflow}px`)
-      titleEl.style.setProperty('--marquee-dur',  `${secs}s`)
-      titleEl.classList.add('marquee')
+      const secs = Math.max(1.5, overflow / 60)
+      target.style.setProperty('--marquee-dist', `-${overflow}px`)
+      target.style.setProperty('--marquee-dur', `${secs}s`)
+      target.classList.add('overflow-marquee')
     })
-  })
+  }
 
-  li.addEventListener('mouseleave', () => {
-    if (!titleEl.classList.contains('marquee')) return
-    // Read animated position so the return glide starts from where it is
-    const currentX = new DOMMatrix(getComputedStyle(titleEl).transform).m41
-    titleEl.classList.remove('marquee')
-    titleEl.style.transform = `translateX(${currentX}px)`
-    // Double rAF ensures the browser registers the explicit transform before
-    // we add the transition, avoiding an instant snap
+  const stop = () => {
+    if (!target.classList.contains('overflow-marquee')) return
+    const currentX = new DOMMatrix(getComputedStyle(target).transform).m41
+    target.classList.remove('overflow-marquee')
+    target.style.transform = `translateX(${currentX}px)`
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      titleEl.style.transition = 'transform 0.5s ease'
-      titleEl.style.transform  = 'translateX(0)'
+      target.style.transition = 'transform 0.5s ease'
+      target.style.transform = 'translateX(0)'
     }))
-  })
+  }
 
-  titleEl.addEventListener('transitionend', () => {
-    titleEl.style.transition = ''
-    titleEl.style.transform  = ''
+  hoverTarget.addEventListener('mouseenter', start)
+  hoverTarget.addEventListener('mouseleave', stop)
+  target.addEventListener('transitionend', () => {
+    target.style.transition = ''
+    target.style.transform = ''
   })
+}
+
+function wireSetItemMarquee(li) {
+  wireOverflowMarquee(li.querySelector('.set-item-title'), li)
+}
+
+function wireFooterMarquees() {
+  ;[npTrack, npArtist, npSet, npSource, scrobbleLabel].forEach(el => wireOverflowMarquee(el))
 }
 
 function isYouTubeSourceUrl(url) {
@@ -1093,6 +1201,7 @@ function loadSet(item, resume) {
     ? (item.progressTime ?? item.lastTrackCueSeconds ?? null)
     : null
   if (isYouTubeSourceUrl(item.url)) {
+    document.body.classList.add('has-active-set')
     hideIntro()
     showLoading('Searching tracklist…')
     window.api.loadSourceUrl(item.url)
@@ -1197,7 +1306,7 @@ function makeSetListItem(item, onRemove) {
       onRemove()
     })
   }
-  wireMarquee(li)
+  wireSetItemMarquee(li)
   return li
 }
 
@@ -1395,6 +1504,7 @@ function persist() {
 // ── Now-playing reset ─────────────────────────────────────────────────────────
 
 function resetNowPlaying() {
+  document.body.classList.remove('has-active-set')
   state.nowPlaying         = null
   state.currentSetTitle    = ''
   state.currentSetUrl      = ''
@@ -1512,7 +1622,10 @@ function wireEvents() {
   btnVideoFullscreen.addEventListener('click', () => applyVideoMode(btnVideoFullscreen.dataset.mode || 'fullscreen'))
   btnVideoHide.addEventListener('click', () => applyVideoMode('hidden'))
   videoControls.addEventListener('mousedown', startWindowDrag)
-  window.addEventListener('resize', updateMiniPlayerMetrics)
+  window.addEventListener('resize', applyResponsiveSidebar)
+  btnVolume.addEventListener('click', togglePlayerMute)
+  volumeSlider.addEventListener('input', () => applyPlayerVolume(volumeSlider.value, false))
+  volumeSlider.addEventListener('change', () => applyPlayerVolume(volumeSlider.value, true))
 
   navBtns.forEach((btn) =>
     btn.addEventListener('click', () => switchSidebarPanel(btn.dataset.panel))

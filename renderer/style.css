@@ -249,6 +249,14 @@ html, body {
 .icon-btn:hover { color: var(--text); border-color: var(--accent); }
 .icon-btn.active { color: var(--accent); border-color: var(--accent); }
 
+body.compact-layout.has-active-set #search-area {
+  display: none;
+}
+
+body.compact-layout.has-active-set #header-actions {
+  margin-left: auto;
+}
+
 /* ── Layout ── */
 #layout {
   display: flex;
@@ -457,7 +465,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 }
 
 /* Marquee state — li clips, title slides */
-.set-list li .set-item-title.marquee {
+.overflow-marquee {
   overflow: visible;
   text-overflow: clip;
   animation: marquee-ping-pong var(--marquee-dur, 3s) linear 0.3s infinite alternate;
@@ -1050,7 +1058,23 @@ webview {
   -webkit-app-region: drag;
 }
 
-#now-playing-bar button { -webkit-app-region: no-drag; }
+#now-playing-bar button,
+#np-track,
+#np-artist,
+#np-set,
+#np-source,
+#scrobble-label,
+#volume-control {
+  -webkit-app-region: no-drag;
+}
+
+#np-track,
+#np-artist,
+#np-set,
+#np-source,
+#scrobble-label {
+  cursor: default;
+}
 
 #playback-progress {
   position: absolute;
@@ -1400,6 +1424,10 @@ webview {
   text-transform: uppercase;
   letter-spacing: .05em;
   transition: color .3s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
 }
 
 #scrobble-badge.ok     #scrobble-dot,
@@ -1411,6 +1439,87 @@ webview {
 /* "enabled" = configured but not playing — same muted look as unconfigured */
 /* "dim" = tracklist unavailable — muted with dashed border */
 #scrobble-badge.dim    { border-style: dashed; }
+
+#volume-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.volume-btn {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: color .15s, transform .15s;
+}
+
+.volume-btn:hover,
+#volume-control:focus-within .volume-btn {
+  color: var(--accent);
+}
+
+.volume-btn:active {
+  transform: scale(.94);
+}
+
+.volume-btn.muted {
+  color: var(--text3);
+}
+
+#volume-popover {
+  position: absolute;
+  right: -10px;
+  bottom: 32px;
+  width: 38px;
+  height: 132px;
+  padding: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(12, 18, 32, .96);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity .15s, transform .15s;
+}
+
+#volume-control:hover #volume-popover,
+#volume-control:focus-within #volume-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+#volume-slider {
+  width: 96px;
+  height: 4px;
+  transform: rotate(-90deg);
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+body.compact-layout #np-info,
+body.compact-layout #np-right {
+  display: none;
+}
+
+body.compact-layout #now-playing-bar {
+  justify-content: space-between;
+  gap: 12px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
 
 /* ── Tracklist unavailable message ── */
 #tracklist-unavailable {

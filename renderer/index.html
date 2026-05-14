@@ -290,8 +290,8 @@
           <div class="tl-unavailable-icon">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
-          <p class="tl-unavailable-title">Tracklist not yet available</p>
-          <p class="tl-unavailable-sub">No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.</p>
+          <p class="tl-unavailable-title" id="tracklist-unavailable-title">Tracklist not yet available</p>
+          <p class="tl-unavailable-sub" id="tracklist-unavailable-sub">No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.</p>
         </div>
         <ul id="tracklist-list" class="track-list"></ul>
       </div>
@@ -357,6 +357,14 @@
     <div id="scrobble-badge" title="Last.fm scrobbling status">
       <span id="scrobble-dot">●</span>
       <span id="scrobble-label">Scrobbling not configured</span>
+    </div>
+    <div id="volume-control">
+      <button id="btn-volume" class="volume-btn" title="Mute">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+      <div id="volume-popover" role="tooltip">
+        <input id="volume-slider" type="range" min="0" max="100" value="80" aria-label="Volume" />
+      </div>
     </div>
   </footer>
 

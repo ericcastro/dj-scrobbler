@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld('api', {
   windowDragEnd:   ()      => ipcRenderer.invoke('window-drag-end'),
 
   playerToggle:    ()      => ipcRenderer.invoke('player-toggle'),
+  playerVolumeGet: ()      => ipcRenderer.invoke('player-volume-get'),
+  playerVolumeSet: (value) => ipcRenderer.invoke('player-volume-set', value),
+  playerMuteToggle: ()     => ipcRenderer.invoke('player-mute-toggle'),
   playerGotoTrack: (args) => ipcRenderer.invoke('player-goto-track', args),
   playerSeek:      (secs) => ipcRenderer.invoke('player-seek', secs),
   fallbackSeek:    (secs) => ipcRenderer.invoke('fallback-seek', secs),

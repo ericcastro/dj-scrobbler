@@ -22,9 +22,31 @@ const COMMON_HEADERS = {
   Cookie: 'guid=3dc62f90cce8f',
 }
 
+function providerError(code, message) {
+  const err = new Error(message)
+  err.code = code
+  err.providerId = '1001tracklists'
+  return err
+}
+
+function assertProviderResponse(html) {
+  if (/access has been limited due to overuse/i.test(html || '')) {
+    throw providerError(
+      'provider_access_limited',
+      '1001Tracklists temporarily limited access due to overuse. Wait a bit before retrying.'
+    )
+  }
+  if (/challenges\.cloudflare\.com\/turnstile|turnstile-container|Please wait, you will be forwarded/i.test(html || '')) {
+    throw providerError(
+      'provider_challenge',
+      '1001Tracklists requested a browser verification challenge.'
+    )
+  }
+}
+
 // Fetch a 1001tracklists page by path, following one level of redirect.
 function fetchPage(path) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: 'www.1001tracklists.com',
       path,
@@ -42,7 +64,15 @@ function fetchPage(path) {
       }
       const chunks = []
       res.on('data', c => chunks.push(c))
-      res.on('end', () => resolve(Buffer.concat(chunks).toString()))
+      res.on('end', () => {
+        try {
+          const html = Buffer.concat(chunks).toString()
+          assertProviderResponse(html)
+          resolve(html)
+        } catch (err) {
+          reject(err)
+        }
+      })
     })
     req.setTimeout(10_000, () => { req.destroy(); resolve('') })
     req.on('error', () => resolve(''))
@@ -53,7 +83,7 @@ function fetchPage(path) {
 // POST the YouTube URL to the search endpoint; return an ordered list of
 // { path, url, title } for every tracklist result found.
 function searchByUrl(sourceUrl) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const postData = new URLSearchParams({
       main_search: sourceUrl,
       search_selection: '9',
@@ -75,26 +105,31 @@ function searchByUrl(sourceUrl) {
       const chunks = []
       res.on('data', c => chunks.push(c))
       res.on('end', () => {
-        const html = Buffer.concat(chunks).toString()
+        try {
+          const html = Buffer.concat(chunks).toString()
+          assertProviderResponse(html)
 
-        if (html.includes('returns nothing')) { resolve([]); return }
+          if (html.includes('returns nothing')) { resolve([]); return }
 
-        const seen    = new Set()
-        const results = []
-        const re = /href="(\/tracklist\/[a-z0-9]+\/([^"]+)\.html)"/g
-        let m
-        while ((m = re.exec(html)) !== null) {
-          const path = m[1]
-          if (seen.has(path)) continue
-          seen.add(path)
-          // Derive a human-readable title from the URL slug for logging
-          const title = m[2]
-            .replace(/-\d{4}-\d{2}-\d{2}(-\d{4}-\d{2}-\d{2})?$/, '')
-            .replace(/-/g, ' ')
-            .trim()
-          results.push({ path, url: 'https://www.1001tracklists.com' + path, title })
+          const seen    = new Set()
+          const results = []
+          const re = /href="(\/tracklist\/[a-z0-9]+\/([^"]+)\.html)"/g
+          let m
+          while ((m = re.exec(html)) !== null) {
+            const path = m[1]
+            if (seen.has(path)) continue
+            seen.add(path)
+            // Derive a human-readable title from the URL slug for logging
+            const title = m[2]
+              .replace(/-\d{4}-\d{2}-\d{2}(-\d{4}-\d{2}-\d{2})?$/, '')
+              .replace(/-/g, ' ')
+              .trim()
+            results.push({ path, url: 'https://www.1001tracklists.com' + path, title })
+          }
+          resolve(results)
+        } catch (err) {
+          reject(err)
         }
-        resolve(results)
       })
     })
     req.setTimeout(10_000, () => { req.destroy(); resolve([]) })
@@ -131,8 +166,10 @@ module.exports = {
     return url.includes('1001tracklists.com/tracklist/')
   },
 
-  // Returns [{ url, title, confirmed: true }] when the video ID matches,
-  // or [] when no result matches (caller falls back to YouTube embed).
+  // Returns [{ url, title, confirmed: true }] when the video ID matches.
+  // If 1001 returns a browser challenge while confirming the result page, keep
+  // the search result as an unconfirmed candidate so the BrowserWindow loader
+  // still gets a chance to resolve and extract it.
   async findTracklists(meta) {
     const { url: sourceUrl, videoId } = meta
     if (!videoId) return []
@@ -140,12 +177,26 @@ module.exports = {
     const results = await searchByUrl(sourceUrl)
     if (results.length === 0) return []
 
+    let confirmationBlocked = false
     for (const result of results) {
-      const html      = await fetchPage(result.path)
+      let html
+      try {
+        html = await fetchPage(result.path)
+      } catch (err) {
+        if (err?.code === 'provider_challenge' || err?.code === 'provider_access_limited') {
+          confirmationBlocked = true
+          continue
+        }
+        throw err
+      }
       const foundId   = extractVideoIdFromHtml(html)
       if (foundId === videoId) {
         return [{ url: result.url, title: result.title, confirmed: true }]
       }
+    }
+
+    if (confirmationBlocked) {
+      return results.map(result => ({ ...result, confirmationBlocked: true }))
     }
 
     return []
