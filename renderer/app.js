@@ -76,7 +76,12 @@ const ppIcon             = document.getElementById('pp-icon')
 const playbackProgress      = document.getElementById('playback-progress')
 const playbackProgressTrack = document.getElementById('playback-progress-track')
 const playbackProgressFill  = document.getElementById('playback-progress-fill')
+const playbackProgressSegments = document.getElementById('playback-progress-segments')
 const playbackProgressThumb = document.getElementById('playback-progress-thumb')
+const playbackProgressTooltip = document.getElementById('playback-progress-tooltip')
+const playbackProgressTooltipArt = document.getElementById('playback-progress-tooltip-art')
+const playbackProgressTooltipTitle = document.getElementById('playback-progress-tooltip-title')
+const playbackProgressTooltipArtist = document.getElementById('playback-progress-tooltip-artist')
 const playbackElapsed       = document.getElementById('playback-elapsed')
 const playbackRemaining     = document.getElementById('playback-remaining')
 const npTracknum         = document.getElementById('np-tracknum')
@@ -325,6 +330,7 @@ function hideIntro() {
 
 const VIDEO_MODES = ['inline', 'mini', 'hidden', 'fullscreen']
 let currentVideoMode = 'inline'
+let progressSegmentKey = ''
 
 function setSidebarWidthVar() {
   document.documentElement.style.setProperty('--sidebar-w-current', `${sidebar.offsetWidth || DEFAULT_SIDEBAR_W}px`)
@@ -438,6 +444,7 @@ function updatePlaybackProgress(currentTime = state.playbackCurrentTime, duratio
     ? `-${formatPlaybackTime(Math.max(0, duration - safeCurrent))}`
     : '-00:00:00'
   playbackProgress.classList.toggle('has-duration', hasDuration)
+  renderPlaybackSegments()
 }
 
 function seekFromProgressEvent(e) {
@@ -476,6 +483,94 @@ function timelineTracks() {
     typeof track.cueSeconds === 'number' &&
     Number.isFinite(track.cueSeconds)
   )
+}
+
+function playbackSegmentData() {
+  const duration = state.playbackDuration
+  if (!Number.isFinite(duration) || duration <= 0) return []
+
+  const tracks = timelineTracks()
+    .map(track => ({
+      ...track,
+      cueSeconds: Math.max(0, Math.min(duration, track.cueSeconds)),
+    }))
+    .filter(track => track.cueSeconds < duration)
+    .sort((a, b) => a.cueSeconds - b.cueSeconds)
+
+  return tracks
+    .map((track, i) => {
+      const nextTrack = tracks.slice(i + 1).find(candidate => candidate.cueSeconds > track.cueSeconds)
+      const end = nextTrack ? nextTrack.cueSeconds : duration
+      return end > track.cueSeconds ? { track, start: track.cueSeconds, end } : null
+    })
+    .filter(Boolean)
+}
+
+function segmentTitle(track) {
+  if (track.isId) return 'ID - ID'
+  return track.title || track.raw || '?'
+}
+
+function updateProgressSegmentTooltipPosition(e) {
+  const rect = playbackProgress.getBoundingClientRect()
+  const tooltipWidth = playbackProgressTooltip.offsetWidth || 260
+  const rawX = e.clientX - rect.left
+  const paddedHalfWidth = (tooltipWidth / 2) + 8
+  const x = Math.max(paddedHalfWidth, Math.min(rect.width - paddedHalfWidth, rawX))
+  playbackProgressTooltip.style.left = `${x}px`
+}
+
+function showProgressSegmentTooltip(e, track) {
+  const hasArt = !!track.artUrl
+  playbackProgressTooltipArt.toggleAttribute('hidden', !hasArt)
+  if (hasArt) playbackProgressTooltipArt.src = track.artUrl
+  else playbackProgressTooltipArt.removeAttribute('src')
+  playbackProgressTooltipTitle.textContent = segmentTitle(track)
+  playbackProgressTooltipArtist.textContent = track.artist || ''
+  playbackProgressTooltip.classList.add('visible')
+  playbackProgressTooltip.setAttribute('aria-hidden', 'false')
+  updateProgressSegmentTooltipPosition(e)
+}
+
+function hideProgressSegmentTooltip() {
+  playbackProgressTooltip.classList.remove('visible')
+  playbackProgressTooltip.setAttribute('aria-hidden', 'true')
+}
+
+function renderPlaybackSegments(force = false) {
+  const segments = playbackSegmentData()
+  const duration = state.playbackDuration
+  const key = segments.length
+    ? `${Math.round(duration)}:${segments.map(({ track, start, end }) => [
+        Math.round(start),
+        Math.round(end),
+        track.trackNum || '',
+        track.title || track.raw || '',
+        track.artist || '',
+        track.artUrl || '',
+      ].join('|')).join('~')}`
+    : ''
+
+  if (!force && key === progressSegmentKey) return
+  progressSegmentKey = key
+  playbackProgressSegments.innerHTML = ''
+  playbackProgress.classList.toggle('has-segments', segments.length > 1)
+  hideProgressSegmentTooltip()
+
+  if (!segments.length) return
+
+  const fragment = document.createDocumentFragment()
+  segments.forEach(({ track, start, end }) => {
+    const segment = document.createElement('div')
+    segment.className = 'playback-progress-segment'
+    segment.style.left = `${(start / duration) * 100}%`
+    segment.style.width = `${((end - start) / duration) * 100}%`
+    segment.addEventListener('mouseenter', (e) => showProgressSegmentTooltip(e, track))
+    segment.addEventListener('mousemove', updateProgressSegmentTooltipPosition)
+    segment.addEventListener('mouseleave', hideProgressSegmentTooltip)
+    fragment.appendChild(segment)
+  })
+  playbackProgressSegments.appendChild(fragment)
 }
 
 function seekRelativeTrack(direction) {
@@ -685,6 +780,7 @@ function wireMainEvents() {
     const tracks = Array.isArray(payload) ? payload : (payload?.tracks || [])
     renderTracklist(tracks)
     state.currentTracks = tracks
+    renderPlaybackSegments(true)
     // Persist track count on the history/favorites entry so the sidebar can
     // show "XX tracks" instead of a source name
     const count = tracks.length

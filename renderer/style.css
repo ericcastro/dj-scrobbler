@@ -185,11 +185,15 @@ html, body {
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 12px;
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
   font-family: inherit;
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background .15s;
 }
 
@@ -1042,6 +1046,7 @@ webview {
   padding: 27px 16px 15px;
   gap: 16px;
   position: relative;
+  z-index: 120;
   -webkit-app-region: drag;
 }
 
@@ -1054,6 +1059,7 @@ webview {
   right: 0;
   height: 22px;
   color: var(--text2);
+  z-index: 130;
   -webkit-app-region: no-drag;
 }
 
@@ -1085,6 +1091,48 @@ webview {
   width: 0;
   background: var(--accent);
   transition: height .12s;
+  z-index: 1;
+}
+
+#playback-progress-segments {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.playback-progress-segment {
+  position: absolute;
+  top: 0;
+  height: 8px;
+  min-width: 2px;
+  cursor: pointer;
+}
+
+.playback-progress-segment::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  opacity: .55;
+  transition: height .12s, opacity .12s, background .12s;
+}
+
+.playback-progress-segment:first-child::after {
+  display: none;
+}
+
+#playback-progress:hover .playback-progress-segment::after,
+#playback-progress.dragging .playback-progress-segment::after {
+  height: 4px;
+  opacity: .75;
+}
+
+.playback-progress-segment:hover::after {
+  background: var(--accent2);
+  opacity: .9;
 }
 
 #playback-progress-thumb {
@@ -1097,6 +1145,7 @@ webview {
   background: var(--accent);
   transform: translate(-50%, -4px) scale(0);
   transition: transform .12s;
+  z-index: 3;
 }
 
 #playback-progress:hover #playback-progress-track::before,
@@ -1127,6 +1176,87 @@ webview {
 #playback-progress:not(.has-duration) #playback-progress-fill,
 #playback-progress:not(.has-duration) #playback-progress-thumb {
   opacity: 0;
+}
+
+#playback-progress-tooltip {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translate(-50%, -100%) translateY(4px);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 32px));
+  min-height: 52px;
+  padding: 7px 10px 7px 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg2) 94%, #000 6%);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s, transform .12s;
+  z-index: 140;
+}
+
+#playback-progress-tooltip.visible {
+  opacity: 1;
+  transform: translate(-50%, -100%);
+}
+
+#playback-progress-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: inherit;
+}
+
+#playback-progress-tooltip-art {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+#playback-progress-tooltip-art[hidden] {
+  display: none;
+}
+
+#playback-progress-tooltip-art[hidden] + .playback-progress-tooltip-copy {
+  grid-column: 1 / -1;
+}
+
+.playback-progress-tooltip-copy {
+  min-width: 0;
+  max-width: 260px;
+}
+
+#playback-progress-tooltip-title,
+#playback-progress-tooltip-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#playback-progress-tooltip-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#playback-progress-tooltip-artist {
+  margin-top: 3px;
+  color: var(--text2);
+  font-size: 10px;
 }
 
 #np-left {

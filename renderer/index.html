@@ -28,7 +28,12 @@
       <div id="search-box">
         <input type="text" id="search-input" placeholder="Search for a DJ set…" autocomplete="off" />
         <div id="search-dropdown"></div>
-        <button id="search-btn">Search</button>
+        <button id="search-btn" title="Search" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"/>
+            <path d="m16.5 16.5 4 4"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -307,7 +312,15 @@
     <div id="playback-progress">
       <div id="playback-progress-track">
         <div id="playback-progress-fill"></div>
+        <div id="playback-progress-segments"></div>
         <div id="playback-progress-thumb"></div>
+      </div>
+      <div id="playback-progress-tooltip" aria-hidden="true">
+        <img id="playback-progress-tooltip-art" alt="" />
+        <div class="playback-progress-tooltip-copy">
+          <div id="playback-progress-tooltip-title"></div>
+          <div id="playback-progress-tooltip-artist"></div>
+        </div>
       </div>
       <div id="playback-time-row">
         <span id="playback-elapsed">00:00:00</span>
