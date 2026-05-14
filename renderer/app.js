@@ -92,6 +92,7 @@ const ICON = {
   pause:    '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
   heart:       '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
   heartFilled: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" fill="currentColor"/>',
+  alertCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────────
@@ -331,6 +332,21 @@ function wireMainEvents() {
     updateFallbackProgress(state.currentSetUrl, pct, currentTime)
   })
 
+  // Time-based progress from a tracklist page (e.g. 1001tl sets without timestamps).
+  // Mirrors the fallback-progress handler but uses tlSeek instead of fallbackSeek.
+  window.api.on('tl-progress', ({ currentTime, duration }) => {
+    if (!state.currentSetUrl || !duration) return
+    if (state.pendingResumeTime !== null) {
+      const t = state.pendingResumeTime
+      state.pendingResumeTime = null
+      window.api.tlSeek(t)
+      return
+    }
+    const pct = Math.min(99, Math.round((currentTime / duration) * 100))
+    if (pct < 1) return
+    updateFallbackProgress(state.currentSetUrl, pct, currentTime)
+  })
+
   window.api.on('tracklist-data', (tracks) => {
     if (isResumeDialogOpen()) return
     renderTracklist(tracks)
@@ -347,8 +363,11 @@ function wireMainEvents() {
     persist()
     renderHistory()
     renderFavorites()
-    // If a resume was requested, seek to the saved track once the page is ready
+    // If a track-based resume was requested, seek to the saved track once the
+    // page is ready.  Also clear pendingResumeTime so the tl-progress handler
+    // doesn't fire a redundant time-seek on top of the track seek.
     if (state.pendingResume) {
+      state.pendingResumeTime = null
       const onclick = state.pendingResume
       state.pendingResume = null
       setTimeout(() => window.api.playerGotoTrack(onclick), 1500)
@@ -742,9 +761,10 @@ function makeSetListItem(item, onRemove) {
 function createTrackItem(track, compact) {
   const li = document.createElement('li')
   li.className = 'track-item' +
-    (track.isId             ? ' track-id'      : '') +
-    (track.isWWith          ? ' track-with'    : '') +
-    (track.isMashupComponent ? ' track-mashup' : '')
+    (track.isId             ? ' track-id'           : '') +
+    (track.isWWith          ? ' track-with'         : '') +
+    (track.isMashupComponent ? ' track-mashup'      : '') +
+    (track.noTimestamp      ? ' track-no-timestamp' : '')
   li.dataset.trackNum = track.trackNum || ''
 
   const numHtml = track.isWWith
@@ -762,9 +782,12 @@ function createTrackItem(track, compact) {
     ? `<span class="track-artist">${escHtml(track.artist)}</span>`
     : ''
 
+  // cue column: timestamp if available, warning icon if the track has no timestamp
   const cueHtml = track.cueDisplay
     ? `<span class="track-cue">${escHtml(track.cueDisplay)}</span>`
-    : ''
+    : (track.noTimestamp
+        ? `<span class="track-no-ts-icon">${icon(ICON.alertCircle, 11)}</span>`
+        : '')
 
   li.innerHTML = `
     ${numHtml}
@@ -787,7 +810,18 @@ function renderTracklist(tracks) {
   tracklistList.innerHTML = ''
   tracklistCompactList.innerHTML = ''
 
-  tracks.forEach(track => {
+  // Propagate noTimestamp to w/ and mashup sub-items that belong to a
+  // no-timestamp parent.  Sub-items (isWWith / isMashupComponent) inherit
+  // the flag from the most recent regular track so they render muted too.
+  let parentNoTimestamp = false
+  const annotated = tracks.map(t => {
+    if (!t.isWWith && !t.isMashupComponent) parentNoTimestamp = !!t.noTimestamp
+    return (t.isWWith || t.isMashupComponent) && parentNoTimestamp
+      ? { ...t, noTimestamp: true }
+      : t
+  })
+
+  annotated.forEach(track => {
     tracklistList.appendChild(createTrackItem(track, false))
     tracklistCompactList.appendChild(createTrackItem(track, false))
   })

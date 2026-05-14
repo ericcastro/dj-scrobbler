@@ -1043,6 +1043,39 @@ webview {
 .track-item.track-id.active { opacity: 1; }
 .track-item.track-with { padding-left: 20px; }
 
+/* Tracks with no timestamp — listed but not seekable */
+.track-item.track-no-timestamp {
+  cursor: default;
+  opacity: .45;
+}
+.track-item.track-no-timestamp:hover { background: transparent; }
+
+/* CSS tooltip — appears to the left of the ! icon on hover, no browser delay */
+.track-item.track-no-timestamp:hover::after {
+  content: "Jump/Scrobbling disabled for this track, no timestamp was found";
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 200;
+}
+
+.track-no-ts-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text2);
+}
+
 /* Mashup component sub-tracks — informational only, not seekable */
 .track-item.track-mashup {
   padding-left: 28px;

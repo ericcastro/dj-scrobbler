@@ -223,11 +223,23 @@ function stopMonitoring() {
 
 function startMonitoring(wvContents, tlPlugin) {
   stopMonitoring()
+  let progressTick = 0
   monitorInterval = setInterval(async () => {
     try {
       const data = await wvContents.executeJavaScript(tlPlugin.nowPlayingScript)
       if (data) emitNowPlaying(data)
     } catch {}
+    // Time-based progress for resume — runs every 10 ticks (≈5 s) for plugins
+    // that expose a progressScript (e.g. 1001tracklists).  This keeps the resume
+    // bar alive even when the tracklist has no per-track timestamps.
+    if (tlPlugin.progressScript && progressTick++ % 10 === 0) {
+      try {
+        const prog = await wvContents.executeJavaScript(tlPlugin.progressScript)
+        if (prog && prog.duration > 0) {
+          mainWindow.webContents.send('tl-progress', prog)
+        }
+      } catch {}
+    }
   }, 500)
 }
 
@@ -738,6 +750,37 @@ ipcMain.handle('fallback-seek', (_event, seconds) => {
       return 'not-ready'
     })()
   `).then(r => log('[fallback-seek] result:', r)).catch(() => {})
+})
+
+// Seek the YouTube player embedded inside a 1001tracklists (or similar) page.
+// Used when resuming a set that has no per-track timestamps — we can only
+// restore position by raw seconds via the IFrame API.
+//
+// 1001tl's getYTPlayer() returns a wrapper object.  The wrapper exposes some
+// methods (playVideo, getCurrentTime, getDuration) but not always seekTo.
+// The raw YouTube IFrame API player lives at wrapper.player.g, so we try both
+// layers to maximise compatibility.
+ipcMain.handle('tl-seek', (_event, seconds) => {
+  if (!currentWvContents) return
+  const s = Number(seconds)
+  if (!isFinite(s) || s < 0) return
+  log('[tl-seek] seeking to', s)
+  currentWvContents.executeJavaScript(`
+    (() => {
+      try {
+        if (typeof ytPlayer === 'undefined' || !ytPlayer.idPlayer || typeof getYTPlayer !== 'function') return
+        var _w = getYTPlayer(ytPlayer.idPlayer)
+        if (!_w || !_w.player) return
+        // Try the wrapper first, then the raw IFrame API at .player.g
+        var _pl = (typeof _w.player.seekTo === 'function')
+          ? _w.player
+          : (_w.player.g && typeof _w.player.g.seekTo === 'function')
+            ? _w.player.g
+            : null
+        if (_pl) _pl.seekTo(${s}, true)
+      } catch(e) {}
+    })()
+  `).catch(() => {})
 })
 
 // Re-run the full source → tracklist lookup for a URL (used when reopening a

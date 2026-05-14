@@ -192,7 +192,10 @@ module.exports = {
       // Mashup component: a named sub-track with no play position and no track number.
       // These are the source songs blended into a mashup — display-only, not seekable.
       const isMashupComponent = !onclickStr && !isWWith && trackNum === null
-      return { trackNum, trackNumText, isWWith, isMashupComponent, isId, artist, title, raw: rawName, cueSeconds, cueDisplay, artUrl, onclickStr }
+      // noTimestamp: a numbered track that exists in the tracklist but has no cue
+      // time — 1001tl lists it but there's no position data to seek or track.
+      const noTimestamp = !onclickStr && !isMashupComponent && !isWWith
+      return { trackNum, trackNumText, isWWith, isMashupComponent, noTimestamp, isId, artist, title, raw: rawName, cueSeconds, cueDisplay, artUrl, onclickStr }
     }).filter(t => t.raw || t.onclickStr)
   })()`,
 
@@ -216,5 +219,28 @@ module.exports = {
     // Give ID tracks a unique raw key so emitNowPlaying fires when entering one
     const raw = fullName || (isId ? ('__id__:' + (trackNum ?? '?')) : '')
     return { artist, title, raw, trackNum, isPlaying, isId, source: '1001tl' }
+  })()`,
+
+  // Returns { currentTime, duration } from the embedded YouTube player.
+  // Used to track playback position for resume even when the tracklist has no
+  // per-track timestamps (e.g. Boiler Room sets where .cPlay is never assigned).
+  // 1001tl's wrapper exposes getCurrentTime/getDuration directly; the raw
+  // IFrame API object is at .player.g — we check both layers for robustness.
+  progressScript: `(() => {
+    try {
+      if (typeof ytPlayer === 'undefined' || !ytPlayer.idPlayer || typeof getYTPlayer !== 'function') return null
+      const _w = getYTPlayer(ytPlayer.idPlayer)
+      if (!_w || !_w.player) return null
+      const _pl = (typeof _w.player.getCurrentTime === 'function')
+        ? _w.player
+        : (_w.player.g && typeof _w.player.g.getCurrentTime === 'function')
+          ? _w.player.g
+          : null
+      if (!_pl) return null
+      const cur = _pl.getCurrentTime()
+      const dur = typeof _pl.getDuration === 'function' ? _pl.getDuration() : null
+      if (typeof cur !== 'number' || !dur || dur <= 0) return null
+      return { currentTime: cur, duration: dur }
+    } catch(e) { return null }
   })()`,
 }

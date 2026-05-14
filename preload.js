@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('api', {
   playerToggle:    ()      => ipcRenderer.invoke('player-toggle'),
   playerGotoTrack: (args) => ipcRenderer.invoke('player-goto-track', args),
   fallbackSeek:    (secs) => ipcRenderer.invoke('fallback-seek', secs),
+  tlSeek:          (secs) => ipcRenderer.invoke('tl-seek', secs),
   loadSourceUrl:   (url)  => ipcRenderer.invoke('load-source-url', url),
   openDevTools: ()      => ipcRenderer.invoke('open-devtools'),
 
@@ -22,7 +23,8 @@ contextBridge.exposeInMainWorld('api', {
 
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data',
-                     'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'fallback-progress']
+                     'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'fallback-progress',
+                     'tl-progress']
     if (!allowed.includes(channel)) return
     ipcRenderer.on(channel, (_event, ...args) => callback(...args))
   },
