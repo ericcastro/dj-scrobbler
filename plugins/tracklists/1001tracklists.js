@@ -151,8 +151,8 @@ module.exports = {
     return []
   },
 
-  // Primary: direct access to the YouTube iframe via 1001tl's own JS API.
-  // Fallback CSS selectors cover any edge cases where the API isn't ready.
+  // Dormant v0.4 playback fields. v0.5 keeps them here as reference only while
+  // playback moves to the app-owned YouTube player.
   playerConfig: {
     finderScript: 'getYTPlayer(ytPlayer.idPlayer).player.g',
     selectors: ['#playerWidget', 'iframe[src*="youtube"]', 'iframe[src*="youtube-nocookie"]'],
@@ -166,10 +166,11 @@ module.exports = {
   `,
 
   // Extracts the full tracklist from the #tlTab DOM.
-  // Returns an array of track objects; executed once after the page loads.
+  // Returns normalized-ish provider track objects; v0.5 uses cueSeconds for
+  // app-owned seeking/highlighting instead of 1001tl's playPosition handlers.
   tracklistExtractScript: `(() => {
     const rows = Array.from(document.querySelectorAll('.tlpItem'))
-    return rows.map(row => {
+    return rows.map((row, index) => {
       const trackNumEl   = row.querySelector('.fontXL')
       const trackNumText = trackNumEl ? trackNumEl.textContent.trim() : ''
       const isWWith      = /^w\\//.test(trackNumText)
@@ -182,7 +183,8 @@ module.exports = {
       const prefix       = artist ? artist + ' - ' : ''
       const title        = prefix && rawName.startsWith(prefix) ? rawName.substring(prefix.length) : rawName
       const cueInput     = row.querySelector('input[id$="_cue_seconds"]')
-      const cueSeconds   = cueInput ? (parseInt(cueInput.value) || 0) : 0
+      const hasTimestamp = !!cueInput
+      const cueSeconds   = hasTimestamp ? (parseInt(cueInput.value) || 0) : null
       const cueEl        = row.querySelector('.cue')
       const cueDisplay   = cueEl ? cueEl.textContent.trim() : ''
       const artImg       = row.querySelector('img.artM')
@@ -191,12 +193,13 @@ module.exports = {
       const onclickStr = playEl ? (playEl.getAttribute('onclick') || null) : null
       // Mashup component: a named sub-track with no play position and no track number.
       // These are the source songs blended into a mashup — display-only, not seekable.
-      const isMashupComponent = !onclickStr && !isWWith && trackNum === null
+      const isMashupComponent = !hasTimestamp && !onclickStr && !isWWith && trackNum === null
       // noTimestamp: a numbered track that exists in the tracklist but has no cue
       // time — 1001tl lists it but there's no position data to seek or track.
-      const noTimestamp = !onclickStr && !isMashupComponent && !isWWith
-      return { trackNum, trackNumText, isWWith, isMashupComponent, noTimestamp, isId, artist, title, raw: rawName, cueSeconds, cueDisplay, artUrl, onclickStr }
-    }).filter(t => t.raw || t.onclickStr)
+      const noTimestamp = !hasTimestamp && !isMashupComponent && !isWWith
+      const providerTrackId = row.id || '1001tl-row-' + index
+      return { providerTrackId, trackNum, trackNumText, isWWith, isMashupComponent, noTimestamp, isId, artist, title, raw: rawName, hasTimestamp, cueSeconds, cueDisplay, artUrl, onclickStr }
+    }).filter(t => t.raw || t.hasTimestamp || t.onclickStr)
   })()`,
 
   nowPlayingScript: `(() => {

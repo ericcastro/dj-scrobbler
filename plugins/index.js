@@ -12,19 +12,30 @@
  *   3. Wire it in ROUTING
  */
 
-const youtube    = require('./sources/youtube')
-const soundcloud = require('./sources/soundcloud')
-const tl1001     = require('./tracklists/1001tracklists')
-const set79      = require('./tracklists/set79')
+const youtube          = require('./sources/youtube')
+const soundcloudDormant = require('./sources/soundcloud')
+const tl1001           = require('./tracklists/1001tracklists')
+const set79Dormant     = require('./tracklists/set79')
 
-const SOURCES    = [youtube, soundcloud]
-const TRACKLISTS = [tl1001, set79]
+const SOURCES    = [youtube]
+const TRACKLISTS = [tl1001]
+
+// Parked for the v0.5 player refactor. SoundCloud/set79 is still valuable
+// reference code for the upcoming YouTube -> SoundCloud -> set79 bridge, but
+// it should not participate in the active playback architecture while the
+// app-owned YouTube player work lands.
+const DORMANT_INTEGRATIONS = {
+  sources: [soundcloudDormant],
+  tracklists: [set79Dormant],
+  routing: {
+    soundcloud: 'set79',
+  },
+}
 
 // Default routing: source ID → tracklist plugin ID.
 // Future: make this user-configurable per source.
 const ROUTING = {
-  youtube:    '1001tracklists',
-  soundcloud: 'set79',
+  youtube: '1001tracklists',
 }
 
 function sourceForUrl(url) {
@@ -98,4 +109,13 @@ function titleSimilarity(metaOrString, resultTitle) {
   return score
 }
 
-module.exports = { SOURCES, TRACKLISTS, ROUTING, sourceForUrl, tracklistForUrl, tracklistForSource, titleSimilarity }
+module.exports = {
+  SOURCES,
+  TRACKLISTS,
+  ROUTING,
+  DORMANT_INTEGRATIONS,
+  sourceForUrl,
+  tracklistForUrl,
+  tracklistForSource,
+  titleSimilarity,
+}

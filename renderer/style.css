@@ -69,6 +69,11 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 :root {
   --topbar-h:  52px;
   --sidebar-w: 220px;
+  --sidebar-w-current: 220px;
+  --mini-player-left: 8px;
+  --mini-player-top: 0px;
+  --mini-player-width: 204px;
+  --mini-player-height: 115px;
   --footer-h:  64px;
   --radius:    8px;
 }
@@ -336,6 +341,7 @@ html, body {
 .sidebar-panel {
   display: none;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   /* background exposed here is draggable (inherits from #sidebar) */
 }
@@ -348,6 +354,20 @@ html, body {
   overflow-y: auto;
   padding: 12px 8px;
   -webkit-app-region: no-drag;
+}
+
+#sidebar-mini-player-slot {
+  display: none;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-top: 1px solid var(--border);
+  background: #000;
+  overflow: hidden;
+}
+
+body.video-mode-mini #sidebar-mini-player-slot {
+  display: block;
 }
 
 .panel-title {
@@ -629,6 +649,24 @@ html, body {
   min-width: 0;
 }
 
+/* ── Browse area ── */
+#browse-area {
+  display: none;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  background: var(--bg);
+}
+
+body.is-browsing #browse-area {
+  display: block;
+}
+
+body.is-browsing:not(.video-mode-mini):not(.video-mode-hidden) #main-content:not(.has-tracklist) #video-area {
+  display: none;
+}
+
 /* ── Video area ── */
 /* Default: fills all space (browsing, loading states) */
 #video-area {
@@ -636,6 +674,64 @@ html, body {
   position: relative;
   overflow: hidden;
   min-height: 0;
+}
+
+body.video-mode-mini #video-area {
+  position: fixed;
+  left: var(--mini-player-left);
+  top: var(--mini-player-top);
+  width: var(--mini-player-width);
+  height: var(--mini-player-height);
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  background: #000;
+  z-index: 40;
+}
+
+body.video-mode-mini #webview-container {
+  overflow: hidden;
+}
+
+body.video-mode-fullscreen #video-area {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  background: #000;
+  z-index: 8000;
+}
+
+body.video-mode-hidden #video-area {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  width: 320px;
+  height: 180px;
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.sidebar-player-hidden #video-area {
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  width: 320px !important;
+  height: 180px !important;
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Tracklist mode: collapse to 16:9 aspect ratio.
@@ -646,6 +742,90 @@ html, body {
   flex: none;
   height: 0;
   padding-bottom: 56.25%;
+}
+
+body.video-mode-mini #main-content.has-tracklist #video-area {
+  position: fixed;
+  left: var(--mini-player-left);
+  top: var(--mini-player-top);
+  width: var(--mini-player-width);
+  height: var(--mini-player-height);
+  padding-bottom: 0;
+  flex: none;
+}
+
+body.video-mode-fullscreen #main-content.has-tracklist #video-area {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  padding-bottom: 0;
+  flex: none;
+}
+
+body.video-mode-hidden #main-content.has-tracklist #video-area {
+  height: 0;
+  padding-bottom: 0;
+}
+
+#video-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  background: rgba(0, 0, 0, .01);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+body.video-mode-fullscreen #topbar,
+body.video-mode-fullscreen #now-playing-bar {
+  display: none;
+}
+
+body.video-mode-fullscreen #layout {
+  height: 100vh;
+}
+
+body.video-mode-hidden #video-controls { display: none; }
+
+.video-control-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(6, 26, 30, .82);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity .12s, transform .12s, border-color .12s, color .12s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  -webkit-app-region: no-drag;
+}
+
+#video-controls:hover .video-control-btn,
+.video-control-btn:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.video-control-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ── Tracklist below video ── */
@@ -1182,8 +1362,9 @@ webview {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 
-/* ── Resume dialog ── */
-#resume-dialog {
+/* ── Dialogs ── */
+#resume-dialog,
+#support-dialog {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, .55);
@@ -1194,9 +1375,11 @@ webview {
   align-items: center;
   justify-content: center;
 }
-#resume-dialog.hidden { display: none; }
+#resume-dialog.hidden,
+#support-dialog.hidden { display: none; }
 
-#resume-dialog-box {
+#resume-dialog-box,
+#support-dialog-box {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1205,16 +1388,25 @@ webview {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  position: relative;
 }
 
-.resume-dialog-title {
+#support-dialog-box {
+  width: 560px;
+  max-width: calc(100vw - 40px);
+  padding-right: 52px;
+}
+
+.resume-dialog-title,
+.support-dialog-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   margin: 0;
 }
 
-.resume-dialog-sub {
+.resume-dialog-sub,
+.support-dialog-sub {
   font-size: 11px;
   color: var(--text2);
   margin: 0;
@@ -1230,13 +1422,23 @@ webview {
   cursor: pointer;
 }
 
-.resume-dialog-btns {
+.resume-dialog-btns,
+.support-dialog-btns {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
-.resume-dialog-btns button {
+.support-dialog-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  justify-content: stretch;
+  flex-wrap: nowrap;
+}
+
+.resume-dialog-btns button,
+.support-dialog-btns button {
   font-size: 11px;
   padding: 6px 12px;
   border-radius: 6px;
@@ -1247,16 +1449,48 @@ webview {
   transition: background .12s;
 }
 
-.resume-dialog-btns button:hover { background: var(--border); }
+.support-dialog-btns button {
+  white-space: nowrap;
+}
 
-.resume-dialog-btns .btn-primary {
+.resume-dialog-btns .btn-primary,
+.support-dialog-btns .btn-primary {
+  width: auto;
+  margin-top: 0;
+}
+
+.resume-dialog-btns button:hover,
+.support-dialog-btns button:hover { background: var(--border); }
+
+.resume-dialog-btns .btn-primary,
+.support-dialog-btns .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #000;
   font-weight: 600;
 }
 
-.resume-dialog-btns .btn-primary:hover { opacity: .85; background: var(--accent); }
+.resume-dialog-btns .btn-primary:hover,
+.support-dialog-btns .btn-primary:hover { opacity: .85; background: var(--accent); }
+
+.dialog-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--text2);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.dialog-close-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
 
 /* Resume setting radios in the settings panel */
 .resume-options {

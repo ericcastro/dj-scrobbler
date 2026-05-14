@@ -1,10 +1,9 @@
-const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme, screen } = require('electron')
 const path   = require('path')
 const https  = require('https')
 const crypto = require('crypto')
 const fs     = require('fs')
 const plugins  = require('./plugins')
-const overlay  = require('./plugins/overlay')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -16,10 +15,28 @@ nativeTheme.themeSource = 'dark'
 // ── Verbose logging ───────────────────────────────────────────────────────────
 // Enable with:  DJ_VERBOSE=1 npm start
 const VERBOSE = !!process.env.DJ_VERBOSE
-function log(...args) { if (VERBOSE) console.log(...args) }
+const recentLogs = []
+function formatLogArg(arg) {
+  if (typeof arg === 'string') return arg
+  try { return JSON.stringify(arg) } catch { return String(arg) }
+}
+function appendLog(args) {
+  recentLogs.push(`[${new Date().toISOString()}] ${args.map(formatLogArg).join(' ')}`)
+  if (recentLogs.length > 80) recentLogs.shift()
+}
+function log(...args) {
+  appendLog(args)
+  if (VERBOSE) console.log(...args)
+}
+const DEVELOPER_MODE = process.argv.includes('--developer')
 
 let mainWindow
 let currentWvContents = null
+let playerWvContents = null
+let browserWvContents = null
+const attachedWebviews = new Map()
+let displayFullscreenBounds = null
+let windowDragStart = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
 let saveBoundsTimer = null
 
@@ -184,7 +201,7 @@ function lfmScrobble(artist, title, startedAt, album) {
     .catch(() => setLfmStatus('error'))
 }
 
-// ── Now-playing polling ───────────────────────────────────────────────────────
+// ── App-owned playback + timeline tracking ───────────────────────────────────
 
 let monitorInterval      = null
 let lastNowPlaying       = null
@@ -192,8 +209,17 @@ let lastTrackData        = null
 let trackStartedAt       = null
 let currentSetTitle      = null   // DJ set title used as album in Last.fm scrobbles
 let currentThumbnailUrl  = null   // YouTube thumbnail for history/favorites
-let isFallbackMode       = false  // true when showing YouTube fallback player
-let lastFallbackPlaying  = null   // last known play state in fallback mode
+let currentSourceUrl     = null   // Canonical source URL for history/favorites
+let currentTracklistUrl  = null
+let currentTracklistProvider = null
+let currentTracks        = []
+let isYouTubePlayerMode  = false
+let isTracklistLookupPending = false
+let lastPlayerPlaying    = null
+let lastPlaybackTickAt   = null
+let currentTrackPlayedMs = 0
+let activeTrackKey       = null
+let currentLookupToken   = 0
 
 function extractVideoId(url) {
   try {
@@ -202,6 +228,21 @@ function extractVideoId(url) {
     if (u.hostname === 'youtu.be')          return u.pathname.slice(1).split('?')[0]
   } catch {}
   return null
+}
+
+function youtubePlayerUrl(videoId) {
+  return `https://www.djscrobbler.com/embed/youtube?id=${encodeURIComponent(videoId)}`
+}
+
+function isYouTubePlayerUrl(url) {
+  try {
+    const u = new URL(url)
+    const hostOk = u.hostname === 'djscrobbler.com' || u.hostname === 'www.djscrobbler.com'
+    const pathOk = u.pathname.replace(/\/$/, '') === '/embed/youtube'
+    return hostOk && pathOk
+  } catch {
+    return false
+  }
 }
 
 function thumbnailForSourceUrl(sourceUrl) {
@@ -216,80 +257,294 @@ function thumbnailForSourceUrl(sourceUrl) {
   return null
 }
 
-function stopMonitoring() {
-  if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null }
-  lastNowPlaying = null
+function resetTimelineState() {
+  lastNowPlaying       = null
+  lastTrackData        = null
+  trackStartedAt       = null
+  lastPlayerPlaying    = null
+  lastPlaybackTickAt   = null
+  currentTrackPlayedMs = 0
+  activeTrackKey       = null
 }
 
-function startMonitoring(wvContents, tlPlugin) {
-  stopMonitoring()
-  let progressTick = 0
+function scrobbleLastTrackIfReady() {
+  if (!lastTrackData || lastTrackData.isId || !trackStartedAt) return
+  if (currentTrackPlayedMs < 30000) return
+  lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt, currentSetTitle)
+}
+
+function stopMonitoring({ finalize = true } = {}) {
+  if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null }
+  if (finalize) scrobbleLastTrackIfReady()
+  resetTimelineState()
+}
+
+function normalizeTrack(track, index, providerId) {
+  const cueSeconds = Number(track.cueSeconds)
+  const hasTimestamp = !!track.hasTimestamp ||
+    (!track.noTimestamp && Number.isFinite(cueSeconds) && cueSeconds >= 0)
+  const raw = track.raw || [track.artist, track.title].filter(Boolean).join(' - ')
+  return {
+    ...track,
+    providerId,
+    providerTrackId: track.providerTrackId || `${providerId}:${track.trackNum || index + 1}:${cueSeconds || 0}:${raw}`,
+    raw,
+    cueSeconds: Number.isFinite(cueSeconds) && cueSeconds >= 0 ? cueSeconds : null,
+    hasTimestamp,
+    noTimestamp: !!track.noTimestamp || !hasTimestamp,
+  }
+}
+
+function normalizeTracks(tracks, providerId) {
+  return tracks.map((track, index) => normalizeTrack(track, index, providerId))
+}
+
+function isTimelineTrack(track) {
+  return track &&
+    !track.isWWith &&
+    !track.isMashupComponent &&
+    !track.noTimestamp &&
+    typeof track.cueSeconds === 'number' &&
+    Number.isFinite(track.cueSeconds)
+}
+
+function activeTrackForTime(seconds) {
+  let active = null
+  for (const track of currentTracks) {
+    if (!isTimelineTrack(track)) continue
+    if (track.cueSeconds <= seconds + 0.75) active = track
+    else break
+  }
+  return active
+}
+
+function keyForTrack(track) {
+  return track?.providerTrackId || track?.raw || String(track?.trackNum || '')
+}
+
+function updatePlayAccumulator(now) {
+  if (lastPlaybackTickAt && lastPlayerPlaying === true && lastTrackData) {
+    currentTrackPlayedMs += Math.max(0, now - lastPlaybackTickAt)
+  }
+  lastPlaybackTickAt = now
+}
+
+function emitPlayerStateOnly(poll) {
+  if (poll.isPlaying === lastPlayerPlaying) return
+  lastPlayerPlaying = poll.isPlaying
+  mainWindow.webContents.send('now-playing', {
+    artist: '',
+    title: '',
+    raw: '__youtube_player__',
+    trackNum: null,
+    isPlaying: poll.isPlaying,
+    currentTime: poll.currentTime,
+    duration: poll.duration,
+    source: 'youtube-player',
+  })
+}
+
+function emitTimelineTrack(track, poll) {
+  const key = keyForTrack(track)
+  const raw = track.raw || [track.artist, track.title].filter(Boolean).join(' - ') || key
+  const data = {
+    artist: track.artist || '',
+    title: track.title || raw,
+    raw,
+    trackNum: track.trackNum || null,
+    isPlaying: poll.isPlaying,
+    isId: !!track.isId,
+    source: currentTracklistProvider || 'timeline',
+    providerId: currentTracklistProvider,
+    cueSeconds: track.cueSeconds,
+    currentTime: poll.currentTime,
+    duration: poll.duration,
+  }
+
+  const trackChanged = key !== activeTrackKey
+  const playChanged = poll.isPlaying !== lastPlayerPlaying
+
+  if (!trackChanged && !playChanged && data.raw === lastNowPlaying) return
+
+  if (trackChanged) {
+    scrobbleLastTrackIfReady()
+    activeTrackKey = key
+    lastNowPlaying = data.raw
+    lastTrackData  = data
+    trackStartedAt = Date.now()
+    currentTrackPlayedMs = 0
+    if (!data.isId) lfmUpdateNowPlaying(data.artist, data.title)
+  } else if (lastTrackData) {
+    lastTrackData = { ...lastTrackData, isPlaying: poll.isPlaying, currentTime: poll.currentTime, duration: poll.duration }
+  }
+
+  lastPlayerPlaying = poll.isPlaying
+  mainWindow.webContents.send('now-playing', trackChanged ? data : lastTrackData)
+}
+
+function handlePlaybackPoll(poll) {
+  const now = Date.now()
+  updatePlayAccumulator(now)
+
+  if (poll.duration > 0) {
+    mainWindow.webContents.send('playback-progress', {
+      currentTime: poll.currentTime,
+      duration: poll.duration,
+    })
+  }
+
+  const activeTrack = activeTrackForTime(poll.currentTime)
+  if (!activeTrack) {
+    emitPlayerStateOnly(poll)
+    return
+  }
+
+  emitTimelineTrack(activeTrack, poll)
+}
+
+// window.ytPlayer is exposed by the HTTPS-hosted djscrobbler.com embed page
+// through the YouTube IFrame API.
+const YT_STATE_SCRIPT = `
+  (() => {
+    const p = window.ytPlayer
+    if (!p || typeof p.getPlayerState !== 'function') return null
+    return p.getPlayerState() === 1
+  })()
+`
+
+const YT_PLAY_SCRIPT = `
+  (() => {
+    const p = window.ytPlayer
+    if (p && typeof p.playVideo === 'function') p.playVideo()
+  })()
+`
+
+const YT_PAUSE_SCRIPT = `
+  (() => {
+    const p = window.ytPlayer
+    if (p && typeof p.pauseVideo === 'function') p.pauseVideo()
+  })()
+`
+
+const YT_POLL_SCRIPT = `
+  (() => {
+    const p = window.ytPlayer
+    if (!p || typeof p.getPlayerState !== 'function') return null
+    const state = p.getPlayerState()
+    if (state === -1) return null
+    return {
+      isPlaying: state === 1,
+      currentTime: typeof p.getCurrentTime === 'function' ? (p.getCurrentTime() || 0) : 0,
+      duration: typeof p.getDuration === 'function' ? (p.getDuration() || 0) : 0,
+    }
+  })()
+`
+
+function startYouTubePlayerMonitoring(wvContents) {
+  stopMonitoring({ finalize: false })
+  setTimeout(() => {
+    wvContents.executeJavaScript(YT_PLAY_SCRIPT).catch(() => {})
+  }, 1000)
   monitorInterval = setInterval(async () => {
     try {
-      const data = await wvContents.executeJavaScript(tlPlugin.nowPlayingScript)
-      if (data) emitNowPlaying(data)
+      const poll = await wvContents.executeJavaScript(YT_POLL_SCRIPT)
+      if (poll) handlePlaybackPoll(poll)
     } catch {}
-    // Time-based progress for resume — runs every 10 ticks (≈5 s) for plugins
-    // that expose a progressScript (e.g. 1001tracklists).  This keeps the resume
-    // bar alive even when the tracklist has no per-track timestamps.
-    if (tlPlugin.progressScript && progressTick++ % 10 === 0) {
-      try {
-        const prog = await wvContents.executeJavaScript(tlPlugin.progressScript)
-        if (prog && prog.duration > 0) {
-          mainWindow.webContents.send('tl-progress', prog)
-        }
-      } catch {}
-    }
   }, 500)
 }
 
-function emitNowPlaying(data) {
-  if (data.raw === lastNowPlaying) return
-
-  // Scrobble the track that just ended (must have played ≥30s).
-  // Skip ID tracks — they have no artist/title to scrobble.
-  if (lastTrackData && !lastTrackData.isId && trackStartedAt && (Date.now() - trackStartedAt) >= 30000) {
-    lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt, currentSetTitle)
-  }
-
-  lastNowPlaying = data.raw
-  lastTrackData  = data
-  trackStartedAt = Date.now()
-
-  // Don't hit Last.fm for unidentified tracks — it would error and flip the badge.
-  if (!data.isId) lfmUpdateNowPlaying(data.artist, data.title)
-  mainWindow.webContents.send('now-playing', data)
+function playerSeek(seconds) {
+  if (!currentWvContents) return
+  const s = Number(seconds)
+  if (!isFinite(s) || s < 0) return
+  log('[player-seek] seeking to', s)
+  currentWvContents.executeJavaScript(`
+    (() => {
+      const p = window.ytPlayer
+      if (p && typeof p.seekTo === 'function') {
+        p.seekTo(${s}, true)
+        if (typeof p.playVideo === 'function') p.playVideo()
+        return 'ok'
+      }
+      return 'not-ready'
+    })()
+  `).catch(() => {})
 }
 
-// ── Source → tracklist routing ────────────────────────────────────────────────
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
-async function handleSourceUrl(source, url, wvContents) {
-  const tlPlugin = plugins.tracklistForSource(source.id)
-  if (!tlPlugin) return
+async function executeTracklistExtraction(wc, script) {
+  for (let i = 0; i < 12; i++) {
+    const tracks = await wc.executeJavaScript(script).catch(() => null)
+    if (Array.isArray(tracks) && tracks.length) return tracks
+    await delay(500)
+  }
+  return []
+}
 
-  log(`[lookup] source=${source.id} url=${url}`)
+function extractTracklistInBackground(tlPlugin, url) {
+  return new Promise((resolve) => {
+    const win = new BrowserWindow({
+      show: false,
+      width: 1280,
+      height: 900,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        backgroundThrottling: false,
+      },
+    })
+    const wc = win.webContents
+    let settled = false
 
-  currentThumbnailUrl = thumbnailForSourceUrl(url)
-  mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
+    const finish = (value) => {
+      if (settled) return
+      settled = true
+      if (!win.isDestroyed()) win.destroy()
+      resolve(value)
+    }
 
-  const meta = await source.getMeta(url)
-  log(`[lookup] meta title="${meta.title}"`)
+    const timeout = setTimeout(() => finish({ title: null, tracks: [] }), 20000)
 
+    wc.on('did-finish-load', async () => {
+      try {
+        wc.executeJavaScript(CONSENT_SCRIPT).catch(() => {})
+        const title = await wc.executeJavaScript(
+          `document.querySelector('h1')?.textContent?.trim() || document.title`
+        ).catch(() => null)
+        const tracks = tlPlugin.tracklistExtractScript
+          ? await executeTracklistExtraction(wc, tlPlugin.tracklistExtractScript)
+          : []
+        clearTimeout(timeout)
+        finish({ title, tracks })
+      } catch {
+        clearTimeout(timeout)
+        finish({ title: null, tracks: [] })
+      }
+    })
+
+    wc.on('did-fail-load', (_event, _code, _desc, _failedUrl, isMainFrame) => {
+      if (isMainFrame) {
+        clearTimeout(timeout)
+        finish({ title: null, tracks: [] })
+      }
+    })
+
+    win.loadURL(url)
+  })
+}
+
+async function findBestTracklist(tlPlugin, meta) {
   const results = await tlPlugin.findTracklists(meta)
   log(`[lookup] results=${results.length}`, results.map(r => r.title))
 
-  if (results.length === 0) {
-    log('[lookup] → fallback (no results)')
-    return startFallbackForSource(source, url, meta, wvContents)
-  }
+  if (results.length === 0) return null
 
-  // Plugin confirmed the match by an exact criterion (e.g. YouTube video ID) —
-  // load directly without text-similarity scoring.
   if (results[0].confirmed) {
     log(`[lookup] → confirmed match: ${results[0].url}`)
-    isFallbackMode = false
-    wvContents.loadURL(results[0].url)
-    return
+    return results[0]
   }
 
   const scored = results
@@ -299,123 +554,138 @@ async function handleSourceUrl(source, url, wvContents) {
   log(`[${tlPlugin.id}] ${scored.length} results for: "${meta.title}"`)
   scored.forEach((r, i) => log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
 
-  if (scored[0].score === 0) {
-    log('[lookup] → fallback (all scores 0)')
-    return startFallbackForSource(source, url, meta, wvContents)
-  }
-
-  log(`[lookup] → loading tracklist: ${scored[0].url}`)
-  isFallbackMode = false
-  wvContents.loadURL(scored[0].url)
+  return scored[0]?.score > 0 ? scored[0] : null
 }
 
-// Handles the "no tracklist found" case.
-// YouTube → load native iframe fallback. Other sources → show the prompt.
-function startFallbackForSource(source, url, meta, wvContents) {
-  if (source.id === 'youtube') {
-    const videoId = extractVideoId(url)
-    if (videoId) {
-      isFallbackMode    = true
-      currentSetTitle   = meta.title || null
-      mainWindow.webContents.send('tracklist-loaded', {
-        url,
-        title:        meta.title || url,
-        thumbnailUrl: currentThumbnailUrl,
-        isFallback:   true,
-      })
-      // Use the custom embed page — ad-free, always embeddable
-      const embedUrl = `https://www.djscrobbler.com/embed/youtube?id=${videoId}`
-      wvContents.loadURL(embedUrl)
-      return
-    }
+// ── Source → tracklist routing ────────────────────────────────────────────────
+
+async function handleSourceUrl(source, url, wvContents) {
+  const tlPlugin = plugins.tracklistForSource(source.id)
+  if (!tlPlugin) return
+
+  const lookupToken = ++currentLookupToken
+  log(`[lookup] source=${source.id} url=${url}`)
+
+  const videoId = extractVideoId(url)
+  currentTracks = []
+  currentTracklistUrl = null
+  currentTracklistProvider = null
+  currentThumbnailUrl = thumbnailForSourceUrl(url)
+  isYouTubePlayerMode = false
+  isTracklistLookupPending = false
+  mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Preparing player…' })
+
+  const meta = await source.getMeta(url)
+  if (lookupToken !== currentLookupToken) return
+
+  currentSourceUrl = meta.url || url
+  currentSetTitle = meta.title || currentSourceUrl
+  currentThumbnailUrl = thumbnailForSourceUrl(currentSourceUrl) || currentThumbnailUrl
+  log(`[lookup] meta title="${meta.title}"`)
+
+  if (source.id === 'youtube' && videoId) {
+    const playbackContents = playerWvContents || currentWvContents || wvContents
+    isYouTubePlayerMode = true
+    isTracklistLookupPending = true
+    currentWvContents = playbackContents
+    mainWindow.webContents.send('tracklist-loaded', {
+      url: currentSourceUrl,
+      sourceUrl: currentSourceUrl,
+      title: currentSetTitle,
+      thumbnailUrl: currentThumbnailUrl,
+      providerId: null,
+      tracklistUrl: null,
+      isFallback: false,
+    })
+    playbackContents.loadURL(youtubePlayerUrl(videoId))
+  } else {
+    mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
+    return
   }
-  // Non-YouTube or no video ID → original prompt
-  mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
-}
 
-// Scripts run inside the djscrobbler.com/embed/youtube page.
-// window.ytPlayer is a real YT.Player object exposed by the embed page via the
-// YouTube IFrame API — so these calls are direct and reliable.
-const FALLBACK_STATE_SCRIPT = `
-  (() => {
-    if (window.ytPlayer && typeof window.ytPlayer.getPlayerState === 'function')
-      return window.ytPlayer.getPlayerState() === 1   // 1 = YT.PlayerState.PLAYING
-    return null  // API not ready yet — skip this tick
-  })()
-`
+  mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
 
-const FALLBACK_PLAY_SCRIPT = `
-  (() => {
-    if (window.ytPlayer && typeof window.ytPlayer.playVideo === 'function')
-      window.ytPlayer.playVideo()
-  })()
-`
+  const best = await findBestTracklist(tlPlugin, meta)
+  if (lookupToken !== currentLookupToken) return
 
-const FALLBACK_PAUSE_SCRIPT = `
-  (() => {
-    if (window.ytPlayer && typeof window.ytPlayer.pauseVideo === 'function')
-      window.ytPlayer.pauseVideo()
-  })()
-`
+  if (!best) {
+    log('[lookup] → no tracklist found')
+    isTracklistLookupPending = false
+    mainWindow.webContents.send('tracklist-loaded', {
+      url: currentSourceUrl,
+      sourceUrl: currentSourceUrl,
+      title: currentSetTitle,
+      thumbnailUrl: currentThumbnailUrl,
+      providerId: null,
+      tracklistUrl: null,
+      isFallback: true,
+    })
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    return
+  }
 
-// Returns { isPlaying, currentTime, duration } or null if not ready.
-const FALLBACK_POLL_SCRIPT = `
-  (() => {
-    const p = window.ytPlayer
-    if (!p || typeof p.getPlayerState !== 'function') return null
-    const state = p.getPlayerState()
-    if (state === -1) return null  // unstarted — not ready
-    return {
-      isPlaying:   state === 1,
-      currentTime: p.getCurrentTime()  || 0,
-      duration:    p.getDuration()     || 0,
-    }
-  })()
-`
+  log(`[lookup] → extracting tracklist metadata: ${best.url}`)
+  mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Loading tracklist…' })
+  currentTracklistUrl = best.url
+  currentTracklistProvider = tlPlugin.id
+  const extracted = await extractTracklistInBackground(tlPlugin, best.url)
+  if (lookupToken !== currentLookupToken) return
 
-function startFallbackMonitoring(wvContents) {
-  stopMonitoring()
-  lastFallbackPlaying = null
-  // Give the embed page time to load the IFrame API and fire onYouTubeIframeAPIReady
-  setTimeout(() => {
-    wvContents.executeJavaScript(FALLBACK_PLAY_SCRIPT).catch(() => {})
-  }, 1500)
-  monitorInterval = setInterval(async () => {
-    try {
-      const poll = await wvContents.executeJavaScript(FALLBACK_POLL_SCRIPT)
-      if (!poll) return   // player not ready yet — try next tick
-      if (poll.isPlaying !== lastFallbackPlaying) {
-        lastFallbackPlaying = poll.isPlaying
-        mainWindow.webContents.send('now-playing', {
-          artist:      '',
-          title:       '',
-          raw:         'fallback',
-          trackNum:    null,
-          isPlaying:   poll.isPlaying,
-          currentTime: poll.currentTime,
-          duration:    poll.duration,
-          source:      'youtube-fallback',
-        })
-      }
-      // Always emit progress so the renderer can update the time-based bar
-      if (poll.duration > 0) {
-        mainWindow.webContents.send('fallback-progress', {
-          currentTime: poll.currentTime,
-          duration:    poll.duration,
-        })
-      }
-    } catch {}
-  }, 500)
+  isTracklistLookupPending = false
+  const title = currentSetTitle || extracted.title || best.title || currentSourceUrl
+  currentSetTitle = title
+  currentTracks = normalizeTracks(extracted.tracks, tlPlugin.id)
+
+  mainWindow.webContents.send('tracklist-loaded', {
+    url: currentSourceUrl,
+    sourceUrl: currentSourceUrl,
+    title,
+    thumbnailUrl: currentThumbnailUrl,
+    providerId: tlPlugin.id,
+    tracklistUrl: best.url,
+    isFallback: currentTracks.length === 0,
+  })
+
+  if (currentTracks.length) {
+    mainWindow.webContents.send('tracklist-data', {
+      providerId: tlPlugin.id,
+      url: best.url,
+      tracks: currentTracks,
+    })
+  }
+  mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
 }
 
 // ── WebView wiring ────────────────────────────────────────────────────────────
 
 function wireWebview(wvContents) {
-  currentWvContents = wvContents
+  attachedWebviews.set(wvContents.id, wvContents)
+  wvContents.once('destroyed', () => {
+    attachedWebviews.delete(wvContents.id)
+    if (playerWvContents === wvContents) playerWvContents = null
+    if (browserWvContents === wvContents) browserWvContents = null
+    if (currentWvContents === wvContents) currentWvContents = playerWvContents
+  })
+  wvContents.on('enter-html-full-screen', () => {
+    wvContents.executeJavaScript(`
+      (() => {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {})
+        }
+      })()
+    `).catch(() => {})
+    if (mainWindow?.isFullScreen()) mainWindow.setFullScreen(false)
+  })
   let pendingLookup = false
+  const role = () => {
+    if (wvContents === playerWvContents) return 'player'
+    if (wvContents === browserWvContents) return 'browser'
+    return null
+  }
 
   // Catch intercept signals from source plugins that use click interception
   wvContents.on('console-message', async (_e, _level, message) => {
+    if (role() === 'player') return
     for (const source of plugins.SOURCES) {
       const interceptedUrl = source.parseIntercept(message)
       if (!interceptedUrl) continue
@@ -429,6 +699,7 @@ function wireWebview(wvContents) {
 
   // Real navigations — sources without an intercept script use this
   wvContents.on('will-navigate', async (event, url) => {
+    if (role() === 'player') return
     const source = plugins.sourceForUrl(url)
     if (!source || source.interceptScript) return
     if (pendingLookup) return
@@ -440,6 +711,7 @@ function wireWebview(wvContents) {
 
   // SPA pushState navigations (SoundCloud)
   wvContents.on('did-navigate-in-page', async (_event, url, isMainFrame) => {
+    if (role() === 'player') return
     if (!isMainFrame) return
     const source = plugins.sourceForUrl(url)
     if (!source || source.interceptScript) return
@@ -461,62 +733,33 @@ function wireWebview(wvContents) {
       }
     }
 
-    // djscrobbler.com custom embed page (YouTube fallback) — start monitoring play state
-    if (isFallbackMode && url.includes('djscrobbler.com/embed/youtube')) {
+    if (role() === 'browser') {
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-      startFallbackMonitoring(wvContents)
       return
     }
 
-    const tlPlugin = plugins.tracklistForUrl(url)
-    if (tlPlugin) {
-      isFallbackMode = false
-      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-      try {
-        const title = await wvContents.executeJavaScript(
-          `document.querySelector('h1')?.textContent?.trim() || document.title`
-        )
-        currentSetTitle = title || null
-        mainWindow.webContents.send('tracklist-loaded', { url, title, thumbnailUrl: currentThumbnailUrl })
-      } catch {}
-      startMonitoring(wvContents, tlPlugin)
-
-      // Inject overlay to hide page noise and surface the player full-width
-      if (tlPlugin.playerConfig) {
-        const store   = readStore()
-        const theme   = store.settings?.theme || 'neon-night'
-        const bgColor = overlay.bgForTheme(theme)
-        const script  = overlay.buildOverlayScript(tlPlugin.playerConfig, bgColor)
-        wvContents.executeJavaScript(script).catch(() => {})
+    if (role() === 'player' && isYouTubePlayerMode && isYouTubePlayerUrl(url)) {
+      if (!isTracklistLookupPending) {
+        mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       }
-
-      if (tlPlugin.autoplayScript) {
-        setTimeout(
-          () => wvContents.executeJavaScript(tlPlugin.autoplayScript).catch(() => {}),
-          tlPlugin.autoplayDelay || 0
-        )
-      }
-
-      // Extract full tracklist and send to renderer for native display
-      if (tlPlugin.tracklistExtractScript) {
-        try {
-          const tracks = await wvContents.executeJavaScript(tlPlugin.tracklistExtractScript)
-          if (Array.isArray(tracks) && tracks.length) {
-            mainWindow.webContents.send('tracklist-data', tracks)
-          }
-        } catch (e) {
-          console.error('[tracklist] extraction failed:', e.message)
-        }
-      }
-    } else {
-      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-      stopMonitoring()
+      startYouTubePlayerMonitoring(wvContents)
+      return
     }
+
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    isTracklistLookupPending = false
+    currentLookupToken++
+    isYouTubePlayerMode = false
+    stopMonitoring()
   })
 
   wvContents.on('did-fail-load', (_e, _code, _desc, _failedUrl, isMainFrame) => {
+    if (role() === 'browser') return
     if (isMainFrame) {
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+      isTracklistLookupPending = false
+      currentLookupToken++
+      isYouTubePlayerMode = false
       stopMonitoring()
     }
   })
@@ -565,11 +808,11 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+R',
           click: () => mainWindow?.webContents.send('menu-reload'),
         },
-        {
+        ...(DEVELOPER_MODE ? [{
           label: 'Open WebView DevTools',
           accelerator: 'CmdOrCtrl+Shift+I',
           click: () => { if (currentWvContents) currentWvContents.openDevTools() },
-        },
+        }] : []),
       ],
     },
     {
@@ -595,6 +838,7 @@ function setDockIcon(theme) {
   try {
     app.dock.setIcon(nativeImage.createFromPath(iconPath))
   } catch (e) {
+    appendLog(['[dock] failed to set icon:', e.message])
     console.error('[dock] failed to set icon:', e.message)
   }
 }
@@ -604,13 +848,32 @@ function setDockIcon(theme) {
 function persistBounds() {
   clearTimeout(saveBoundsTimer)
   saveBoundsTimer = setTimeout(() => {
-    if (!mainWindow || mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
+    if (!mainWindow || displayFullscreenBounds || mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
     const store = readStore()
     if (!store.settings) store.settings = {}
     store.settings.windowBounds = mainWindow.getBounds()
     if (lfmSession) store.settings.lfmSession = lfmSession
     writeStore(store)
   }, 400)
+}
+
+function setDisplayFullscreen(enabled) {
+  if (!mainWindow) return false
+  if (enabled) {
+    if (!displayFullscreenBounds) displayFullscreenBounds = mainWindow.getBounds()
+    if (mainWindow.isMaximized()) mainWindow.unmaximize()
+    if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false)
+    const display = screen.getDisplayMatching(mainWindow.getBounds())
+    mainWindow.setResizable(false)
+    mainWindow.setBounds(display.bounds, true)
+    return true
+  }
+  if (!displayFullscreenBounds) return false
+  const restoreBounds = displayFullscreenBounds
+  displayFullscreenBounds = null
+  mainWindow.setResizable(true)
+  mainWindow.setBounds(restoreBounds, true)
+  return true
 }
 
 // ── Window ────────────────────────────────────────────────────────────────────
@@ -624,6 +887,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
+    fullscreenable: false,
     backgroundColor: '#0c1220',
     webPreferences: {
       nodeIntegration: false,
@@ -635,6 +899,7 @@ function createWindow() {
 
   mainWindow.on('resize', persistBounds)
   mainWindow.on('move',   persistBounds)
+  if (typeof mainWindow.setFullScreenable === 'function') mainWindow.setFullScreenable(false)
 
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
@@ -687,25 +952,31 @@ ipcMain.handle('store-set', (_event, data) => {
   writeStore(data)
 })
 
+ipcMain.handle('register-webview-role', (_event, id, role) => {
+  const wvContents = attachedWebviews.get(id)
+  if (!wvContents) return false
+  if (role === 'player') {
+    playerWvContents = wvContents
+    currentWvContents = wvContents
+    return true
+  }
+  if (role === 'browser') {
+    browserWvContents = wvContents
+    return true
+  }
+  return false
+})
+
 ipcMain.handle('open-devtools', () => {
+  if (!DEVELOPER_MODE) return
   if (currentWvContents) currentWvContents.openDevTools()
 })
 
 ipcMain.handle('player-toggle', async () => {
   if (!currentWvContents) return
-  if (isFallbackMode) {
-    const isPlaying = await currentWvContents.executeJavaScript(FALLBACK_STATE_SCRIPT).catch(() => null)
-    const script = isPlaying ? FALLBACK_PAUSE_SCRIPT : FALLBACK_PLAY_SCRIPT
-    await currentWvContents.executeJavaScript(script).catch(() => {})
-    return
-  }
-  const url = currentWvContents.getURL()
-  const tlPlugin = plugins.tracklistForUrl(url)
-  if (!tlPlugin) return
-  // Each plugin could expose a toggleScript; fall back to common selectors
-  const script = url.includes('1001tracklists.com')
-    ? `document.getElementById('playerWidgetPause')?.click()`
-    : `document.querySelector('.play-button.active, .play-button')?.click()`
+  const isPlaying = await currentWvContents.executeJavaScript(YT_STATE_SCRIPT).catch(() => null)
+  if (isPlaying === null) return
+  const script = isPlaying ? YT_PAUSE_SCRIPT : YT_PLAY_SCRIPT
   await currentWvContents.executeJavaScript(script).catch(() => {})
 })
 
@@ -720,80 +991,52 @@ ipcMain.handle('get-sources', () =>
 )
 
 ipcMain.handle('get-version', () => app.getVersion())
+ipcMain.handle('get-recent-logs', () => recentLogs.slice(-30).join('\n'))
+ipcMain.handle('is-developer', () => DEVELOPER_MODE)
+ipcMain.handle('set-display-fullscreen', (_event, enabled) => setDisplayFullscreen(!!enabled))
+ipcMain.handle('window-drag-start', (_event, point) => {
+  if (!mainWindow || displayFullscreenBounds) return false
+  windowDragStart = { point, bounds: mainWindow.getBounds() }
+  return true
+})
+ipcMain.handle('window-drag-move', (_event, point) => {
+  if (!mainWindow || !windowDragStart || displayFullscreenBounds) return false
+  const dx = Math.round(point.screenX - windowDragStart.point.screenX)
+  const dy = Math.round(point.screenY - windowDragStart.point.screenY)
+  mainWindow.setPosition(windowDragStart.bounds.x + dx, windowDragStart.bounds.y + dy, false)
+  return true
+})
+ipcMain.handle('window-drag-end', () => {
+  windowDragStart = null
+  return true
+})
 
 ipcMain.handle('open-external', (_event, url) => {
   const allowed = ['djscrobbler.com', 'github.com']
   try {
-    const { hostname } = new URL(url)
-    if (allowed.some(d => hostname === d || hostname.endsWith('.' + d))) shell.openExternal(url)
+    const { hostname, protocol } = new URL(url)
+    if (protocol === 'mailto:') shell.openExternal(url)
+    else if (allowed.some(d => hostname === d || hostname.endsWith('.' + d))) shell.openExternal(url)
   } catch {}
 })
 
-ipcMain.handle('player-goto-track', async (_event, onclickStr) => {
-  if (!currentWvContents || !onclickStr) return
-  // Replace the DOM element reference with null — playPosition accepts it
-  const script = String(onclickStr).replace(/playPosition\s*\(\s*this/, 'playPosition(null')
-  await currentWvContents.executeJavaScript(script).catch(() => {})
-})
-
-ipcMain.handle('fallback-seek', (_event, seconds) => {
-  if (!currentWvContents) return
-  const s = Number(seconds)
-  if (!isFinite(s) || s < 0) return
-  log('[fallback-seek] seeking to', s)
-  currentWvContents.executeJavaScript(`
-    (() => {
-      if (window.ytPlayer && typeof window.ytPlayer.seekTo === 'function') {
-        window.ytPlayer.seekTo(${s}, true)
-        return 'ok'
-      }
-      return 'not-ready'
-    })()
-  `).then(r => log('[fallback-seek] result:', r)).catch(() => {})
-})
-
-// Seek the YouTube player embedded inside a 1001tracklists (or similar) page.
-// Used when resuming a set that has no per-track timestamps — we can only
-// restore position by raw seconds via the IFrame API.
-//
-// 1001tl's getYTPlayer() returns a wrapper object.  The wrapper exposes some
-// methods (playVideo, getCurrentTime, getDuration) but not always seekTo.
-// The raw YouTube IFrame API player lives at wrapper.player.g, so we try both
-// layers to maximise compatibility.
-ipcMain.handle('tl-seek', (_event, seconds) => {
-  if (!currentWvContents) return
-  const s = Number(seconds)
-  if (!isFinite(s) || s < 0) return
-  log('[tl-seek] seeking to', s)
-  currentWvContents.executeJavaScript(`
-    (() => {
-      try {
-        if (typeof ytPlayer === 'undefined' || !ytPlayer.idPlayer || typeof getYTPlayer !== 'function') return
-        var _w = getYTPlayer(ytPlayer.idPlayer)
-        if (!_w || !_w.player) return
-        // Try the wrapper first, then the raw IFrame API at .player.g
-        var _pl = (typeof _w.player.seekTo === 'function')
-          ? _w.player
-          : (_w.player.g && typeof _w.player.g.seekTo === 'function')
-            ? _w.player.g
-            : null
-        if (_pl) _pl.seekTo(${s}, true)
-      } catch(e) {}
-    })()
-  `).catch(() => {})
-})
+ipcMain.handle('player-seek', (_event, seconds) => playerSeek(seconds))
+ipcMain.handle('player-goto-track', (_event, track) => playerSeek(track?.cueSeconds ?? track))
+ipcMain.handle('fallback-seek', (_event, seconds) => playerSeek(seconds))
+ipcMain.handle('tl-seek', (_event, seconds) => playerSeek(seconds))
 
 // Re-run the full source → tracklist lookup for a URL (used when reopening a
 // YouTube set that was previously saved as a fallback — gives it another chance
 // to find a tracklist, while still falling back gracefully if none exists yet).
 ipcMain.handle('load-source-url', async (_event, url) => {
-  if (!currentWvContents) return
+  const playbackContents = playerWvContents || currentWvContents
+  if (!playbackContents) return
   const source = plugins.sourceForUrl(url)
   if (!source) return
-  await handleSourceUrl(source, url, currentWvContents)
+  await handleSourceUrl(source, url, playbackContents)
 })
 
-// Theme change — update dock icon, persist, and live-update overlay color
+// Theme change — update dock icon and persist.
 ipcMain.handle('set-theme', (_event, theme) => {
   setDockIcon(theme)
   const store = readStore()
@@ -801,9 +1044,4 @@ ipcMain.handle('set-theme', (_event, theme) => {
   store.settings.theme = theme
   if (lfmSession) store.settings.lfmSession = lfmSession
   writeStore(store)
-  if (currentWvContents) {
-    currentWvContents.executeJavaScript(
-      overlay.buildColorUpdateScript(overlay.bgForTheme(theme))
-    ).catch(() => {})
-  }
 })

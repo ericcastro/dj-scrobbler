@@ -12,6 +12,8 @@ const state = {
   currentSetTitle: '',
   currentSetUrl: '',
   currentSource: '',
+  currentTracklistUrl: null,
+  currentTracklistProvider: null,
   currentThumbnailUrl: null,
   nowPlaying: null,
   lfmStatus: 'unconfigured',
@@ -20,24 +22,29 @@ const state = {
   tracklistUnavailable: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
   currentTracks: [],       // full track array from tracklist-data, used for progress lookups
-  pendingResume: null,     // onclickStr to fire after tracklist loads (1001tl resume)
-  pendingResumeTime: null, // seconds to seek to after first fallback-progress tick
+  pendingResumeTime: null, // seconds to seek to after first playback-progress tick
 }
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
 
 const webview            = document.getElementById('webview')
+const browserWebview     = document.getElementById('browser-webview')
 const searchInput        = document.getElementById('search-input')
 const searchDropdown     = document.getElementById('search-dropdown')
 const searchBtn          = document.getElementById('search-btn')
 const btnYT              = document.getElementById('btn-yt')
 const btnSC              = document.getElementById('btn-sc')
 const btnBookmark        = document.getElementById('btn-bookmark')
+const btnVideoMode       = document.getElementById('btn-video-mode')
+const btnVideoDock       = document.getElementById('btn-video-dock')
+const btnVideoFullscreen = document.getElementById('btn-video-fullscreen')
+const btnVideoHide       = document.getElementById('btn-video-hide')
 const btnDevtools        = document.getElementById('btn-devtools')
 const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
 const sidebar            = document.getElementById('sidebar')
 const sidebarResizeHandle= document.getElementById('sidebar-resize-handle')
 const sidebarFooter      = document.getElementById('sidebar-footer')
+const sidebarMiniPlayerSlot = document.getElementById('sidebar-mini-player-slot')
 const introScreen        = document.getElementById('intro-screen')
 const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
@@ -45,6 +52,7 @@ const loadingMsg         = document.getElementById('loading-msg')
 const noTracklistMsg     = document.getElementById('no-tracklist-msg')
 const noTracklistPrompt  = document.getElementById('no-tracklist-prompt')
 const btnPlayAnyway      = document.getElementById('btn-play-anyway')
+const videoControls      = document.getElementById('video-controls')
 const navBtns            = document.querySelectorAll('.nav-btn')
 const panels             = document.querySelectorAll('.sidebar-panel')
 const favoritesList      = document.getElementById('favorites-list')
@@ -71,6 +79,12 @@ const resumeCountdownNum  = document.getElementById('resume-countdown-num')
 const resumeDontAsk       = document.getElementById('resume-dont-ask')
 const btnResumeStart      = document.getElementById('btn-resume-start')
 const btnResumeResume     = document.getElementById('btn-resume-resume')
+const supportDialog       = document.getElementById('support-dialog')
+const supportDialogTitle  = document.getElementById('support-dialog-title')
+const supportDialogSub    = document.getElementById('support-dialog-sub')
+const btnSupportGithub    = document.getElementById('btn-support-github')
+const btnSupportEmail     = document.getElementById('btn-support-email')
+const btnSupportClose     = document.getElementById('btn-support-close')
 const scrobbleBadge      = document.getElementById('scrobble-badge')
 const scrobbleLabel      = document.getElementById('scrobble-label')
 const btnLfmConnect      = document.getElementById('btn-lfm-connect')
@@ -93,6 +107,14 @@ const ICON = {
   heart:       '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
   heartFilled: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" fill="currentColor"/>',
   alertCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  video: '<rect x="3" y="5" width="18" height="14" rx="2"/><polygon points="10 9 15 12 10 15 10 9"/>',
+  theater: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 21h10"/>',
+  fullscreen: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  fullscreenExit: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
+  maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
+  miniPlayer: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/>',
+  audioOnly: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────────
@@ -109,20 +131,139 @@ const GREETINGS = [
   'What will it be tonight?',
 ]
 
+const SUPPORT_EMAIL = 'feedback@djscrobbler.com'
+const SUPPORT_CONFIG = {
+  bug: {
+    title: 'Report a bug',
+    sub: 'If you have a GitHub account, you can open a bug report on GitHub. If not, you can report the bug anonymously by email.',
+    emailButton: 'Report bug anonymously',
+    issueTitle: 'Bug: ',
+    issueBody: [
+      '## What happened?',
+      '',
+      '',
+      '## What did you expect to happen?',
+      '',
+      '',
+      '## Steps to reproduce',
+      '1. ',
+      '2. ',
+      '3. ',
+      '',
+      '## DJ Scrobbler version',
+      '',
+      '',
+      '## Operating system',
+      '',
+      '',
+      '## Screenshots or logs',
+      '',
+    ].join('\n'),
+    emailSubject: 'DJ Scrobbler bug report',
+    emailBody: 'What happened?\n\nSteps to reproduce:\n1. \n2. \n3. \n\nDJ Scrobbler version:\n\nOperating system:\n',
+    label: 'bug',
+  },
+  feature: {
+    title: 'Suggest a feature',
+    sub: 'If you have a GitHub account, you can open a feature request on GitHub. If not, you can send the suggestion anonymously by email.',
+    emailButton: 'Make suggestion anonymously',
+    issueTitle: 'Feature request: ',
+    issueBody: [
+      '## What would you like DJ Scrobbler to do?',
+      '',
+      '',
+      '## Why would this be useful?',
+      '',
+      '',
+      '## Any examples or references?',
+      '',
+    ].join('\n'),
+    emailSubject: 'DJ Scrobbler feature suggestion',
+    emailBody: 'What would you like DJ Scrobbler to do?\n\nWhy would this be useful?\n',
+    label: 'enhancement',
+  },
+}
+
+let supportType = 'bug'
+let appVersion = ''
+
+function feedbackVersionLine() {
+  return appVersion ? `DJ Scrobbler v${appVersion}` : 'DJ Scrobbler'
+}
+
+async function supportGithubUrl(type) {
+  const cfg = SUPPORT_CONFIG[type] || SUPPORT_CONFIG.bug
+  const logs = (await window.api.getRecentLogs()) || 'No recent app logs captured.'
+  const body = `${cfg.issueBody}\n\n## App version\n${feedbackVersionLine()}\n\n## Recent app logs\n\`\`\`text\n${logs}\n\`\`\`\n`
+  const params = new URLSearchParams({
+    title: `${cfg.issueTitle}${appVersion ? `(v${appVersion}) ` : ''}`,
+    body,
+    labels: cfg.label,
+  })
+  return `https://github.com/ericcastro/dj-scrobbler/issues/new?${params.toString()}`
+}
+
+async function supportEmailUrl(type) {
+  const cfg = SUPPORT_CONFIG[type] || SUPPORT_CONFIG.bug
+  const logs = (await window.api.getRecentLogs()) || 'No recent app logs captured.'
+  const body = `${cfg.emailBody}\nApp version:\n${feedbackVersionLine()}\n\nRecent app logs:\n${logs}\n`
+  const subject = `${cfg.emailSubject}${appVersion ? ` (v${appVersion})` : ''}`
+  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+}
+
+function openSupportDialog(type) {
+  supportType = SUPPORT_CONFIG[type] ? type : 'bug'
+  const cfg = SUPPORT_CONFIG[supportType]
+  supportDialogTitle.textContent = cfg.title
+  supportDialogSub.textContent = cfg.sub
+  btnSupportGithub.textContent = 'Open issue on GitHub'
+  btnSupportEmail.textContent = cfg.emailButton
+  supportDialog.classList.remove('hidden')
+}
+
+function closeSupportDialog() {
+  supportDialog.classList.add('hidden')
+}
+
+function dragPoint(e) {
+  return { screenX: e.screenX, screenY: e.screenY }
+}
+
+function startWindowDrag(e) {
+  if (e.button !== 0 || e.target.closest('.video-control-btn')) return
+  if (currentVideoMode === 'fullscreen') return
+  e.preventDefault()
+  window.api.windowDragStart(dragPoint(e))
+
+  const onMove = (moveEvent) => window.api.windowDragMove(dragPoint(moveEvent))
+  const onUp = () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    window.api.windowDragEnd()
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
 let webviewReady = false
+let browserWebviewReady = false
 let pendingNav = null
 
 function navigateTo(url) {
   hideIntro()
-  if (webviewReady) webview.loadURL(url)
+  document.body.classList.add('is-browsing')
+  if (browserWebviewReady) browserWebview.loadURL(url)
   else pendingNav = url
 }
 
 async function init() {
   state.store = await window.api.getStore()
+  if (await window.api.isDeveloper()) btnDevtools.classList.remove('hidden')
 
   applyTheme(state.store.settings?.theme || 'neon-night', false)
   restoreSidebarWidth()
+  applyVideoMode(state.store.settings?.videoMode || 'inline', false)
   restoreRightPanelWidth()
 
   // Restore right panel open/closed state (default: closed)
@@ -133,8 +274,8 @@ async function init() {
     btnTracklistToggle.classList.add('active')
   }
 
-  const version = await window.api.getVersion()
-  footerAppName.textContent = `DJ Scrobbler v${version}`
+  appVersion = await window.api.getVersion()
+  footerAppName.textContent = `DJ Scrobbler v${appVersion}`
 
   introGreeting.textContent = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
 
@@ -148,7 +289,13 @@ async function init() {
 
   webview.addEventListener('dom-ready', () => {
     webviewReady = true
-    if (pendingNav) { webview.loadURL(pendingNav); pendingNav = null }
+    window.api.registerWebviewRole(webview.getWebContentsId(), 'player')
+  })
+
+  browserWebview.addEventListener('dom-ready', () => {
+    browserWebviewReady = true
+    window.api.registerWebviewRole(browserWebview.getWebContentsId(), 'browser')
+    if (pendingNav) { browserWebview.loadURL(pendingNav); pendingNav = null }
   })
 
   wireEvents()
@@ -162,17 +309,109 @@ function hideIntro() {
   introScreen.classList.add('hidden')
 }
 
+// ── Video mode ───────────────────────────────────────────────────────────────
+
+const VIDEO_MODES = ['inline', 'mini', 'hidden', 'fullscreen']
+let currentVideoMode = 'inline'
+
+function setSidebarWidthVar() {
+  document.documentElement.style.setProperty('--sidebar-w-current', `${sidebar.offsetWidth || DEFAULT_SIDEBAR_W}px`)
+}
+
+function updateMiniPlayerMetrics() {
+  if (!document.body.classList.contains('video-mode-mini')) return
+  const rect = sidebarMiniPlayerSlot.getBoundingClientRect()
+  if (!rect.width || !rect.height) {
+    requestAnimationFrame(updateMiniPlayerMetrics)
+    return
+  }
+  const style = getComputedStyle(sidebarMiniPlayerSlot)
+  const borderLeft = parseFloat(style.borderLeftWidth) || 0
+  const borderRight = parseFloat(style.borderRightWidth) || 0
+  const borderTop = parseFloat(style.borderTopWidth) || 0
+  const borderBottom = parseFloat(style.borderBottomWidth) || 0
+  document.documentElement.style.setProperty('--mini-player-left', `${rect.left + borderLeft}px`)
+  document.documentElement.style.setProperty('--mini-player-top', `${rect.top + borderTop}px`)
+  document.documentElement.style.setProperty('--mini-player-width', `${rect.width - borderLeft - borderRight}px`)
+  document.documentElement.style.setProperty('--mini-player-height', `${rect.height - borderTop - borderBottom}px`)
+}
+
+function applyVideoMode(mode, persistSetting = true) {
+  const next = VIDEO_MODES.includes(mode) ? mode : 'inline'
+  if (next === 'mini' && sidebar.classList.contains('collapsed')) {
+    sidebar.classList.remove('collapsed')
+  }
+  if (next !== 'mini' || !sidebar.classList.contains('collapsed')) {
+    document.body.classList.remove('sidebar-player-hidden')
+  }
+  window.api.setDisplayFullscreen(next === 'fullscreen')
+  currentVideoMode = next
+  document.body.classList.toggle('video-mode-mini', next === 'mini')
+  document.body.classList.toggle('video-mode-hidden', next === 'hidden')
+  document.body.classList.toggle('video-mode-fullscreen', next === 'fullscreen')
+  updateVideoModeButtons()
+  setSidebarWidthVar()
+  requestAnimationFrame(() => requestAnimationFrame(updateMiniPlayerMetrics))
+  if (persistSetting) {
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.videoMode = next === 'fullscreen' ? 'inline' : next
+    persist()
+  }
+}
+
+function videoModePrimaryAction(mode = currentVideoMode) {
+  if (mode === 'mini' || mode === 'fullscreen' || mode === 'hidden') return 'inline'
+  return 'mini'
+}
+
+function videoModeLabel(mode) {
+  if (mode === 'mini') return 'Mini-player mode'
+  if (mode === 'inline') return 'Theater view'
+  if (mode === 'fullscreen') return 'Exit full screen'
+  if (mode === 'hidden') return 'Show video'
+  return 'Video mode'
+}
+
+function videoModeIcon(mode) {
+  if (mode === 'mini') return ICON.miniPlayer
+  if (mode === 'hidden') return ICON.video
+  if (mode === 'inline') return ICON.theater
+  if (mode === 'fullscreen') return ICON.fullscreenExit
+  return ICON.video
+}
+
+function updateVideoModeButtons() {
+  const nextAction = videoModePrimaryAction()
+  btnVideoMode.innerHTML = icon(videoModeIcon(nextAction), 15)
+  btnVideoMode.title = videoModeLabel(nextAction)
+
+  btnVideoDock.innerHTML = icon(videoModeIcon(nextAction), 15)
+  btnVideoDock.title = videoModeLabel(nextAction)
+
+  const fullscreenAction = currentVideoMode === 'fullscreen' ? 'inline' : 'fullscreen'
+  btnVideoFullscreen.innerHTML = icon(currentVideoMode === 'fullscreen' ? ICON.fullscreenExit : ICON.fullscreen, 15)
+  btnVideoFullscreen.title = currentVideoMode === 'fullscreen' ? 'Exit full screen' : 'Full screen'
+
+  btnVideoHide.innerHTML = icon(ICON.x, 15)
+  btnVideoHide.title = 'Audio only'
+  btnVideoFullscreen.dataset.mode = fullscreenAction
+}
+
+function cycleVideoMode() {
+  applyVideoMode(videoModePrimaryAction())
+}
+
 // ── Search ──────────────────────────────────────────────────────────────────
 
 const SOURCE_URLS = {
-  youtube:    q => q ? `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}` : 'https://www.youtube.com',
-  soundcloud: q => q ? `https://soundcloud.com/search?q=${encodeURIComponent(q)}` : 'https://soundcloud.com',
+  youtube: q => q ? `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}` : 'https://www.youtube.com',
 }
 
 function navigateToSearch(query = '') {
   hideOverlays()
   clearTracklist()
-  navigateTo(SOURCE_URLS[state.source](query))
+  const sourceUrl = SOURCE_URLS[state.source] || SOURCE_URLS.youtube
+  navigateTo(sourceUrl(query))
 }
 
 function doSearch() {
@@ -249,16 +488,18 @@ function wireMainEvents() {
     }
   })
 
-  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback }) => {
+  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, tracklistUrl }) => {
     // Don't update set state or history while the user is deciding in the dialog.
     if (isResumeDialogOpen()) return
+    document.body.classList.remove('is-browsing')
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
     state.currentSetUrl        = url
     state.currentThumbnailUrl  = thumbnailUrl || null
+    state.currentTracklistUrl  = tracklistUrl || null
+    state.currentTracklistProvider = providerId || null
 
     if (isFallback) {
-      state.pendingResume  = null
       state.currentTracks  = []   // prevent stale count leaking into bookmark
       state.currentSource  = 'youtube'
       npSet.textContent     = title
@@ -277,18 +518,25 @@ function wireMainEvents() {
       ppIcon.innerHTML      = icon(ICON.play, 16)
       btnPlayPause.classList.remove('playing')
     } else {
-      state.currentSource  = url.includes('1001tracklists') ? '1001tl' : 'set79'
+      state.currentSource  = 'youtube'
       npSet.textContent    = title
-      npSource.textContent = url.includes('1001tracklists')
+      npSource.textContent = providerId === '1001tracklists'
         ? 'tracklist courtesy of 1001tracklists'
-        : 'tracklist courtesy of set79'
+        : 'youtube'
       tracklistUnavailableEl.classList.add('hidden')
     }
 
     state.isIdTrack = false
     updateBookmarkBtn()
     refreshScrobbleBadge()
-    addToHistory({ title, url, source: state.currentSource, thumbnailUrl: state.currentThumbnailUrl })
+    addToHistory({
+      title,
+      url,
+      source: state.currentSource,
+      thumbnailUrl: state.currentThumbnailUrl,
+      tracklistUrl: state.currentTracklistUrl,
+      tracklistProvider: state.currentTracklistProvider,
+    })
   })
 
   window.api.on('now-playing', (data) => {
@@ -298,17 +546,16 @@ function wireMainEvents() {
     btnPlayPause.classList.toggle('playing', playing)
     state.isTrackPlaying = playing
     state.isIdTrack      = !!data.isId
-    // Fallback events only carry play/pause state — don't overwrite track display
-    if (data.source !== 'youtube-fallback') {
+    // Player-only events carry play/pause state, not track metadata.
+    if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
       npTrack.textContent    = data.isId ? 'ID' : (data.title || data.raw || '—')
       npArtist.textContent   = data.isId ? '—' : (data.artist || '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
       if (data.trackNum) highlightTracklistByNum(data.trackNum)
     }
     // Save playback progress so history/favorites items can show a progress bar
-    if (data.trackNum && state.currentSetUrl && data.source !== 'youtube-fallback') {
-      const track = state.currentTracks.find(t => t.trackNum === data.trackNum)
-      updateSetProgress(state.currentSetUrl, data.trackNum, track?.onclickStr || null)
+    if (data.trackNum && state.currentSetUrl && data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
+      updateSetProgress(state.currentSetUrl, data.trackNum, data.cueSeconds)
     }
     refreshScrobbleBadge()
   })
@@ -318,37 +565,26 @@ function wireMainEvents() {
     refreshScrobbleBadge()
   })
 
-  window.api.on('fallback-progress', ({ currentTime, duration }) => {
+  const handlePlaybackProgress = ({ currentTime, duration }) => {
     if (!state.currentSetUrl || !duration) return
     // On first valid tick after a resume load, seek to the saved position then clear
     if (state.pendingResumeTime !== null) {
       const t = state.pendingResumeTime
       state.pendingResumeTime = null
-      window.api.fallbackSeek(t)
+      window.api.playerSeek(t)
       return  // progress bar will update on the next tick at the new position
     }
     const pct = Math.min(99, Math.round((currentTime / duration) * 100))
     if (pct < 1) return
     updateFallbackProgress(state.currentSetUrl, pct, currentTime)
-  })
+  }
+  window.api.on('playback-progress', handlePlaybackProgress)
+  window.api.on('fallback-progress', handlePlaybackProgress)
+  window.api.on('tl-progress', handlePlaybackProgress)
 
-  // Time-based progress from a tracklist page (e.g. 1001tl sets without timestamps).
-  // Mirrors the fallback-progress handler but uses tlSeek instead of fallbackSeek.
-  window.api.on('tl-progress', ({ currentTime, duration }) => {
-    if (!state.currentSetUrl || !duration) return
-    if (state.pendingResumeTime !== null) {
-      const t = state.pendingResumeTime
-      state.pendingResumeTime = null
-      window.api.tlSeek(t)
-      return
-    }
-    const pct = Math.min(99, Math.round((currentTime / duration) * 100))
-    if (pct < 1) return
-    updateFallbackProgress(state.currentSetUrl, pct, currentTime)
-  })
-
-  window.api.on('tracklist-data', (tracks) => {
+  window.api.on('tracklist-data', (payload) => {
     if (isResumeDialogOpen()) return
+    const tracks = Array.isArray(payload) ? payload : (payload?.tracks || [])
     renderTracklist(tracks)
     state.currentTracks = tracks
     // Persist track count on the history/favorites entry so the sidebar can
@@ -363,15 +599,6 @@ function wireMainEvents() {
     persist()
     renderHistory()
     renderFavorites()
-    // If a track-based resume was requested, seek to the saved track once the
-    // page is ready.  Also clear pendingResumeTime so the tl-progress handler
-    // doesn't fire a redundant time-seek on top of the track seek.
-    if (state.pendingResume) {
-      state.pendingResumeTime = null
-      const onclick = state.pendingResume
-      state.pendingResume = null
-      setTimeout(() => window.api.playerGotoTrack(onclick), 1500)
-    }
   })
 
   window.api.on('menu-toggle-sidebar', () => toggleSidebar())
@@ -407,10 +634,18 @@ function refreshScrobbleBadge() {
 function switchSidebarPanel(name) {
   navBtns.forEach((b) => b.classList.toggle('active', b.dataset.panel === name))
   panels.forEach((p) => p.classList.toggle('active', p.id === `panel-${name}`))
+  requestAnimationFrame(updateMiniPlayerMetrics)
 }
 
 function toggleSidebar() {
   sidebar.classList.toggle('collapsed')
+  if (sidebar.classList.contains('collapsed')) {
+    if (currentVideoMode === 'mini') document.body.classList.add('sidebar-player-hidden')
+  } else {
+    document.body.classList.remove('sidebar-player-hidden')
+  }
+  setSidebarWidthVar()
+  requestAnimationFrame(updateMiniPlayerMetrics)
 }
 
 // ── Sidebar resize ────────────────────────────────────────────────────────────
@@ -418,6 +653,7 @@ function toggleSidebar() {
 function restoreSidebarWidth() {
   const w = state.store.settings?.sidebarWidth || DEFAULT_SIDEBAR_W
   sidebar.style.width = w + 'px'
+  setSidebarWidthVar()
 }
 
 function wireSidebarResize() {
@@ -441,6 +677,8 @@ function wireSidebarResize() {
   const onMove = (e) => {
     if (!isResizing) return
     sidebar.style.width = Math.max(160, Math.min(480, e.clientX)) + 'px'
+    setSidebarWidthVar()
+    updateMiniPlayerMetrics()
   }
 
   const onUp = () => {
@@ -454,6 +692,8 @@ function wireSidebarResize() {
       if (!state.store.settings) state.store.settings = {}
       state.store.settings.sidebarWidth = w
       persist()
+      setSidebarWidthVar()
+      updateMiniPlayerMetrics()
     }
   }
 
@@ -481,8 +721,11 @@ function syncProgressToItem(url) {
   if (histEntry.trackCount       != null) patch.trackCount       = histEntry.trackCount
   if (histEntry.progressTrackNum != null) patch.progressTrackNum = histEntry.progressTrackNum
   if (histEntry.lastTrackOnclick != null) patch.lastTrackOnclick  = histEntry.lastTrackOnclick
+  if (histEntry.lastTrackCueSeconds != null) patch.lastTrackCueSeconds = histEntry.lastTrackCueSeconds
   if (histEntry.progressTimePct  != null) patch.progressTimePct  = histEntry.progressTimePct
   if (histEntry.progressTime     != null) patch.progressTime     = histEntry.progressTime
+  if (histEntry.tracklistUrl     != null) patch.tracklistUrl     = histEntry.tracklistUrl
+  if (histEntry.tracklistProvider != null) patch.tracklistProvider = histEntry.tracklistProvider
   if (!Object.keys(patch).length) return
   state.store.favorites = state.store.favorites.map(f =>
     f.url === url ? { ...patch, ...f } : f   // patch fills gaps; f's own values win
@@ -524,8 +767,11 @@ function addToHistory(item) {
     trackCount:       existing.trackCount,
     progressTrackNum: existing.progressTrackNum,
     lastTrackOnclick: existing.lastTrackOnclick,
+    lastTrackCueSeconds: existing.lastTrackCueSeconds,
     progressTimePct:  existing.progressTimePct,
     progressTime:     existing.progressTime,
+    tracklistUrl:     existing.tracklistUrl,
+    tracklistProvider: existing.tracklistProvider,
   } : {}
   state.store.history = state.store.history.filter(h => h.url !== item.url)
   state.store.history.unshift({ ...preserved, ...item, playedAt: Date.now() })
@@ -595,8 +841,12 @@ function getProgressPct(item) {
   return item.progressTimePct || 0
 }
 
-function updateSetProgress(url, trackNum, onclickStr) {
-  const update = { progressTrackNum: trackNum, lastTrackOnclick: onclickStr || null }
+function updateSetProgress(url, trackNum, cueSeconds) {
+  const update = {
+    progressTrackNum: trackNum,
+    lastTrackCueSeconds: typeof cueSeconds === 'number' ? cueSeconds : null,
+    lastTrackOnclick: null,
+  }
   ;['history', 'favorites'].forEach(key => {
     state.store[key] = state.store[key].map(item =>
       item.url === url ? { ...item, ...update } : item
@@ -645,8 +895,9 @@ function updateFallbackProgress(url, pct, currentTime) {
 }
 
 function loadSet(item, resume) {
-  state.pendingResume     = resume && item.lastTrackOnclick ? item.lastTrackOnclick : null
-  state.pendingResumeTime = resume && item.progressTime     ? item.progressTime     : null
+  state.pendingResumeTime = resume
+    ? (item.progressTime ?? item.lastTrackCueSeconds ?? null)
+    : null
   if (isYouTubeSourceUrl(item.url)) {
     hideIntro()
     showLoading('Searching tracklist…')
@@ -735,7 +986,7 @@ function makeSetListItem(item, onRemove) {
   `
   li.addEventListener('click', (e) => {
     if (e.target.classList.contains('set-item-remove')) return
-    const hasProgress = !!(item.progressTrackNum > 1 && item.lastTrackOnclick)
+    const hasProgress = !!(item.progressTrackNum > 1 && item.lastTrackCueSeconds != null)
                      || !!(item.progressTimePct > 5 && item.progressTime)
     const resumeSetting = state.store.settings?.resumeBehavior || 'ask'
     if (hasProgress) {
@@ -799,8 +1050,8 @@ function createTrackItem(track, compact) {
     ${cueHtml}
   `
 
-  if (track.onclickStr && !track.isMashupComponent) {
-    li.addEventListener('click', () => window.api.playerGotoTrack(track.onclickStr))
+  if (typeof track.cueSeconds === 'number' && !track.noTimestamp && !track.isMashupComponent && !track.isWWith) {
+    li.addEventListener('click', () => window.api.playerSeek(track.cueSeconds))
   }
 
   return li
@@ -954,7 +1205,11 @@ function resetNowPlaying() {
   state.currentSetTitle    = ''
   state.currentSetUrl      = ''
   state.currentSource      = ''
+  state.currentTracklistUrl = null
+  state.currentTracklistProvider = null
   state.currentThumbnailUrl = null
+  state.currentTracks       = []
+  document.body.classList.remove('is-browsing')
   state.isTrackPlaying     = false
   npTrack.textContent    = ''
   npArtist.textContent   = ''
@@ -977,6 +1232,7 @@ function showLoading(msg = 'Loading…') {
   noTracklistPrompt.classList.add('hidden')
   // A new search is starting — clear the unavailable state + stale tracklist
   state.tracklistUnavailable = false
+  state.currentTracks = []
   clearTracklist()
   refreshScrobbleBadge()
 }
@@ -1013,12 +1269,7 @@ function wireEvents() {
     navigateToSearch()
   })
 
-  btnSC.addEventListener('click', () => {
-    state.source = 'soundcloud'
-    btnSC.classList.add('active')
-    btnYT.classList.remove('active')
-    navigateToSearch()
-  })
+  btnSC.disabled = true
 
   searchBtn.addEventListener('click', doSearch)
 
@@ -1059,6 +1310,12 @@ function wireEvents() {
   btnDevtools.addEventListener('click', () => window.api.openDevTools())
   btnSidebarToggle.addEventListener('click', () => toggleSidebar())
   btnTracklistToggle.addEventListener('click', () => toggleRightPanel())
+  btnVideoMode.addEventListener('click', cycleVideoMode)
+  btnVideoDock.addEventListener('click', () => applyVideoMode(videoModePrimaryAction()))
+  btnVideoFullscreen.addEventListener('click', () => applyVideoMode(btnVideoFullscreen.dataset.mode || 'fullscreen'))
+  btnVideoHide.addEventListener('click', () => applyVideoMode('hidden'))
+  videoControls.addEventListener('mousedown', startWindowDrag)
+  window.addEventListener('resize', updateMiniPlayerMetrics)
 
   navBtns.forEach((btn) =>
     btn.addEventListener('click', () => switchSidebarPanel(btn.dataset.panel))
@@ -1077,9 +1334,13 @@ function wireEvents() {
         url:              state.currentSetUrl,
         source:           state.currentSource,
         thumbnailUrl:     state.currentThumbnailUrl,
+        tracklistUrl:     state.currentTracklistUrl || histEntry?.tracklistUrl || undefined,
+        tracklistProvider: state.currentTracklistProvider || histEntry?.tracklistProvider || undefined,
         trackCount:       state.currentTracks.length || histEntry?.trackCount || undefined,
         progressTrackNum: histEntry?.progressTrackNum || undefined,
-        lastTrackOnclick: histEntry?.lastTrackOnclick || undefined,
+        lastTrackCueSeconds: histEntry?.lastTrackCueSeconds ?? undefined,
+        progressTimePct:  histEntry?.progressTimePct || undefined,
+        progressTime:     histEntry?.progressTime || undefined,
       })
       syncProgressToItem(state.currentSetUrl)
       updateBookmarkBtn()
@@ -1110,7 +1371,7 @@ function wireEvents() {
 
   webview.addEventListener('did-navigate', (e) => {
     const url = e.url || ''
-    if (!url.includes('1001tracklists.com') && !url.includes('set79.com')) {
+    if (!url.includes('1001tracklists.com')) {
       hideOverlays()
       ppIcon.innerHTML = icon(ICON.play, 16)
       btnPlayPause.classList.remove('playing')
@@ -1135,7 +1396,21 @@ function wireEvents() {
 
   sidebarFooter.addEventListener('click', (e) => {
     const link = e.target.closest('.sidebar-footer-link')
-    if (link?.dataset.href) window.api.openExternal(link.dataset.href)
+    if (link?.dataset.feedbackType) openSupportDialog(link.dataset.feedbackType)
+    else if (link?.dataset.href) window.api.openExternal(link.dataset.href)
+  })
+
+  btnSupportGithub.addEventListener('click', () => {
+    supportGithubUrl(supportType).then(url => window.api.openExternal(url))
+    closeSupportDialog()
+  })
+  btnSupportEmail.addEventListener('click', () => {
+    supportEmailUrl(supportType).then(url => window.api.openExternal(url))
+    closeSupportDialog()
+  })
+  btnSupportClose.addEventListener('click', closeSupportDialog)
+  supportDialog.addEventListener('click', (e) => {
+    if (e.target === supportDialog) closeSupportDialog()
   })
 
   // Resume dialog

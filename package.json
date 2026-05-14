@@ -1,8 +1,8 @@
 {
   "name": "dj-scrobbler",
   "productName": "DJ Scrobbler",
-  "version": "0.4.3",
-  "description": "Scrobble tracks from DJ sets on YouTube and SoundCloud",
+  "version": "0.5.0",
+  "description": "Scrobble tracks from DJ sets on YouTube",
   "author": "Eric Castro <errrick@gmail.com>",
   "license": "MIT",
   "main": "main.js",

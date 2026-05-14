@@ -19,7 +19,7 @@
           <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2C0 8 0 12 0 12s0 4 .5 5.8a3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1C24 16 24 12 24 12s0-4-.5-5.8zM9.7 15.5V8.5l6.3 3.5-6.3 3.5z"/></svg>
           YouTube
         </button>
-        <button class="toggle-btn" data-source="soundcloud" id="btn-sc">
+        <button class="toggle-btn hidden" data-source="soundcloud" id="btn-sc" disabled aria-hidden="true" title="Dormant during the v0.5 player refactor">
           <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M1.2 10.9c-.1 0-.2.1-.2.2L.5 12l.5.9c0 .1.1.2.2.2s.2-.1.2-.2L1.7 12l-.3-.9c0-.1-.1-.2-.2-.2zm1.5-.4c-.1 0-.3.1-.3.2l-.4 1.3.4 1.2c0 .1.2.2.3.2s.3-.1.3-.2l.5-1.2-.5-1.3c0-.1-.2-.2-.3-.2zm1.6-.8c-.2 0-.3.1-.3.3l-.5 2 .5 1.9c0 .2.1.3.3.3s.3-.1.3-.3l.5-1.9-.5-2c0-.2-.1-.3-.3-.3zm1.6.2c-.2 0-.4.1-.4.4l-.4 1.7.4 1.9c0 .2.2.4.4.4s.4-.2.4-.4l.5-1.9-.5-1.7c0-.2-.2-.4-.4-.4zm1.7-.3c-.2 0-.4.2-.4.4l-.4 1.8.4 2c0 .2.2.4.4.4.2 0 .4-.2.4-.4l.5-2-.5-1.8c0-.2-.2-.4-.4-.4zm1.7-.4c-.3 0-.5.2-.5.5L8.5 12l.3 2.1c0 .3.2.5.5.5s.5-.2.5-.5l.4-2.1-.4-2.2c0-.3-.2-.5-.5-.5zm1.7-.5c-.3 0-.5.2-.5.5L10.2 12l.3 2.2c0 .3.2.5.5.5s.5-.2.5-.5l.4-2.2-.4-2.3c0-.3-.2-.5-.5-.5zm5.3-3.2a4.8 4.8 0 0 0-4.8 4.4l-.2 1.9.2 2.2c0 .3.2.5.5.5s.5-.2.5-.5l.3-2.2-.3-1.9a3.8 3.8 0 0 1 3.8-3.5 3.8 3.8 0 0 1 3.8 3.8v.2a1.5 1.5 0 0 1 1.5 1.5 1.5 1.5 0 0 1-1.5 1.5H16c-.3 0-.5.2-.5.5s.2.5.5.5h4.8a2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2-2.4 4.8 4.8 0 0 0-4.3-3.5z"/></svg>
           SoundCloud
         </button>
@@ -33,8 +33,11 @@
     </div>
 
     <div id="header-actions">
-      <button class="icon-btn" id="btn-devtools" title="Open webview DevTools">
+      <button class="icon-btn hidden" id="btn-devtools" title="Open webview DevTools">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-video-mode" title="Mini-player mode">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/></svg>
       </button>
       <button class="icon-btn" id="btn-sidebar-toggle" title="Toggle sidebar">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
@@ -143,10 +146,14 @@
         </div>
       </div>
 
+      <div id="sidebar-mini-player-slot"></div>
+
       <footer id="sidebar-footer">
         <span class="sidebar-footer-link" data-href="https://www.djscrobbler.com" id="footer-app-name">DJ Scrobbler</span>
         <span class="sidebar-footer-sep"> · </span>
-        <span class="sidebar-footer-link" data-href="https://github.com/ericcastro/dj-scrobbler">GitHub</span>
+        <span class="sidebar-footer-link" data-feedback-type="bug">Report a bug</span>
+        <span class="sidebar-footer-sep"> · </span>
+        <span class="sidebar-footer-link" data-feedback-type="feature">Suggest a feature</span>
       </footer>
     </aside>
 
@@ -209,6 +216,10 @@
         </div>
       </div>
 
+      <div id="browse-area">
+        <webview id="browser-webview" src="about:blank" allowpopups></webview>
+      </div>
+
       <!-- Video area: fills full height normally; collapses to 16:9 in tracklist mode -->
       <div id="video-area">
         <div id="webview-container">
@@ -232,6 +243,11 @@
           </div>
           <webview id="webview" src="about:blank" allowpopups></webview>
         </div>
+        <div id="video-controls" aria-label="Video controls">
+          <button class="video-control-btn" id="btn-video-dock" title="Mini-player mode"></button>
+          <button class="video-control-btn" id="btn-video-fullscreen" title="Full screen"></button>
+          <button class="video-control-btn" id="btn-video-hide" title="Audio only"></button>
+        </div>
       </div>
 
       <!-- Resume dialog — scoped to the main content area, not the full app -->
@@ -245,6 +261,20 @@
           <div class="resume-dialog-btns">
             <button id="btn-resume-start">Restart</button>
             <button id="btn-resume-resume" class="btn-primary">Resume (<span id="resume-countdown-num">3</span>)</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="support-dialog" class="hidden">
+        <div id="support-dialog-box">
+          <button id="btn-support-close" class="dialog-close-btn" title="Close" aria-label="Close">×</button>
+          <p class="support-dialog-title" id="support-dialog-title">Send feedback</p>
+          <p class="support-dialog-sub" id="support-dialog-sub">
+            If you have a GitHub account, you can open an issue on GitHub. If not, you can send feedback anonymously by email.
+          </p>
+          <div class="support-dialog-btns">
+            <button id="btn-support-github" class="btn-primary">Open issue on GitHub</button>
+            <button id="btn-support-email">Send email anonymously</button>
           </div>
         </div>
       </div>

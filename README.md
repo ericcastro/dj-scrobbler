@@ -1,6 +1,8 @@
 # DJ Scrobbler
 
-DJ Scrobbler is a desktop music app for people who listen to long-form DJ sets on YouTube and SoundCloud, but still want precise Last.fm listening history.
+DJ Scrobbler is a desktop music app for people who listen to long-form DJ sets on YouTube, but still want precise Last.fm listening history.
+
+> v0.5 refactor branch: active playback and tracklist work is focused on YouTube + 1001Tracklists. SoundCloud/set79 code remains in the repo as dormant reference material for the upcoming YouTube-to-SoundCloud matching bridge.
 
 It searches for a matching tracklist, follows the currently playing track, and scrobbles individual songs instead of flattening a one-hour mix into a single play.
 
@@ -8,9 +10,9 @@ It searches for a matching tracklist, follows the currently playing track, and s
 
 ## What It Does
 
-- Browse and search DJ sets from YouTube and SoundCloud.
+- Browse and search DJ sets from YouTube.
 - Save favorite sets so you can come back to them later.
-- Match sets to tracklists from providers like 1001Tracklists and set79.
+- Match sets to tracklists from providers like 1001Tracklists.
 - Show the active tracklist inside the app while the set plays.
 - Connect a Last.fm account and scrobble each track as it plays.
 - Keep the DJ set title as the album in Last.fm, so listening history still has context.
@@ -37,10 +39,10 @@ DJ Scrobbler is built for:
 
 DJ Scrobbler has two plugin layers:
 
-- Source plugins understand playable set URLs, currently YouTube and SoundCloud.
-- Tracklist plugins know how to find and monitor tracklist pages, currently 1001Tracklists and set79.
+- Source plugins understand playable set URLs, currently YouTube.
+- Tracklist plugins know how to find and monitor tracklist pages, currently 1001Tracklists.
 
-When you open a DJ set, the app extracts metadata from the source page, searches for a matching tracklist, loads it in an internal webview, and monitors the active track. As tracks change, DJ Scrobbler updates Now Playing and scrobbles to Last.fm when the track has played long enough.
+When you open a DJ set, the app loads its own YouTube player, searches for a matching tracklist, extracts provider metadata in the background, and follows the active track from the player timeline. As tracks change, DJ Scrobbler updates Now Playing and scrobbles to Last.fm when the track has played long enough.
 
 For a deeper breakdown, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
