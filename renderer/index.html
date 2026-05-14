@@ -146,8 +146,6 @@
         </div>
       </div>
 
-      <div id="sidebar-mini-player-slot"></div>
-
       <footer id="sidebar-footer">
         <span class="sidebar-footer-link" data-href="https://www.djscrobbler.com" id="footer-app-name">DJ Scrobbler</span>
         <span class="sidebar-footer-sep"> · </span>
@@ -155,6 +153,8 @@
         <span class="sidebar-footer-sep"> · </span>
         <span class="sidebar-footer-link" data-feedback-type="feature">Suggest a feature</span>
       </footer>
+
+      <div id="sidebar-mini-player-slot"></div>
     </aside>
 
     <div id="sidebar-resize-handle"></div>
@@ -304,16 +304,34 @@
 
   <!-- Now-playing footer -->
   <footer id="now-playing-bar">
+    <div id="playback-progress">
+      <div id="playback-progress-track">
+        <div id="playback-progress-fill"></div>
+        <div id="playback-progress-thumb"></div>
+      </div>
+      <div id="playback-time-row">
+        <span id="playback-elapsed">00:00:00</span>
+        <span id="playback-remaining">-00:00:00</span>
+      </div>
+    </div>
     <div id="np-left">
+      <button id="btn-prev-track" class="transport-btn" title="Previous track">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+      </button>
       <button id="btn-playpause" class="play-btn" title="Play / Pause">
         <span id="pp-icon">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         </span>
       </button>
-      <div id="np-tracknum"></div>
+      <button id="btn-next-track" class="transport-btn" title="Next track">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+      </button>
     </div>
     <div id="np-info">
-      <div id="np-track"></div>
+      <div id="np-title-row">
+        <span id="np-tracknum"></span>
+        <span id="np-track"></span>
+      </div>
       <div id="np-artist"></div>
     </div>
     <div id="np-right">

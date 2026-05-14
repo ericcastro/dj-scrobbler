@@ -68,13 +68,13 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 :root {
   --topbar-h:  52px;
-  --sidebar-w: 220px;
-  --sidebar-w-current: 220px;
+  --sidebar-w: 360px;
+  --sidebar-w-current: 360px;
   --mini-player-left: 8px;
   --mini-player-top: 0px;
   --mini-player-width: 204px;
   --mini-player-height: 115px;
-  --footer-h:  64px;
+  --footer-h:  88px;
   --radius:    8px;
 }
 
@@ -253,7 +253,7 @@ html, body {
 
 /* ── Sidebar ── */
 #sidebar {
-  /* width set via JS inline style; default 220px */
+  /* width set via JS inline style; default 360px */
   background: var(--bg2);
   border-right: 1px solid var(--border);
   display: flex;
@@ -261,7 +261,7 @@ html, body {
   flex-shrink: 0;
   overflow: hidden;
   transition: width .2s;
-  min-width: 160px;
+  min-width: 360px;
   max-width: 480px;
   -webkit-app-region: drag;
 }
@@ -1037,19 +1037,112 @@ webview {
 #now-playing-bar {
   height: var(--footer-h);
   background: var(--bg2);
-  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  padding: 27px 16px 15px;
   gap: 16px;
+  position: relative;
   -webkit-app-region: drag;
 }
 
 #now-playing-bar button { -webkit-app-region: no-drag; }
 
+#playback-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  color: var(--text2);
+  -webkit-app-region: no-drag;
+}
+
+#playback-progress-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: pointer;
+}
+
+#playback-progress-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--border);
+  transition: height .12s, background .12s;
+}
+
+#playback-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 1px;
+  width: 0;
+  background: var(--accent);
+  transition: height .12s;
+}
+
+#playback-progress-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -4px) scale(0);
+  transition: transform .12s;
+}
+
+#playback-progress:hover #playback-progress-track::before,
+#playback-progress.dragging #playback-progress-track::before,
+#playback-progress:hover #playback-progress-fill,
+#playback-progress.dragging #playback-progress-fill {
+  height: 4px;
+}
+
+#playback-progress:hover #playback-progress-thumb,
+#playback-progress.dragging #playback-progress-thumb {
+  transform: translate(-50%, -3px) scale(1);
+}
+
+#playback-time-row {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 9px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text2);
+  pointer-events: none;
+}
+
+#playback-progress:not(.has-duration) #playback-progress-fill,
+#playback-progress:not(.has-duration) #playback-progress-thumb {
+  opacity: 0;
+}
+
+#np-left {
+  display: grid;
+  grid-template-columns: 32px 46px 32px;
+  grid-template-rows: 46px;
+  align-items: center;
+  justify-items: center;
+  gap: 0 4px;
+  flex-shrink: 0;
+  transform: translate(-4px, 0);
+}
+
 .play-btn {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   border: 2px solid var(--accent);
   background: transparent;
@@ -1063,6 +1156,25 @@ webview {
   flex-shrink: 0;
 }
 
+.transport-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+
+.transport-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .play-btn:hover { background: var(--accent); color: #000; }
 .play-btn.playing { border-color: var(--accent2); color: var(--accent2); }
 .play-btn.playing:hover { background: var(--accent2); color: #000; }
@@ -1074,12 +1186,18 @@ webview {
   font-weight: 700;
   color: var(--accent);
   letter-spacing: .05em;
-  text-align: center;
-  margin-top: 3px;
+  flex: 0 0 auto;
 }
 
 #np-info {
   flex: 1;
+  min-width: 0;
+}
+
+#np-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   min-width: 0;
 }
 
@@ -1089,6 +1207,7 @@ webview {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 #np-artist {

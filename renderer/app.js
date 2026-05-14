@@ -16,6 +16,8 @@ const state = {
   currentTracklistProvider: null,
   currentThumbnailUrl: null,
   nowPlaying: null,
+  playbackCurrentTime: 0,
+  playbackDuration: 0,
   lfmStatus: 'unconfigured',
   isTrackPlaying: false,
   isIdTrack: false,
@@ -68,7 +70,15 @@ const rightPanel            = document.getElementById('right-panel')
 const rightPanelHandle      = document.getElementById('right-panel-handle')
 const btnTracklistToggle    = document.getElementById('btn-tracklist-toggle')
 const btnPlayPause          = document.getElementById('btn-playpause')
+const btnPrevTrack          = document.getElementById('btn-prev-track')
+const btnNextTrack          = document.getElementById('btn-next-track')
 const ppIcon             = document.getElementById('pp-icon')
+const playbackProgress      = document.getElementById('playback-progress')
+const playbackProgressTrack = document.getElementById('playback-progress-track')
+const playbackProgressFill  = document.getElementById('playback-progress-fill')
+const playbackProgressThumb = document.getElementById('playback-progress-thumb')
+const playbackElapsed       = document.getElementById('playback-elapsed')
+const playbackRemaining     = document.getElementById('playback-remaining')
 const npTracknum         = document.getElementById('np-tracknum')
 const npTrack            = document.getElementById('np-track')
 const npArtist           = document.getElementById('np-artist')
@@ -119,7 +129,9 @@ const ICON = {
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 
-const DEFAULT_SIDEBAR_W = 220
+const MIN_SIDEBAR_W = 360
+const MAX_SIDEBAR_W = 480
+const DEFAULT_SIDEBAR_W = 360
 
 const GREETINGS = [
   'Welcome back.',
@@ -318,6 +330,12 @@ function setSidebarWidthVar() {
   document.documentElement.style.setProperty('--sidebar-w-current', `${sidebar.offsetWidth || DEFAULT_SIDEBAR_W}px`)
 }
 
+function clampSidebarWidth(width) {
+  const numericWidth = Number(width)
+  const fallback = Number.isFinite(numericWidth) ? numericWidth : DEFAULT_SIDEBAR_W
+  return Math.max(MIN_SIDEBAR_W, Math.min(MAX_SIDEBAR_W, fallback))
+}
+
 function updateMiniPlayerMetrics() {
   if (!document.body.classList.contains('video-mode-mini')) return
   const rect = sidebarMiniPlayerSlot.getBoundingClientRect()
@@ -399,6 +417,82 @@ function updateVideoModeButtons() {
 
 function cycleVideoMode() {
   applyVideoMode(videoModePrimaryAction())
+}
+
+function formatPlaybackTime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  return [h, m, s].map(n => String(n).padStart(2, '0')).join(':')
+}
+
+function updatePlaybackProgress(currentTime = state.playbackCurrentTime, duration = state.playbackDuration) {
+  const hasDuration = Number.isFinite(duration) && duration > 0
+  const safeCurrent = Math.max(0, Number(currentTime) || 0)
+  const pct = hasDuration ? Math.max(0, Math.min(1, safeCurrent / duration)) : 0
+  playbackProgressFill.style.width = `${pct * 100}%`
+  playbackProgressThumb.style.left = `${pct * 100}%`
+  playbackElapsed.textContent = formatPlaybackTime(safeCurrent)
+  playbackRemaining.textContent = hasDuration
+    ? `-${formatPlaybackTime(Math.max(0, duration - safeCurrent))}`
+    : '-00:00:00'
+  playbackProgress.classList.toggle('has-duration', hasDuration)
+}
+
+function seekFromProgressEvent(e) {
+  if (!state.playbackDuration) return
+  const rect = playbackProgressTrack.getBoundingClientRect()
+  if (!rect.width) return
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  const seconds = pct * state.playbackDuration
+  state.playbackCurrentTime = seconds
+  updatePlaybackProgress(seconds, state.playbackDuration)
+  window.api.playerSeek(seconds)
+}
+
+function startProgressDrag(e) {
+  if (e.button !== 0 || !state.playbackDuration) return
+  e.preventDefault()
+  seekFromProgressEvent(e)
+  playbackProgress.classList.add('dragging')
+
+  const onMove = (moveEvent) => seekFromProgressEvent(moveEvent)
+  const onUp = () => {
+    playbackProgress.classList.remove('dragging')
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+function timelineTracks() {
+  return state.currentTracks.filter(track =>
+    !track.isWWith &&
+    !track.isMashupComponent &&
+    !track.noTimestamp &&
+    typeof track.cueSeconds === 'number' &&
+    Number.isFinite(track.cueSeconds)
+  )
+}
+
+function seekRelativeTrack(direction) {
+  const tracks = timelineTracks()
+  if (!tracks.length) return
+  const now = state.playbackCurrentTime || 0
+  let target = null
+  if (direction < 0) {
+    for (const track of tracks) {
+      if (track.cueSeconds < now - 3) target = track
+      else break
+    }
+    target = target || tracks[0]
+  } else {
+    target = tracks.find(track => track.cueSeconds > now + 0.75) || tracks[tracks.length - 1]
+  }
+  if (target) window.api.playerSeek(target.cueSeconds)
 }
 
 // ── Search ──────────────────────────────────────────────────────────────────
@@ -566,7 +660,11 @@ function wireMainEvents() {
   })
 
   const handlePlaybackProgress = ({ currentTime, duration }) => {
-    if (!state.currentSetUrl || !duration) return
+    if (!duration) return
+    state.playbackCurrentTime = currentTime || 0
+    state.playbackDuration = duration || 0
+    updatePlaybackProgress()
+    if (!state.currentSetUrl) return
     // On first valid tick after a resume load, seek to the saved position then clear
     if (state.pendingResumeTime !== null) {
       const t = state.pendingResumeTime
@@ -651,7 +749,7 @@ function toggleSidebar() {
 // ── Sidebar resize ────────────────────────────────────────────────────────────
 
 function restoreSidebarWidth() {
-  const w = state.store.settings?.sidebarWidth || DEFAULT_SIDEBAR_W
+  const w = clampSidebarWidth(state.store.settings?.sidebarWidth)
   sidebar.style.width = w + 'px'
   setSidebarWidthVar()
 }
@@ -676,7 +774,7 @@ function wireSidebarResize() {
 
   const onMove = (e) => {
     if (!isResizing) return
-    sidebar.style.width = Math.max(160, Math.min(480, e.clientX)) + 'px'
+    sidebar.style.width = clampSidebarWidth(e.clientX) + 'px'
     setSidebarWidthVar()
     updateMiniPlayerMetrics()
   }
@@ -1209,6 +1307,9 @@ function resetNowPlaying() {
   state.currentTracklistProvider = null
   state.currentThumbnailUrl = null
   state.currentTracks       = []
+  state.playbackCurrentTime = 0
+  state.playbackDuration    = 0
+  updatePlaybackProgress(0, 0)
   document.body.classList.remove('is-browsing')
   state.isTrackPlaying     = false
   npTrack.textContent    = ''
@@ -1389,6 +1490,9 @@ function wireEvents() {
   })
 
   btnPlayPause.addEventListener('click', () => window.api.playerToggle())
+  btnPrevTrack.addEventListener('click', () => seekRelativeTrack(-1))
+  btnNextTrack.addEventListener('click', () => seekRelativeTrack(1))
+  playbackProgressTrack.addEventListener('mousedown', startProgressDrag)
 
   document.querySelectorAll('.theme-swatch').forEach(btn => {
     btn.addEventListener('click', () => applyTheme(btn.dataset.themeId))
