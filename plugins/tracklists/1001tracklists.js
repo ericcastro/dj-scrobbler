@@ -29,6 +29,13 @@ function providerError(code, message) {
   return err
 }
 
+function networkError(message) {
+  return providerError(
+    'network_unavailable',
+    message || 'Network connection is unavailable. Check your connection and try again.'
+  )
+}
+
 function assertProviderResponse(html) {
   if (/access has been limited due to overuse/i.test(html || '')) {
     throw providerError(
@@ -74,8 +81,11 @@ function fetchPage(path) {
         }
       })
     })
-    req.setTimeout(10_000, () => { req.destroy(); resolve('') })
-    req.on('error', () => resolve(''))
+    req.setTimeout(10_000, () => {
+      req.destroy()
+      reject(networkError('Network timed out while checking 1001Tracklists.'))
+    })
+    req.on('error', () => reject(networkError('Could not reach 1001Tracklists. Check your connection and try again.')))
     req.end()
   })
 }
@@ -132,8 +142,11 @@ function searchByUrl(sourceUrl) {
         }
       })
     })
-    req.setTimeout(10_000, () => { req.destroy(); resolve([]) })
-    req.on('error', () => resolve([]))
+    req.setTimeout(10_000, () => {
+      req.destroy()
+      reject(networkError('Network timed out while searching 1001Tracklists.'))
+    })
+    req.on('error', () => reject(networkError('Could not reach 1001Tracklists. Check your connection and try again.')))
     req.write(postData)
     req.end()
   })
@@ -297,4 +310,11 @@ module.exports = {
       return { currentTime: cur, duration: dur }
     } catch(e) { return null }
   })()`,
+
+  _test: {
+    assertProviderResponse,
+    extractVideoIdFromHtml,
+    networkError,
+    providerError,
+  },
 }

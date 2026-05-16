@@ -1,9 +1,17 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme, screen } = require('electron')
+const { autoUpdater } = require('electron-updater')
 const path   = require('path')
 const https  = require('https')
 const crypto = require('crypto')
 const fs     = require('fs')
 const plugins  = require('./plugins')
+const {
+  cleanVersion,
+  compareVersions,
+  releaseFromGitHub: releaseFromGitHubPayload,
+  releaseFromUpdateInfo: releaseFromUpdateInfoPayload,
+  mergeUpdateStatus,
+} = require('./lib/update-utils')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -36,6 +44,10 @@ function log(...args) {
 const DEVELOPER_MODE = process.argv.includes('--developer')
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_TRACKLIST_CACHE_ENTRIES = 200
+const UPDATE_OWNER = 'ericcastro'
+const UPDATE_REPO = 'dj-scrobbler'
+const UPDATE_RELEASES_URL = `https://github.com/${UPDATE_OWNER}/${UPDATE_REPO}/releases`
+const UPDATE_RELEASES_API_URL = `https://api.github.com/repos/${UPDATE_OWNER}/${UPDATE_REPO}/releases?per_page=10`
 
 let mainWindow
 let currentWvContents = null
@@ -47,6 +59,22 @@ let displayFullscreenBounds = null
 let windowDragStart = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
 let saveBoundsTimer = null
+let updateState = {
+  status: 'idle',
+  currentVersion: app.getVersion(),
+  latestVersion: null,
+  releaseUrl: UPDATE_RELEASES_URL,
+  changelog: '',
+  canInstall: false,
+  isChecking: false,
+  error: null,
+}
+let updateCheckWasManual = false
+let installAfterDownload = false
+
+autoUpdater.autoDownload = false
+autoUpdater.autoInstallOnAppQuit = false
+autoUpdater.allowPrerelease = true
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
@@ -537,14 +565,13 @@ function startYouTubePlayerMonitoring(wvContents) {
     wvContents.executeJavaScript(YT_PLAY_SCRIPT).catch(() => {})
     const settings = readStore().settings || {}
     const volume = Math.max(0, Math.min(100, Math.round(Number(settings.playerVolume ?? 80) || 0)))
-    const muted = !!settings.playerMuted || volume === 0
     wvContents.executeJavaScript(`
       (() => {
         const p = window.ytPlayer
         if (!p || typeof p.setVolume !== 'function') return
         p.setVolume(${volume})
-        if (${muted} && typeof p.mute === 'function') p.mute()
-        if (!${muted} && typeof p.unMute === 'function') p.unMute()
+        if (${volume} === 0 && typeof p.mute === 'function') p.mute()
+        if (${volume} > 0 && typeof p.unMute === 'function') p.unMute()
       })()
     `).catch(() => {})
   }, 1000)
@@ -721,6 +748,7 @@ async function handleSourceUrl(source, url, wvContents) {
       tracklistUrl: null,
       isFallback: false,
     })
+    mainWindow.webContents.send('wv-status', { type: 'player-loading' })
     playbackContents.loadURL(youtubePlayerUrl(videoId))
   } else {
     mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
@@ -765,6 +793,7 @@ async function handleSourceUrl(source, url, wvContents) {
     const lookupError = tracklistLookupErrorPayload(err, tlPlugin)
     log(`[lookup] provider failed code=${lookupError.code} provider=${lookupError.providerId}: ${lookupError.message}`)
     isTracklistLookupPending = false
+    currentLookupToken++
     mainWindow.webContents.send('tracklist-loaded', {
       url: currentSourceUrl,
       sourceUrl: currentSourceUrl,
@@ -775,7 +804,15 @@ async function handleSourceUrl(source, url, wvContents) {
       isFallback: true,
       lookupError,
     })
-    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    if (lookupError.code === 'network_unavailable') {
+      mainWindow.webContents.send('wv-status', {
+        type: 'network-error',
+        url: currentSourceUrl,
+        message: lookupError.message,
+      })
+    } else {
+      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    }
     return
   }
   if (lookupToken !== currentLookupToken) return
@@ -919,9 +956,7 @@ function wireWebview(wvContents) {
     }
 
     if (role() === 'player' && isYouTubePlayerMode && isYouTubePlayerUrl(url)) {
-      if (!isTracklistLookupPending) {
-        mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-      }
+      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       startYouTubePlayerMonitoring(wvContents)
       return
     }
@@ -944,6 +979,227 @@ function wireWebview(wvContents) {
     }
   })
 }
+
+// ── Updates ──────────────────────────────────────────────────────────────────
+
+function httpsJson(url) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': `DJ-Scrobbler/${app.getVersion()}`,
+      },
+    }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        httpsJson(res.headers.location).then(resolve, reject)
+        res.resume()
+        return
+      }
+      const chunks = []
+      res.on('data', c => chunks.push(c))
+      res.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8')
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          const error = new Error(`GitHub returned ${res.statusCode}`)
+          error.statusCode = res.statusCode
+          reject(error)
+          return
+        }
+        try { resolve(JSON.parse(body)) }
+        catch (e) { reject(e) }
+      })
+    })
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+function releaseFromGitHub(data) {
+  return releaseFromGitHubPayload(data, {
+    currentVersion: app.getVersion(),
+    releasesUrl: UPDATE_RELEASES_URL,
+  })
+}
+
+async function fetchTagMessage(tagName) {
+  if (!tagName) return ''
+  try {
+    const ref = await httpsJson(`https://api.github.com/repos/${UPDATE_OWNER}/${UPDATE_REPO}/git/ref/tags/${encodeURIComponent(tagName)}`)
+    if (ref?.object?.type === 'commit' && ref.object.url) {
+      const commit = await httpsJson(ref.object.url)
+      return (commit?.message || '').trim()
+    }
+    if (ref?.object?.type === 'tag' && ref.object.url) {
+      const tag = await httpsJson(ref.object.url)
+      if ((tag?.message || '').trim()) return tag.message.trim()
+      if (tag?.object?.type === 'commit' && tag.object.url) {
+        const commit = await httpsJson(tag.object.url)
+        return (commit?.message || '').trim()
+      }
+    }
+  } catch {}
+  return ''
+}
+
+async function releaseFromGitHubWithChangelog(data) {
+  const update = releaseFromGitHub(data)
+  if (update.changelog) return update
+  return { ...update, changelog: await fetchTagMessage(update.tagName) }
+}
+
+async function fetchGitHubReleaseByVersion(version) {
+  const releases = await httpsJson(UPDATE_RELEASES_API_URL)
+  if (!Array.isArray(releases)) return null
+  const clean = cleanVersion(version)
+  return releases.find(release =>
+    !release.draft &&
+    cleanVersion(release.tag_name || release.name) === clean
+  ) || null
+}
+
+function releaseFromUpdateInfo(info) {
+  return {
+    ...releaseFromUpdateInfoPayload(info, {
+      currentVersion: app.getVersion(),
+      releasesUrl: UPDATE_RELEASES_URL,
+      canInstall: app.isPackaged,
+    }),
+    currentVersion: app.getVersion(),
+    canInstall: app.isPackaged,
+  }
+}
+
+function updateSettings() {
+  return readStore().settings || {}
+}
+
+function sendUpdateStatus(status, payload = {}) {
+  updateState = mergeUpdateStatus(updateState, status, payload)
+  mainWindow?.webContents.send('update-status', updateState)
+  return updateState
+}
+
+function setUpdateNotificationsDisabled(disabled) {
+  const store = readStore()
+  if (!store.settings) store.settings = {}
+  store.settings.updateNotificationsDisabled = !!disabled
+  writeStore(store)
+  return store.settings.updateNotificationsDisabled
+}
+
+async function checkForUpdates({ manual = false } = {}) {
+  if (!manual && updateSettings().updateNotificationsDisabled) return updateState
+  if (updateState.isChecking) return updateState
+
+  updateCheckWasManual = manual
+  updateState = {
+    ...updateState,
+    latestVersion: null,
+    releaseName: null,
+    changelog: '',
+    progress: null,
+  }
+  sendUpdateStatus('checking', { manual })
+  try {
+    const releases = await httpsJson(UPDATE_RELEASES_API_URL)
+    const latestPublishedRelease = Array.isArray(releases)
+      ? releases.find(release => !release.draft)
+      : null
+    if (!latestPublishedRelease) {
+      return sendUpdateStatus('not-available', {
+        currentVersion: app.getVersion(),
+        latestVersion: null,
+        releaseName: null,
+        releaseUrl: UPDATE_RELEASES_URL,
+        publishedAt: null,
+        changelog: 'No published GitHub Release was found yet. Once a release is published, DJ Scrobbler can compare it against this build.',
+        canInstall: false,
+        manual,
+      })
+    }
+    const ghRelease = await releaseFromGitHubWithChangelog(latestPublishedRelease)
+    if (compareVersions(ghRelease.latestVersion, app.getVersion()) <= 0) {
+      return sendUpdateStatus('not-available', { ...ghRelease, manual })
+    }
+
+    sendUpdateStatus('available', { ...ghRelease, manual })
+
+    if (app.isPackaged) {
+      autoUpdater.checkForUpdates().catch(err => {
+        sendUpdateStatus('error', { error: err.message || 'Could not start the updater.' })
+      })
+    }
+    return updateState
+  } catch (e) {
+    if (e.statusCode === 404) {
+      return sendUpdateStatus('not-available', {
+        currentVersion: app.getVersion(),
+        latestVersion: null,
+        releaseName: null,
+        releaseUrl: UPDATE_RELEASES_URL,
+        publishedAt: null,
+        changelog: 'No public GitHub Release was found yet. Once a release is published, DJ Scrobbler can compare it against this build.',
+        canInstall: false,
+        manual,
+      })
+    }
+    return sendUpdateStatus('error', { error: e.message || 'Could not check for updates.', manual })
+  }
+}
+
+async function downloadUpdate() {
+  if (!app.isPackaged) {
+    shell.openExternal(updateState.releaseUrl || UPDATE_RELEASES_URL)
+    return sendUpdateStatus('external-download', { canInstall: false })
+  }
+  installAfterDownload = true
+  sendUpdateStatus('downloading')
+  try {
+    await autoUpdater.downloadUpdate()
+    return updateState
+  } catch (e) {
+    installAfterDownload = false
+    return sendUpdateStatus('error', { error: e.message || 'Could not download the update.' })
+  }
+}
+
+async function enrichUpdateChangelog(update) {
+  if (!update.latestVersion || String(update.changelog || '').trim()) return update
+  try {
+    const release = await fetchGitHubReleaseByVersion(update.latestVersion)
+    if (!release) return update
+    return { ...update, ...(await releaseFromGitHubWithChangelog(release)), canInstall: update.canInstall }
+  } catch {
+    return update
+  }
+}
+
+autoUpdater.on('update-available', async info => {
+  const update = await enrichUpdateChangelog(releaseFromUpdateInfo(info))
+  sendUpdateStatus('available', { ...update, manual: updateCheckWasManual })
+})
+
+autoUpdater.on('update-not-available', async info => {
+  const update = await enrichUpdateChangelog(releaseFromUpdateInfo(info))
+  sendUpdateStatus('not-available', { ...update, manual: updateCheckWasManual })
+})
+
+autoUpdater.on('download-progress', progress => {
+  sendUpdateStatus('downloading', { progress: Math.round(progress.percent || 0), manual: updateCheckWasManual })
+})
+
+autoUpdater.on('update-downloaded', async info => {
+  const update = await enrichUpdateChangelog(releaseFromUpdateInfo(info))
+  sendUpdateStatus('downloaded', { ...update, canInstall: true, progress: 100, manual: updateCheckWasManual })
+  if (installAfterDownload) {
+    setTimeout(() => autoUpdater.quitAndInstall(false, true), 750)
+  }
+})
+
+autoUpdater.on('error', err => {
+  installAfterDownload = false
+  sendUpdateStatus('error', { error: err.message || 'Updater error.', manual: updateCheckWasManual })
+})
 
 // ── Menu bar ──────────────────────────────────────────────────────────────────
 
@@ -1013,6 +1269,20 @@ function buildMenu() {
         ] : []),
       ],
     },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Check for Updates...',
+          accelerator: 'CmdOrCtrl+Shift+U',
+          click: () => checkForUpdates({ manual: true }),
+        },
+        {
+          label: 'GitHub Releases',
+          click: () => shell.openExternal(UPDATE_RELEASES_URL),
+        },
+      ],
+    },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
@@ -1074,6 +1344,7 @@ function createWindow() {
     minWidth: 360,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
+    autoHideMenuBar: process.platform !== 'darwin',
     fullscreenable: false,
     backgroundColor: '#0c1220',
     webPreferences: {
@@ -1096,6 +1367,11 @@ function createWindow() {
     })
   }
   mainWindow.loadFile('renderer/index.html')
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (!updateSettings().updateNotificationsDisabled) {
+      setTimeout(() => checkForUpdates({ manual: false }), 2500)
+    }
+  })
   mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
   mainWindow.webContents.on('did-attach-webview', (_event, wvContents) => wireWebview(wvContents))
 
@@ -1198,27 +1474,8 @@ ipcMain.handle('player-volume-set', async (_event, value) => {
       if (${volume} === 0 && typeof p.mute === 'function') p.mute()
       if (${volume} > 0 && typeof p.unMute === 'function') p.unMute()
       return {
-        volume: typeof p.getVolume === 'function' ? p.getVolume() : ${volume},
-        muted: typeof p.isMuted === 'function' ? p.isMuted() : false,
-      }
-    })()
-  `).catch(() => null)
-})
-
-ipcMain.handle('player-mute-toggle', async () => {
-  if (!currentWvContents) return null
-  return currentWvContents.executeJavaScript(`
-    (() => {
-      const p = window.ytPlayer
-      if (!p || typeof p.isMuted !== 'function') return null
-      if (p.isMuted()) {
-        if (typeof p.unMute === 'function') p.unMute()
-      } else if (typeof p.mute === 'function') {
-        p.mute()
-      }
-      return {
-        volume: typeof p.getVolume === 'function' ? p.getVolume() : 0,
-        muted: typeof p.isMuted === 'function' ? p.isMuted() : false,
+        volume: ${volume},
+        muted: ${volume} === 0,
       }
     })()
   `).catch(() => null)
@@ -1235,6 +1492,18 @@ ipcMain.handle('get-sources', () =>
 )
 
 ipcMain.handle('get-version', () => app.getVersion())
+ipcMain.handle('get-platform', () => process.platform)
+ipcMain.handle('updates-check', () => checkForUpdates({ manual: true }))
+ipcMain.handle('updates-download', () => downloadUpdate())
+ipcMain.handle('updates-install', () => {
+  if (app.isPackaged && updateState.status === 'downloaded') {
+    autoUpdater.quitAndInstall(false, true)
+    return true
+  }
+  shell.openExternal(updateState.releaseUrl || UPDATE_RELEASES_URL)
+  return false
+})
+ipcMain.handle('updates-notifications-disabled-set', (_event, disabled) => setUpdateNotificationsDisabled(disabled))
 ipcMain.handle('get-recent-logs', () => recentLogs.slice(-30).join('\n'))
 ipcMain.handle('is-developer', () => DEVELOPER_MODE)
 ipcMain.handle('set-display-fullscreen', (_event, enabled) => setDisplayFullscreen(!!enabled))

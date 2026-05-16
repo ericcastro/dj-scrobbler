@@ -1,5 +1,9 @@
 # DJ Scrobbler
 
+[![Tests](https://github.com/ericcastro/dj-scrobbler/actions/workflows/test.yml/badge.svg)](https://github.com/ericcastro/dj-scrobbler/actions/workflows/test.yml)
+[![Release](https://github.com/ericcastro/dj-scrobbler/actions/workflows/release.yml/badge.svg)](https://github.com/ericcastro/dj-scrobbler/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 DJ Scrobbler is a desktop music app for people who listen to long-form DJ sets on YouTube, but still want precise Last.fm listening history.
 
 > v0.5 refactor branch: active playback and tracklist work is focused on YouTube + 1001Tracklists. SoundCloud/set79 code remains in the repo as dormant reference material for the upcoming YouTube-to-SoundCloud matching bridge.

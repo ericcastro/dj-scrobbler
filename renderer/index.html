@@ -148,6 +148,13 @@
               <input type="radio" name="resume-behavior" value="never"> Always start from beginning
             </label>
           </div>
+
+          <div class="panel-title" style="margin-top:12px">Updates</div>
+          <p class="setting-desc" id="update-settings-status">Check GitHub Releases for newer builds.</p>
+          <button id="btn-check-updates" class="btn-secondary">Check for updates</button>
+          <label class="resume-radio-label update-notify-label">
+            <input type="checkbox" id="updates-disable-notifications"> Disable update notifications
+          </label>
         </div>
       </div>
 
@@ -232,6 +239,13 @@
             <div class="spinner"></div>
             <span id="loading-msg">Searching tracklist…</span>
           </div>
+          <div id="player-status-overlay" class="hidden">
+            <div class="spinner player-status-spinner"></div>
+            <div>
+              <p id="player-status-title">Starting YouTube player…</p>
+              <p id="player-status-sub">Tracklist can load before video is ready.</p>
+            </div>
+          </div>
           <div id="no-tracklist-msg" class="hidden">
             <div class="big-icon">
               <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -244,7 +258,10 @@
             </div>
             <p id="no-tl-prompt-title">No tracklist found for this DJ set :(</p>
             <p class="no-tl-prompt-sub">This set might not have a tracklist yet.</p>
-            <button id="btn-play-anyway" class="btn-play-anyway">Play set anyway</button>
+            <div class="no-tl-prompt-actions">
+              <button id="btn-retry-load" class="btn-play-anyway hidden">Retry</button>
+              <button id="btn-play-anyway" class="btn-play-anyway">Play set anyway</button>
+            </div>
           </div>
           <webview id="webview" src="about:blank" allowpopups></webview>
         </div>
@@ -280,6 +297,22 @@
           <div class="support-dialog-btns">
             <button id="btn-support-github" class="btn-primary">Open issue on GitHub</button>
             <button id="btn-support-email">Send email anonymously</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="update-dialog" class="hidden">
+        <div id="update-dialog-box">
+          <button id="btn-update-close" class="dialog-close-btn" title="Close" aria-label="Close">×</button>
+          <p class="support-dialog-title" id="update-dialog-title">Checking for updates…</p>
+          <p class="support-dialog-sub" id="update-dialog-sub">Looking at GitHub Releases.</p>
+          <textarea id="update-changelog" aria-label="Release notes" readonly></textarea>
+          <label class="update-disable-label">
+            <input type="checkbox" id="update-disable-notifications"> Disable update notifications
+          </label>
+          <div class="support-dialog-btns update-dialog-btns">
+            <button id="btn-update-download" class="btn-primary">Download and restart</button>
+            <button id="btn-update-later">Remind me later</button>
           </div>
         </div>
       </div>
@@ -343,7 +376,7 @@
     <div id="np-info">
       <div id="np-title-row">
         <span id="np-tracknum"></span>
-        <span id="np-track"></span>
+        <span id="np-track"><span id="np-track-text"></span></span>
       </div>
       <div id="np-artist"></div>
     </div>
@@ -354,17 +387,17 @@
     <button class="icon-btn" id="btn-bookmark" title="Add to favorites">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
     </button>
-    <div id="scrobble-badge" title="Last.fm scrobbling status">
-      <span id="scrobble-dot">●</span>
-      <span id="scrobble-label">Scrobbling not configured</span>
-    </div>
     <div id="volume-control">
-      <button id="btn-volume" class="volume-btn" title="Mute">
+      <button id="btn-volume" class="volume-btn" aria-label="Mute">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
       </button>
       <div id="volume-popover" role="tooltip">
         <input id="volume-slider" type="range" min="0" max="100" value="80" aria-label="Volume" />
       </div>
+    </div>
+    <div id="scrobble-badge" title="Last.fm scrobbling status">
+      <span id="scrobble-dot">●</span>
+      <span id="scrobble-label">Scrobbling not configured</span>
     </div>
   </footer>
 

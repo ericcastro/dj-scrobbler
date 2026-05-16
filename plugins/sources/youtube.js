@@ -78,6 +78,10 @@ module.exports = {
           } catch { resolve({ title: null, channel: null, url: canonicalUrl, videoId }) }
         })
       })
+      req.setTimeout(3000, () => {
+        req.destroy()
+        resolve({ title: null, channel: null, url: canonicalUrl, videoId })
+      })
       req.on('error', () => resolve({ title: null, channel: null, url: canonicalUrl, videoId }))
       req.end()
     })

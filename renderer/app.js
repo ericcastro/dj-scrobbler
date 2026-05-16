@@ -51,9 +51,15 @@ const introScreen        = document.getElementById('intro-screen')
 const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
 const loadingMsg         = document.getElementById('loading-msg')
+const playerStatusOverlay = document.getElementById('player-status-overlay')
+const playerStatusTitle  = document.getElementById('player-status-title')
+const playerStatusSub    = document.getElementById('player-status-sub')
 const noTracklistMsg     = document.getElementById('no-tracklist-msg')
 const noTracklistPrompt  = document.getElementById('no-tracklist-prompt')
+const noTlPromptTitle    = document.getElementById('no-tl-prompt-title')
+const noTlPromptSub      = document.querySelector('.no-tl-prompt-sub')
 const btnPlayAnyway      = document.getElementById('btn-play-anyway')
+const btnRetryLoad       = document.getElementById('btn-retry-load')
 const videoControls      = document.getElementById('video-controls')
 const navBtns            = document.querySelectorAll('.nav-btn')
 const panels             = document.querySelectorAll('.sidebar-panel')
@@ -88,6 +94,7 @@ const playbackElapsed       = document.getElementById('playback-elapsed')
 const playbackRemaining     = document.getElementById('playback-remaining')
 const npTracknum         = document.getElementById('np-tracknum')
 const npTrack            = document.getElementById('np-track')
+const npTrackText        = document.getElementById('np-track-text')
 const npArtist           = document.getElementById('np-artist')
 const npSet              = document.getElementById('np-set')
 const npSource           = document.getElementById('np-source')
@@ -102,8 +109,20 @@ const supportDialogSub    = document.getElementById('support-dialog-sub')
 const btnSupportGithub    = document.getElementById('btn-support-github')
 const btnSupportEmail     = document.getElementById('btn-support-email')
 const btnSupportClose     = document.getElementById('btn-support-close')
+const btnCheckUpdates     = document.getElementById('btn-check-updates')
+const updateSettingsStatus = document.getElementById('update-settings-status')
+const updatesDisableNotifications = document.getElementById('updates-disable-notifications')
+const updateDialog        = document.getElementById('update-dialog')
+const updateDialogTitle   = document.getElementById('update-dialog-title')
+const updateDialogSub     = document.getElementById('update-dialog-sub')
+const updateChangelog     = document.getElementById('update-changelog')
+const updateDisableNotifications = document.getElementById('update-disable-notifications')
+const btnUpdateDownload   = document.getElementById('btn-update-download')
+const btnUpdateLater      = document.getElementById('btn-update-later')
+const btnUpdateClose      = document.getElementById('btn-update-close')
 const scrobbleBadge      = document.getElementById('scrobble-badge')
 const scrobbleLabel      = document.getElementById('scrobble-label')
+const volumeControl      = document.getElementById('volume-control')
 const btnVolume          = document.getElementById('btn-volume')
 const volumeSlider       = document.getElementById('volume-slider')
 const btnLfmConnect      = document.getElementById('btn-lfm-connect')
@@ -211,6 +230,7 @@ const SUPPORT_CONFIG = {
 
 let supportType = 'bug'
 let appVersion = ''
+let latestUpdateState = null
 
 function feedbackVersionLine() {
   return appVersion ? `DJ Scrobbler v${appVersion}` : 'DJ Scrobbler'
@@ -250,6 +270,83 @@ function closeSupportDialog() {
   supportDialog.classList.add('hidden')
 }
 
+function syncUpdateNotificationCheckboxes(checked) {
+  updatesDisableNotifications.checked = checked
+  updateDisableNotifications.checked = checked
+  updateSettingsStatus.textContent = checked
+    ? 'Update notifications are disabled. Manual checks still work.'
+    : 'Check GitHub Releases for newer builds.'
+}
+
+async function setUpdateNotificationsDisabled(disabled) {
+  const value = await window.api.updatesNotificationsDisabledSet(disabled)
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings.updateNotificationsDisabled = value
+  syncUpdateNotificationCheckboxes(value)
+  persist()
+}
+
+function updateDialogCopy(update) {
+  latestUpdateState = update
+  const latest = update.latestVersion ? `v${update.latestVersion}` : 'latest version'
+  const releaseKind = update.prerelease ? ' pre-release' : ''
+  const current = update.currentVersion ? `v${update.currentVersion}` : feedbackVersionLine()
+
+  btnUpdateDownload.disabled = false
+  btnUpdateLater.textContent = 'Remind me later'
+  updateChangelog.value = update.changelog || 'No changelog was provided for this release.'
+
+  if (update.status === 'checking') {
+    updateDialogTitle.textContent = 'Checking for updates!'
+    updateDialogSub.textContent = 'Looking at GitHub Releases.'
+    updateChangelog.value = ''
+    btnUpdateDownload.disabled = true
+    btnUpdateDownload.textContent = 'Checking...'
+  } else if (update.status === 'available') {
+    updateDialogTitle.textContent = `DJ Scrobbler ${latest}${releaseKind} is available!`
+    updateDialogSub.textContent = `You are running ${current}.`
+    btnUpdateDownload.textContent = 'Download and restart'
+  } else if (update.status === 'downloading') {
+    updateDialogTitle.textContent = `Downloading DJ Scrobbler ${latest}${releaseKind}!`
+    updateDialogSub.textContent = update.progress != null ? `${update.progress}% downloaded.` : 'Downloading the update.'
+    btnUpdateDownload.disabled = true
+    btnUpdateDownload.textContent = 'Downloading...'
+  } else if (update.status === 'downloaded') {
+    updateDialogTitle.textContent = `DJ Scrobbler ${latest} is ready!`
+    updateDialogSub.textContent = 'Restart now to finish installing the update.'
+    btnUpdateDownload.textContent = 'Restart'
+  } else if (update.status === 'not-available') {
+    updateDialogTitle.textContent = 'DJ Scrobbler is up to date!'
+    updateDialogSub.textContent = `You are running ${current}.`
+    updateChangelog.value = update.changelog || 'No newer GitHub Release was found.'
+    btnUpdateDownload.disabled = true
+    btnUpdateDownload.textContent = 'Up to date'
+  } else if (update.status === 'external-download') {
+    updateDialogTitle.textContent = `DJ Scrobbler ${latest}${releaseKind} is available!`
+    updateDialogSub.textContent = 'The GitHub Releases page is open for this dev build.'
+    btnUpdateDownload.textContent = 'Download and restart'
+  } else if (update.status === 'error') {
+    updateDialogTitle.textContent = 'Could not check for updates!'
+    updateDialogSub.textContent = update.error || 'The update check failed.'
+    updateChangelog.value = ''
+    btnUpdateDownload.disabled = false
+    btnUpdateDownload.textContent = 'Try again'
+  }
+}
+
+function openUpdateDialog(update = latestUpdateState) {
+  updateDialog.classList.remove('hidden')
+  updateDialogCopy(update || {
+    status: 'checking',
+    currentVersion: appVersion,
+    changelog: '',
+  })
+}
+
+function closeUpdateDialog() {
+  updateDialog.classList.add('hidden')
+}
+
 function dragPoint(e) {
   return { screenX: e.screenX, screenY: e.screenY }
 }
@@ -284,6 +381,7 @@ function navigateTo(url) {
 
 async function init() {
   state.store = await window.api.getStore()
+  document.body.classList.add(`platform-${await window.api.getPlatform()}`)
   if (await window.api.isDeveloper()) btnDevtools.classList.remove('hidden')
 
   applyTheme(state.store.settings?.theme || 'neon-night', false)
@@ -292,7 +390,7 @@ async function init() {
   applyResponsiveSidebar()
   restoreRightPanelWidth()
   playerVolume = Math.max(0, Math.min(100, Math.round(Number(state.store.settings?.playerVolume ?? 80) || 0)))
-  playerMuted = !!state.store.settings?.playerMuted || playerVolume === 0
+  previousPlayerVolume = Math.max(1, Math.min(100, Math.round(Number(state.store.settings?.previousPlayerVolume ?? (playerVolume || 80)) || 80)))
   updateVolumeUI()
 
   // Restore right panel open/closed state (default: closed)
@@ -305,6 +403,7 @@ async function init() {
 
   appVersion = await window.api.getVersion()
   footerAppName.textContent = `DJ Scrobbler v${appVersion}`
+  syncUpdateNotificationCheckboxes(!!state.store.settings?.updateNotificationsDisabled)
 
   introGreeting.textContent = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
 
@@ -346,7 +445,11 @@ let currentVideoMode = 'inline'
 let progressSegmentKey = ''
 let sidebarAutoHidden = false
 let playerVolume = 80
-let playerMuted = false
+let previousPlayerVolume = 80
+let volumeHideTimer = null
+let playerStatusTimer = null
+let pendingKeyboardSeekTarget = null
+let pendingKeyboardVolumeTarget = null
 
 function setSidebarWidthVar() {
   document.documentElement.style.setProperty('--sidebar-w-current', `${sidebar.offsetWidth || DEFAULT_SIDEBAR_W}px`)
@@ -476,6 +579,35 @@ function seekFromProgressEvent(e) {
   state.playbackCurrentTime = seconds
   updatePlaybackProgress(seconds, state.playbackDuration)
   window.api.playerSeek(seconds)
+}
+
+function seekRelativeSeconds(deltaSeconds) {
+  const current = Math.max(0, Number(state.playbackCurrentTime) || 0)
+  const duration = Math.max(0, Number(state.playbackDuration) || 0)
+  const target = Math.max(0, duration
+    ? Math.min(duration, current + deltaSeconds)
+    : current + deltaSeconds)
+  state.playbackCurrentTime = target
+  updatePlaybackProgress(target, state.playbackDuration)
+  window.api.playerSeek(target)
+}
+
+function previewRelativeSeek(deltaSeconds) {
+  const current = pendingKeyboardSeekTarget ?? Math.max(0, Number(state.playbackCurrentTime) || 0)
+  const duration = Math.max(0, Number(state.playbackDuration) || 0)
+  const target = Math.max(0, duration
+    ? Math.min(duration, current + deltaSeconds)
+    : current + deltaSeconds)
+  pendingKeyboardSeekTarget = target
+  state.playbackCurrentTime = target
+  updatePlaybackProgress(target, state.playbackDuration)
+}
+
+function commitKeyboardSeek() {
+  if (pendingKeyboardSeekTarget == null) return
+  const target = pendingKeyboardSeekTarget
+  pendingKeyboardSeekTarget = null
+  window.api.playerSeek(target)
 }
 
 function startProgressDrag(e) {
@@ -635,19 +767,21 @@ function doSearch() {
 
 let dropdownFocusIdx = -1
 
+function selectSearchSuggestion(query) {
+  if (!query) return
+  searchInput.value = query
+  hideSearchDropdown()
+  doSearch()
+}
+
 function showSearchDropdown(matches) {
   dropdownFocusIdx = -1
   searchDropdown.innerHTML = ''
   matches.forEach((q) => {
     const item = document.createElement('div')
     item.className = 'search-dropdown-item'
+    item.dataset.query = q
     item.textContent = q
-    item.addEventListener('mousedown', (e) => {
-      e.preventDefault() // keep focus on input
-      searchInput.value = q
-      hideSearchDropdown()
-      doSearch()
-    })
     searchDropdown.appendChild(item)
   })
   searchDropdown.classList.add('open')
@@ -666,7 +800,7 @@ function updateDropdownFocus(delta) {
   const focused = items[dropdownFocusIdx]
   if (focused) {
     focused.classList.add('focused')
-    searchInput.value = focused.textContent
+    searchInput.value = focused.dataset.query || focused.textContent
   }
 }
 
@@ -692,8 +826,11 @@ function wireMainEvents() {
     if (isResumeDialogOpen()) return
     switch (status.type) {
       case 'loading':             showLoading(status.msg); break
+      case 'player-loading':      showPlayerStatus(); break
       case 'no-tracklist':        showNoTracklist(); break
       case 'no-tracklist-prompt': showNoTracklistPrompt(status.url); break
+      case 'network-error':       showNetworkError(status.url, status.message); break
+      case 'player-ready':        hidePlayerStatus(); break
       case 'hide-overlay':        hideOverlays(); break
     }
   })
@@ -726,7 +863,7 @@ function wireMainEvents() {
       // Clear any stale track info from a previous set
       state.nowPlaying       = null
       state.isTrackPlaying   = false
-      npTrack.textContent    = ''
+      npTrackText.textContent = ''
       npArtist.textContent   = ''
       npTracknum.textContent = ''
       ppIcon.innerHTML      = icon(ICON.play, 16)
@@ -764,7 +901,7 @@ function wireMainEvents() {
     state.isIdTrack      = !!data.isId
     // Player-only events carry play/pause state, not track metadata.
     if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
-      npTrack.textContent    = data.isId ? 'ID' : (data.title || data.raw || '—')
+      npTrackText.textContent = data.isId ? 'ID' : (data.title || data.raw || '—')
       npArtist.textContent   = data.isId ? '—' : (data.artist || '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
       if (data.trackNum) highlightTracklistByNum(data.trackNum)
@@ -783,6 +920,7 @@ function wireMainEvents() {
 
   const handlePlaybackProgress = ({ currentTime, duration }) => {
     if (!duration) return
+    hidePlayerStatus()
     state.playbackCurrentTime = currentTime || 0
     state.playbackDuration = duration || 0
     updatePlaybackProgress()
@@ -824,6 +962,21 @@ function wireMainEvents() {
 
   window.api.on('menu-toggle-sidebar', () => toggleSidebar())
   window.api.on('menu-reload', () => navigateToSearch())
+  window.api.on('update-status', (update) => {
+    updateDialogCopy(update)
+    if (update.status === 'available' || update.status === 'downloaded' || update.status === 'downloading') {
+      openUpdateDialog(update)
+    } else if ((update.status === 'error' || update.status === 'not-available') && update.manual) {
+      openUpdateDialog(update)
+    } else if (!updateDialog.classList.contains('hidden')) {
+      openUpdateDialog(update)
+    }
+    if (update.status === 'not-available') {
+      updateSettingsStatus.textContent = `Up to date. Current version: v${update.currentVersion || appVersion}.`
+    } else if (update.status === 'available') {
+      updateSettingsStatus.textContent = `Version v${update.latestVersion} is available.`
+    }
+  })
 }
 
 // ── Scrobble badge ────────────────────────────────────────────────────────────
@@ -900,48 +1053,108 @@ function applyResponsiveSidebar() {
 
 function updateVolumeUI() {
   if (!btnVolume || !volumeSlider) return
-  const effectiveVolume = playerMuted ? 0 : playerVolume
   volumeSlider.value = String(playerVolume)
-  volumeSlider.style.setProperty('--volume-pct', `${effectiveVolume}%`)
-  btnVolume.classList.toggle('muted', playerMuted || playerVolume === 0)
-  btnVolume.innerHTML = icon(playerMuted || playerVolume === 0
+  volumeSlider.style.setProperty('--volume-pct', `${playerVolume}%`)
+  btnVolume.classList.toggle('muted', playerVolume === 0)
+  btnVolume.innerHTML = icon(playerVolume === 0
     ? ICON.volumeX
     : (playerVolume > 50 ? ICON.volume2 : ICON.volume), 15)
-  btnVolume.title = playerMuted || playerVolume === 0 ? 'Unmute' : 'Mute'
+  btnVolume.setAttribute('aria-label', playerVolume === 0 ? 'Restore volume' : 'Mute')
+}
+
+function showVolumePopover() {
+  clearTimeout(volumeHideTimer)
+  volumeControl.classList.add('open')
+}
+
+function scheduleVolumePopoverClose() {
+  clearTimeout(volumeHideTimer)
+  volumeHideTimer = setTimeout(() => {
+    if (!volumeControl.matches(':hover')) volumeControl.classList.remove('open')
+  }, 1000)
 }
 
 async function applyPlayerVolume(volume, persistSetting = true) {
-  playerVolume = Math.max(0, Math.min(100, Math.round(Number(volume) || 0)))
-  playerMuted = playerVolume === 0
+  const requestedVolume = Math.max(0, Math.min(100, Math.round(Number(volume) || 0)))
+  playerVolume = requestedVolume
+  if (playerVolume > 0) previousPlayerVolume = playerVolume
   updateVolumeUI()
-  const result = await window.api.playerVolumeSet(playerVolume)
-  if (result) {
-    playerVolume = Math.max(0, Math.min(100, Math.round(Number(result.volume) || playerVolume)))
-    playerMuted = !!result.muted || playerVolume === 0
-    updateVolumeUI()
-  }
+  await window.api.playerVolumeSet(requestedVolume)
   if (persistSetting) {
     if (!state.store.settings) state.store.settings = {}
     state.store.settings.playerVolume = playerVolume
-    state.store.settings.playerMuted = playerMuted
+    state.store.settings.previousPlayerVolume = previousPlayerVolume
     persist()
   }
 }
 
 async function togglePlayerMute() {
-  const result = await window.api.playerMuteToggle()
-  if (result) {
-    playerVolume = Math.max(0, Math.min(100, Math.round(Number(result.volume) || playerVolume)))
-    playerMuted = !!result.muted
-  } else {
-    playerMuted = !playerMuted
-  }
-  if (!playerMuted && playerVolume === 0) playerVolume = 80
+  const nextVolume = playerVolume === 0 ? previousPlayerVolume : 0
+  await applyPlayerVolume(nextVolume, true)
+}
+
+function previewPlayerVolume(volume) {
+  playerVolume = Math.max(0, Math.min(100, Math.round(Number(volume) || 0)))
+  if (playerVolume > 0) previousPlayerVolume = playerVolume
   updateVolumeUI()
-  if (!state.store.settings) state.store.settings = {}
-  state.store.settings.playerVolume = playerVolume
-  state.store.settings.playerMuted = playerMuted
-  persist()
+}
+
+function adjustPlayerVolume(delta, commit = true) {
+  showVolumePopover()
+  const base = pendingKeyboardVolumeTarget ?? playerVolume
+  const nextVolume = Math.max(0, Math.min(100, base + delta))
+  if (commit) {
+    applyPlayerVolume(nextVolume, true)
+  } else {
+    pendingKeyboardVolumeTarget = nextVolume
+    previewPlayerVolume(nextVolume)
+  }
+}
+
+function commitKeyboardVolume() {
+  if (pendingKeyboardVolumeTarget == null) return
+  const target = pendingKeyboardVolumeTarget
+  pendingKeyboardVolumeTarget = null
+  applyPlayerVolume(target, true)
+}
+
+function shouldIgnorePlayerShortcut(e) {
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return true
+  if (!resumeDialog.classList.contains('hidden')) return true
+  if (!supportDialog.classList.contains('hidden')) return true
+  if (!updateDialog.classList.contains('hidden')) return true
+  const target = e.target
+  if (!target) return false
+  if (typeof target.closest !== 'function') return false
+  return !!target.closest('input, textarea, select, button, [contenteditable="true"]')
+}
+
+function handlePlayerShortcutKeydown(e) {
+  if (shouldIgnorePlayerShortcut(e)) return
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    previewRelativeSeek(-5)
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    previewRelativeSeek(5)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    adjustPlayerVolume(5, false)
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    adjustPlayerVolume(-5, false)
+  }
+}
+
+function handlePlayerShortcutKeyup(e) {
+  if (shouldIgnorePlayerShortcut(e)) return
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault()
+    commitKeyboardSeek()
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault()
+    commitKeyboardVolume()
+  }
 }
 
 // ── Sidebar resize ────────────────────────────────────────────────────────────
@@ -1088,6 +1301,7 @@ function wireOverflowMarquee(target, hoverTarget = target) {
   target.dataset.marqueeWired = 'true'
 
   const start = () => {
+    target._overflowMarqueeAnimation?.cancel()
     target.style.transition = 'none'
     target.style.transform = ''
     target.classList.remove('overflow-marquee')
@@ -1095,16 +1309,32 @@ function wireOverflowMarquee(target, hoverTarget = target) {
     requestAnimationFrame(() => {
       const overflow = target.scrollWidth - target.clientWidth
       if (overflow <= 4) return
-      const secs = Math.max(1.5, overflow / 60)
-      target.style.setProperty('--marquee-dist', `-${overflow}px`)
-      target.style.setProperty('--marquee-dur', `${secs}s`)
+      const moveSecs = Math.max(1.5, overflow / 60)
+      const pauseSecs = 1
+      const totalSecs = moveSecs + (pauseSecs * 2)
+      const startMoveOffset = pauseSecs / totalSecs
+      const endMoveOffset = (pauseSecs + moveSecs) / totalSecs
+      const dist = `-${overflow}px`
       target.classList.add('overflow-marquee')
+      target._overflowMarqueeAnimation = target.animate([
+        { transform: 'translateX(0)', offset: 0 },
+        { transform: 'translateX(0)', offset: startMoveOffset },
+        { transform: `translateX(${dist})`, offset: endMoveOffset },
+        { transform: `translateX(${dist})`, offset: 1 },
+      ], {
+        duration: totalSecs * 1000,
+        easing: 'linear',
+        iterations: Infinity,
+        direction: 'alternate',
+      })
     })
   }
 
   const stop = () => {
     if (!target.classList.contains('overflow-marquee')) return
     const currentX = new DOMMatrix(getComputedStyle(target).transform).m41
+    target._overflowMarqueeAnimation?.cancel()
+    target._overflowMarqueeAnimation = null
     target.classList.remove('overflow-marquee')
     target.style.transform = `translateX(${currentX}px)`
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -1126,7 +1356,7 @@ function wireSetItemMarquee(li) {
 }
 
 function wireFooterMarquees() {
-  ;[npTrack, npArtist, npSet, npSource, scrobbleLabel].forEach(el => wireOverflowMarquee(el))
+  ;[npTrackText, npArtist, npSet, npSource, scrobbleLabel].forEach(el => wireOverflowMarquee(el))
 }
 
 function isYouTubeSourceUrl(url) {
@@ -1518,7 +1748,7 @@ function resetNowPlaying() {
   updatePlaybackProgress(0, 0)
   document.body.classList.remove('is-browsing')
   state.isTrackPlaying     = false
-  npTrack.textContent    = ''
+  npTrackText.textContent = ''
   npArtist.textContent   = ''
   npTracknum.textContent = ''
   npSet.textContent      = ''
@@ -1533,6 +1763,7 @@ function resetNowPlaying() {
 let pendingPlayUrl = null
 
 function showLoading(msg = 'Loading…') {
+  hidePlayerStatus()
   loadingMsg.textContent = msg
   loadingOverlay.classList.remove('hidden')
   noTracklistMsg.classList.add('hidden')
@@ -1551,13 +1782,50 @@ function showNoTracklist() {
 }
 
 function showNoTracklistPrompt(url) {
+  hidePlayerStatus()
   pendingPlayUrl = url
+  noTlPromptTitle.textContent = 'No tracklist found for this DJ set :('
+  noTlPromptSub.textContent = 'This set might not have a tracklist yet.'
+  btnRetryLoad.classList.add('hidden')
+  btnPlayAnyway.textContent = 'Play set anyway'
   noTracklistPrompt.classList.remove('hidden')
   loadingOverlay.classList.add('hidden')
   noTracklistMsg.classList.add('hidden')
   resetNowPlaying()
   state.tracklistUnavailable = true
   refreshScrobbleBadge()
+}
+
+function showNetworkError(url, message) {
+  hidePlayerStatus()
+  pendingPlayUrl = url
+  noTlPromptTitle.textContent = 'Connection problem'
+  noTlPromptSub.textContent = message || 'Check your connection and try again.'
+  btnRetryLoad.classList.remove('hidden')
+  btnPlayAnyway.textContent = 'Play without tracklist'
+  noTracklistPrompt.classList.remove('hidden')
+  loadingOverlay.classList.add('hidden')
+  noTracklistMsg.classList.add('hidden')
+  state.tracklistUnavailable = true
+  refreshScrobbleBadge()
+}
+
+function showPlayerStatus() {
+  clearTimeout(playerStatusTimer)
+  playerStatusTitle.textContent = 'Starting YouTube player...'
+  playerStatusSub.textContent = 'Tracklist can load before video is ready.'
+  playerStatusOverlay.classList.remove('hidden')
+  playerStatusTimer = setTimeout(() => {
+    if (playerStatusOverlay.classList.contains('hidden')) return
+    playerStatusTitle.textContent = 'Still waiting for YouTube...'
+    playerStatusSub.textContent = 'Playback may start once the connection catches up.'
+  }, 6000)
+}
+
+function hidePlayerStatus() {
+  clearTimeout(playerStatusTimer)
+  playerStatusTimer = null
+  playerStatusOverlay.classList.add('hidden')
 }
 
 function hideOverlays() {
@@ -1605,6 +1873,13 @@ function wireEvents() {
     showSearchDropdown(matches)
   })
 
+  searchDropdown.addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.search-dropdown-item')
+    if (!item || !searchDropdown.contains(item)) return
+    e.preventDefault() // keep focus on input long enough to select the row
+    selectSearchSuggestion(item.dataset.query || item.textContent)
+  })
+
   searchInput.addEventListener('blur', () => {
     // Small delay so mousedown on an item fires before blur hides the list
     setTimeout(hideSearchDropdown, 150)
@@ -1613,6 +1888,8 @@ function wireEvents() {
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#search-box')) hideSearchDropdown()
   })
+  document.addEventListener('keydown', handlePlayerShortcutKeydown)
+  document.addEventListener('keyup', handlePlayerShortcutKeyup)
 
   btnDevtools.addEventListener('click', () => window.api.openDevTools())
   btnSidebarToggle.addEventListener('click', () => toggleSidebar())
@@ -1623,7 +1900,12 @@ function wireEvents() {
   btnVideoHide.addEventListener('click', () => applyVideoMode('hidden'))
   videoControls.addEventListener('mousedown', startWindowDrag)
   window.addEventListener('resize', applyResponsiveSidebar)
-  btnVolume.addEventListener('click', togglePlayerMute)
+  volumeControl.addEventListener('mouseenter', showVolumePopover)
+  volumeControl.addEventListener('mouseleave', scheduleVolumePopoverClose)
+  btnVolume.addEventListener('click', () => {
+    showVolumePopover()
+    togglePlayerMute()
+  })
   volumeSlider.addEventListener('input', () => applyPlayerVolume(volumeSlider.value, false))
   volumeSlider.addEventListener('change', () => applyPlayerVolume(volumeSlider.value, true))
 
@@ -1697,6 +1979,12 @@ function wireEvents() {
     pendingPlayUrl = null
     navigateTo(url)
   })
+  btnRetryLoad.addEventListener('click', () => {
+    if (!pendingPlayUrl) return
+    const url = pendingPlayUrl
+    pendingPlayUrl = null
+    window.api.loadSourceUrl(url)
+  })
 
   btnPlayPause.addEventListener('click', () => window.api.playerToggle())
   btnPrevTrack.addEventListener('click', () => seekRelativeTrack(-1))
@@ -1724,6 +2012,31 @@ function wireEvents() {
   btnSupportClose.addEventListener('click', closeSupportDialog)
   supportDialog.addEventListener('click', (e) => {
     if (e.target === supportDialog) closeSupportDialog()
+  })
+  btnCheckUpdates.addEventListener('click', async () => {
+    openUpdateDialog({ status: 'checking', currentVersion: appVersion })
+    await window.api.updatesCheck()
+  })
+  btnUpdateDownload.addEventListener('click', async () => {
+    if (latestUpdateState?.status === 'downloaded') {
+      await window.api.updatesInstall()
+    } else if (latestUpdateState?.status === 'error') {
+      openUpdateDialog({ status: 'checking', currentVersion: appVersion })
+      await window.api.updatesCheck()
+    } else {
+      await window.api.updatesDownload()
+    }
+  })
+  btnUpdateLater.addEventListener('click', closeUpdateDialog)
+  btnUpdateClose.addEventListener('click', closeUpdateDialog)
+  updateDialog.addEventListener('click', (e) => {
+    if (e.target === updateDialog) closeUpdateDialog()
+  })
+  updatesDisableNotifications.addEventListener('change', () => {
+    setUpdateNotificationsDisabled(updatesDisableNotifications.checked)
+  })
+  updateDisableNotifications.addEventListener('change', () => {
+    setUpdateNotificationsDisabled(updateDisableNotifications.checked)
   })
 
   // Resume dialog

@@ -14,7 +14,6 @@ contextBridge.exposeInMainWorld('api', {
   playerToggle:    ()      => ipcRenderer.invoke('player-toggle'),
   playerVolumeGet: ()      => ipcRenderer.invoke('player-volume-get'),
   playerVolumeSet: (value) => ipcRenderer.invoke('player-volume-set', value),
-  playerMuteToggle: ()     => ipcRenderer.invoke('player-mute-toggle'),
   playerGotoTrack: (args) => ipcRenderer.invoke('player-goto-track', args),
   playerSeek:      (secs) => ipcRenderer.invoke('player-seek', secs),
   fallbackSeek:    (secs) => ipcRenderer.invoke('fallback-seek', secs),
@@ -30,12 +29,17 @@ contextBridge.exposeInMainWorld('api', {
 
   setTheme:     (theme) => ipcRenderer.invoke('set-theme', theme),
   getVersion:   ()      => ipcRenderer.invoke('get-version'),
+  getPlatform:  ()      => ipcRenderer.invoke('get-platform'),
+  updatesCheck: ()      => ipcRenderer.invoke('updates-check'),
+  updatesDownload: ()   => ipcRenderer.invoke('updates-download'),
+  updatesInstall: ()    => ipcRenderer.invoke('updates-install'),
+  updatesNotificationsDisabledSet: (disabled) => ipcRenderer.invoke('updates-notifications-disabled-set', disabled),
   openExternal: (url)   => ipcRenderer.invoke('open-external', url),
 
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data',
                      'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
-                     'fallback-progress', 'tl-progress']
+                     'fallback-progress', 'tl-progress', 'update-status']
     if (!allowed.includes(channel)) return
     ipcRenderer.on(channel, (_event, ...args) => callback(...args))
   },
