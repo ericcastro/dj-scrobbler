@@ -478,8 +478,10 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   flex-direction: column;
   gap: 2px;
   padding: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid transparent;
+  transition: border-color .2s;
 }
+#sidebar-nav:has(.nav-btn.active) { border-bottom-color: var(--border); }
 
 .nav-btn {
   background: transparent;
@@ -508,7 +510,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%);
+  background: var(--bg2);
 }
 
 .sidebar-panel {
