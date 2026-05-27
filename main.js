@@ -4,6 +4,7 @@ const path   = require('path')
 const https  = require('https')
 const crypto = require('crypto')
 const fs     = require('fs')
+const os     = require('os')
 const plugins  = require('./plugins')
 const {
   cleanVersion,
@@ -23,8 +24,8 @@ nativeTheme.themeSource = 'dark'
 
 // ── Verbose logging ───────────────────────────────────────────────────────────
 // Enable with:  DJ_VERBOSE=1 npm start
-const VERBOSE = !!process.env.DJ_VERBOSE
-const DEBUG_LOG_PATH = process.env.DJ_VERBOSE ? '/private/tmp/djscrobbler-debug.log' : null
+const VERBOSE = !!process.env.DJ_VERBOSE || !app.isPackaged
+const DEBUG_LOG_PATH = process.env.DJ_VERBOSE ? path.join(os.tmpdir(), 'djscrobbler-debug.log') : null
 const recentLogs = []
 function formatLogArg(arg) {
   if (typeof arg === 'string') return arg
@@ -707,6 +708,12 @@ function extractTracklistInBackground(tlPlugin, url) {
         clearTimeout(timeout)
         finish({ title: null, tracks: [] })
       }
+    })
+
+    wc.on('render-process-gone', (_event, details) => {
+      log(`[extract] render-process-gone reason=${details.reason}`)
+      clearTimeout(timeout)
+      finish({ title: null, tracks: [] })
     })
 
     win.loadURL(url)
