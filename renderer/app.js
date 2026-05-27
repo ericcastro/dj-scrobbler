@@ -49,6 +49,8 @@ const sidebar            = document.getElementById('sidebar')
 const sidebarResizeHandle= document.getElementById('sidebar-resize-handle')
 const sidebarFooter      = document.getElementById('sidebar-footer')
 const sidebarMiniPlayerSlot = document.getElementById('sidebar-mini-player-slot')
+const browseLoading      = document.getElementById('browse-loading')
+const browseLoadingMsg   = document.getElementById('browse-loading-msg')
 const introScreen        = document.getElementById('intro-screen')
 const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
@@ -478,12 +480,14 @@ function setTrackPlaying(playing) {
   document.body.classList.toggle('is-track-playing', playing)
 }
 
-function navigateTo(url) {
+function navigateTo(url, loadingLabel) {
   console.log('[browser-wv] navigateTo ready=' + browserWebviewReady + ' url=' + url)
   browserHasContent = true
   hideIntro()
   document.body.classList.add('is-browsing')
   updateViewTabs()
+  browseLoadingMsg.textContent = loadingLabel || 'Loading…'
+  browseLoading.classList.remove('hidden')
   if (browserWebviewReady) {
     browserWebview.loadURL(url).catch(e => console.error('[browser-wv] loadURL failed', e))
   } else {
@@ -552,9 +556,14 @@ async function init() {
     }
   })
 
+  browserWebview.addEventListener('did-stop-loading', () => {
+    browseLoading.classList.add('hidden')
+  })
+
   const resetBrowserWebview = (reason) => {
     console.warn('[browser-wv] renderer gone reason=' + reason + ' — resetting ready flag')
     browserWebviewReady = false
+    browseLoading.classList.add('hidden')
   }
   browserWebview.addEventListener('render-process-gone', (e) => resetBrowserWebview(e.reason || 'unknown'))
   browserWebview.addEventListener('crashed', () => resetBrowserWebview('crashed'))
@@ -1042,7 +1051,8 @@ function navigateToSearch(query = '') {
   hideOverlays()
   clearTracklist()
   const sourceUrl = SOURCE_URLS[state.source] || SOURCE_URLS.youtube
-  navigateTo(sourceUrl(query))
+  const sourceName = state.source === 'soundcloud' ? 'SoundCloud' : 'YouTube'
+  navigateTo(sourceUrl(query), `Searching ${sourceName}…`)
 }
 
 function doSearch() {
