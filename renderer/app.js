@@ -479,12 +479,17 @@ function setTrackPlaying(playing) {
 }
 
 function navigateTo(url) {
+  console.log('[browser-wv] navigateTo ready=' + browserWebviewReady + ' url=' + url)
   browserHasContent = true
   hideIntro()
   document.body.classList.add('is-browsing')
   updateViewTabs()
-  if (browserWebviewReady) browserWebview.loadURL(url)
-  else pendingNav = url
+  if (browserWebviewReady) {
+    browserWebview.loadURL(url).catch(e => console.error('[browser-wv] loadURL failed', e))
+  } else {
+    console.log('[browser-wv] not ready — queuing nav')
+    pendingNav = url
+  }
 }
 
 async function init() {
@@ -537,10 +542,22 @@ async function init() {
   })
 
   browserWebview.addEventListener('dom-ready', () => {
+    console.log('[browser-wv] dom-ready pendingNav=' + pendingNav)
     browserWebviewReady = true
     window.api.registerWebviewRole(browserWebview.getWebContentsId(), 'browser')
-    if (pendingNav) { browserWebview.loadURL(pendingNav); pendingNav = null }
+    if (pendingNav) {
+      console.log('[browser-wv] flushing pendingNav=' + pendingNav)
+      browserWebview.loadURL(pendingNav).catch(e => console.error('[browser-wv] pendingNav loadURL failed', e))
+      pendingNav = null
+    }
   })
+
+  const resetBrowserWebview = (reason) => {
+    console.warn('[browser-wv] renderer gone reason=' + reason + ' — resetting ready flag')
+    browserWebviewReady = false
+  }
+  browserWebview.addEventListener('render-process-gone', (e) => resetBrowserWebview(e.reason || 'unknown'))
+  browserWebview.addEventListener('crashed', () => resetBrowserWebview('crashed'))
 
   wireEvents()
   wireMainEvents()
@@ -1030,6 +1047,7 @@ function navigateToSearch(query = '') {
 
 function doSearch() {
   const q = searchInput.value.trim()
+  console.log('[search] doSearch q=' + JSON.stringify(q))
   hideSearchDropdown()
   if (q) saveSearchQuery(q)
   navigateToSearch(q)
