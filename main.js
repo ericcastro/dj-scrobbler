@@ -1365,15 +1365,38 @@ function setDisplayFullscreen(enabled) {
 
 // ── Window ────────────────────────────────────────────────────────────────────
 
+// Per-theme topbar colors for the Windows native titlebar overlay (min/max/close buttons).
+// Keeps the native controls visually integrated with the active theme.
+const TITLEBAR_OVERLAY_THEMES = {
+  'neon-night':  { color: '#0f1a30', symbolColor: '#6e88b8' },
+  'signal-teal': { color: '#071f25', symbolColor: '#6ab4aa' },
+  'sunset-deck': { color: '#190c1e', symbolColor: '#9b7e8e' },
+}
+function titleBarOverlayForTheme(theme) {
+  const colors = TITLEBAR_OVERLAY_THEMES[theme] || TITLEBAR_OVERLAY_THEMES['neon-night']
+  return { ...colors, height: 52 }   // 52 matches --topbar-h
+}
+
 function createWindow() {
-  const { windowBounds } = readStore().settings || {}
+  const store = readStore()
+  const { windowBounds } = store.settings || {}
+  const initialTheme = store.settings?.theme || 'neon-night'
   mainWindow = new BrowserWindow({
     width:  windowBounds?.width  || 1400,
     height: windowBounds?.height || 900,
     ...(windowBounds?.x != null ? { x: windowBounds.x, y: windowBounds.y } : {}),
     minWidth: 360,
     minHeight: 600,
-    titleBarStyle: 'hiddenInset',
+    // macOS: hiddenInset keeps the traffic-light buttons visible
+    // Windows: hidden removes the native titlebar; titleBarOverlay puts the
+    //   min/max/close buttons back as a styled native overlay in the top-right
+    // Linux: frame:false — no native chrome, topbar drag handles window move
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' }
+      : process.platform === 'win32'
+        ? { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlayForTheme(initialTheme) }
+        : { frame: false }
+    ),
     autoHideMenuBar: process.platform !== 'darwin',
     fullscreenable: false,
     backgroundColor: '#0c1220',
@@ -1618,4 +1641,8 @@ ipcMain.handle('set-theme', (_event, theme) => {
   store.settings.theme = theme
   if (lfmSession) store.settings.lfmSession = lfmSession
   writeStore(store)
+  // Keep native window controls styled to match the new theme (Windows only)
+  if (process.platform === 'win32' && mainWindow) {
+    mainWindow.setTitleBarOverlay(titleBarOverlayForTheme(theme))
+  }
 })
