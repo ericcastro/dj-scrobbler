@@ -261,11 +261,11 @@ body.platform-linux #topbar {
 .icon-btn:hover { color: var(--text); border-color: var(--accent); }
 .icon-btn.active { color: var(--accent); border-color: var(--accent); }
 
-body.compact-layout #search-area {
+body.compact-layout.has-active-set #search-area {
   display: none;
 }
 
-body.compact-layout #header-actions {
+body.compact-layout.has-active-set #header-actions {
   margin-left: auto;
 }
 

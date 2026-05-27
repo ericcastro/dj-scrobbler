@@ -1372,7 +1372,7 @@ function titleBarOptions(theme) {
     }
   }
 
-  return {}
+  return { frame: false }
 }
 
 function setTitleBarTheme(theme) {
@@ -1689,8 +1689,4 @@ ipcMain.handle('set-theme', (_event, theme) => {
   store.settings.theme = theme
   if (lfmSession) store.settings.lfmSession = lfmSession
   writeStore(store)
-  // Keep native window controls styled to match the new theme (Windows only)
-  if (process.platform === 'win32' && mainWindow) {
-    mainWindow.setTitleBarOverlay(titleBarOverlayForTheme(theme))
-  }
 })
