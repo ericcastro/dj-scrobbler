@@ -294,8 +294,8 @@ const ID_SUB = "You can help out and complete its information!"
 
 const CONTRIBUTE_CONFIGS = {
   'no-timestamp': {
-    title: 'No timestamp for this track',
-    sub:   "This track hasn't been timestamped yet, so we can't seek to it.",
+    title: 'No timestamp for this track yet',
+    sub:   "...so we can't seek to it. You can help adding it!",
     note:  ID_COMMUNITY_NOTE,
   },
   'id': {
