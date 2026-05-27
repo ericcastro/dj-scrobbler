@@ -386,18 +386,18 @@ body.compact-layout.has-active-set #header-actions {
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: .03em;
 }
 
 .sep-dot {
-  font-size: 12px;
+  font-size: 13px;
   opacity: 0.45;
 }
 
 #sep-listen-tooltip {
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
   line-height: 1.5;
   font-weight: 400;
@@ -456,7 +456,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   padding: 7px 10px;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   transition: all .15s;
   display: flex;
   align-items: center;
@@ -491,7 +491,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   padding: 7px 10px;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   transition: all .15s;
   display: flex;
   align-items: center;
@@ -589,9 +589,11 @@ body.video-mode-mini #sidebar-mini-player-slot {
   justify-content: space-between;
 }
 
+#sidebar .panel-title { font-size: 13px; }
+
 /* First timeframe label embedded in the History panel title row */
 .history-title-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: .1em;
   opacity: .45;
@@ -608,7 +610,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
    Selector uses .set-list .history-group-sep (0,2,0) so it beats
    .set-list li (0,1,1) and the font-size / other overrides take effect. */
 .set-list .history-group-sep {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .1em;
@@ -628,7 +630,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 6px;
   padding: 6px 8px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   transition: background .15s;
   position: relative;
@@ -703,7 +705,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 .set-list li .set-item-src {
   color: var(--text2);
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 1px;
 }
 
@@ -720,7 +722,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 3px;
   cursor: pointer;
   padding: 2px 4px;
-  font-size: 13px;
+  font-size: 14px;
   flex-shrink: 0;
 }
 
@@ -728,7 +730,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 .empty-msg {
   color: var(--text2);
-  font-size: 12px;
+  font-size: 13px;
   text-align: center;
   padding: 20px 8px;
 }
@@ -740,7 +742,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 .setting-group label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text2);
   margin-bottom: 4px;
 }
@@ -752,7 +754,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 5px;
   color: var(--text);
   padding: 5px 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   outline: none;
 }
@@ -788,8 +790,11 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 .btn-secondary:hover { color: var(--text); border-color: var(--accent); }
 
+#sidebar .btn-primary  { font-size: 14px; }
+#sidebar .btn-secondary { font-size: 14px; }
+
 .setting-desc {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text2);
   line-height: 1.5;
   margin-bottom: 10px;
@@ -803,15 +808,15 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 6px;
   padding: 8px 10px;
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
-.lfm-dot { color: var(--red); font-size: 17px; }
+.lfm-dot { color: var(--red); font-size: 18px; }
 
 #lfm-connect-status {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text2);
   text-align: center;
   min-height: 16px;
@@ -859,7 +864,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 }
 
 .swatch-name {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
 }
