@@ -82,7 +82,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text);
   background: var(--bg);
   user-select: none;
@@ -119,7 +119,7 @@ body.platform-linux #topbar {
   align-items: center;
   gap: 6px;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--accent2);
   white-space: nowrap;
   flex-shrink: 0;
@@ -152,7 +152,7 @@ body.platform-linux #topbar {
   border-radius: 5px;
   background: transparent;
   color: var(--text2);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   transition: all .15s;
 }
@@ -179,7 +179,7 @@ body.platform-linux #topbar {
   border-radius: 6px;
   color: var(--text);
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   outline: none;
   transition: border-color .15s;
@@ -231,7 +231,7 @@ body.platform-linux #topbar {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
   cursor: pointer;
   white-space: nowrap;
@@ -329,7 +329,8 @@ body.compact-layout.has-active-set #header-actions {
 
 /* When sidebar is narrower than default, keep only the app name */
 #sidebar.sidebar-narrow #sidebar-footer .sidebar-footer-sep,
-#sidebar.sidebar-narrow #sidebar-footer [data-feedback-type] {
+#sidebar.sidebar-narrow #sidebar-footer [data-feedback-type],
+#sidebar.sidebar-narrow .sep-stat-label {
   display: none;
 }
 
@@ -385,18 +386,18 @@ body.compact-layout.has-active-set #header-actions {
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: .03em;
 }
 
 .sep-dot {
-  font-size: 9px;
+  font-size: 12px;
   opacity: 0.45;
 }
 
 #sep-listen-tooltip {
-  font-size: 9px;
+  font-size: 12px;
   text-align: center;
   line-height: 1.5;
   font-weight: 400;
@@ -455,7 +456,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   padding: 7px 10px;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   transition: all .15s;
   display: flex;
   align-items: center;
@@ -488,7 +489,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   padding: 7px 10px;
   border-radius: var(--radius);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   transition: all .15s;
   display: flex;
   align-items: center;
@@ -518,7 +519,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
 /* Collapse button — floats centred over the panel title row, hidden until hover */
 .panel-collapse-btn {
   position: absolute;
-  top: 6px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
@@ -526,9 +527,9 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   border: 1px solid currentColor;
   color: var(--text2);
   border-radius: 99px;
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
   line-height: 1;
   display: flex;
   align-items: center;
@@ -565,7 +566,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 }
 
 .panel-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .08em;
@@ -579,7 +580,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 /* First timeframe label embedded in the History panel title row */
 .history-title-label {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: .1em;
   opacity: .45;
@@ -596,7 +597,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
    Selector uses .set-list .history-group-sep (0,2,0) so it beats
    .set-list li (0,1,1) and the font-size / other overrides take effect. */
 .set-list .history-group-sep {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: .1em;
@@ -616,7 +617,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 6px;
   padding: 6px 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   transition: background .15s;
   position: relative;
@@ -691,7 +692,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 .set-list li .set-item-src {
   color: var(--text2);
-  font-size: 10px;
+  font-size: 11px;
   margin-top: 1px;
 }
 
@@ -708,7 +709,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 3px;
   cursor: pointer;
   padding: 2px 4px;
-  font-size: 12px;
+  font-size: 13px;
   flex-shrink: 0;
 }
 
@@ -716,7 +717,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 .empty-msg {
   color: var(--text2);
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
   padding: 20px 8px;
 }
@@ -728,7 +729,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 
 .setting-group label {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   margin-bottom: 4px;
 }
@@ -740,7 +741,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 5px;
   color: var(--text);
   padding: 5px 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-family: inherit;
   outline: none;
 }
@@ -753,7 +754,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border: none;
   border-radius: 6px;
   padding: 7px 14px;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   width: 100%;
   margin-top: 4px;
@@ -768,7 +769,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   width: 100%;
   margin-top: 4px;
@@ -777,7 +778,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 .btn-secondary:hover { color: var(--text); border-color: var(--accent); }
 
 .setting-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   line-height: 1.5;
   margin-bottom: 10px;
@@ -791,15 +792,15 @@ body.video-mode-mini #sidebar-mini-player-slot {
   border-radius: 6px;
   padding: 8px 10px;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 
-.lfm-dot { color: var(--red); font-size: 16px; }
+.lfm-dot { color: var(--red); font-size: 17px; }
 
 #lfm-connect-status {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   text-align: center;
   min-height: 16px;
@@ -847,7 +848,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 }
 
 .swatch-name {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text);
 }
@@ -1149,6 +1150,7 @@ body.is-browsing #video-controls { display: none; }
 #intro-search {
   width: 100%;
   position: relative;
+  transition: opacity .3s ease;
 }
 
 #intro-search-input {
@@ -1157,7 +1159,7 @@ body.is-browsing #video-controls { display: none; }
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 36px 10px 16px;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
   font-family: inherit;
   letter-spacing: .01em;
@@ -1196,12 +1198,13 @@ body.is-browsing #video-controls { display: none; }
 }
 
 #intro-resume-label {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text2);
   letter-spacing: .01em;
   margin-bottom: 10px;
   text-align: center;
   opacity: 0.5;
+  transition: opacity .3s ease;
 }
 
 #intro-resume-grid {
@@ -1223,6 +1226,11 @@ body.is-browsing #video-controls { display: none; }
   opacity: 0.4;
 }
 .intro-resume-item:hover { border-color: var(--accent); opacity: 1; }
+
+/* When hovering any resume card: unmute the label, mute only subtitle + search */
+#intro-screen:has(.intro-resume-item:hover) #intro-subtitle,
+#intro-screen:has(.intro-resume-item:hover) #intro-search { opacity: 0.15; }
+#intro-screen:has(.intro-resume-item:hover) #intro-resume-label { opacity: 1; }
 
 /* The clip boundary for the marquee is .intro-resume-title-wrap (overflow:hidden),
    so the card itself never needs overflow:visible — keep it clipping the progress bar. */
@@ -1250,7 +1258,7 @@ body.is-browsing #video-controls { display: none; }
 }
 /* Base state: truncated with ellipsis */
 .intro-resume-title-text {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text2);
   white-space: nowrap;
   overflow: hidden;
@@ -1279,7 +1287,7 @@ body.is-browsing #video-controls { display: none; }
   opacity: .65;
 }
 .intro-resume-ghost .intro-resume-ghost-label {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: .03em;
   color: var(--text2);
 }
@@ -1318,7 +1326,7 @@ body.is-browsing #video-controls { display: none; }
 #intro-logo svg { width: 100%; height: 100%; }
 
 #intro-greeting {
-  font-size: 26px;
+  font-size: 27px;
   font-weight: 700;
   color: var(--text);
   letter-spacing: -.02em;
@@ -1326,9 +1334,10 @@ body.is-browsing #video-controls { display: none; }
 }
 
 #intro-subtitle {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text2);
   letter-spacing: .01em;
+  transition: opacity .3s ease;
 }
 
 /* ── Webview container ── */
@@ -1386,7 +1395,7 @@ webview {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-#loading-msg { color: var(--text2); font-size: 13px; }
+#loading-msg { color: var(--text2); font-size: 14px; }
 
 #player-status-overlay {
   position: absolute;
@@ -1417,14 +1426,14 @@ webview {
 }
 
 #player-status-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
   margin-bottom: 3px;
 }
 
 #player-status-sub {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text2);
   line-height: 1.4;
 }
@@ -1460,14 +1469,14 @@ webview {
 #no-tracklist-prompt.hidden { display: none; }
 
 #no-tl-prompt-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text);
   margin-top: 4px;
 }
 
 .no-tl-prompt-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   margin-bottom: 8px;
 }
@@ -1485,7 +1494,7 @@ webview {
   border: 1px solid var(--accent);
   border-radius: 6px;
   padding: 7px 20px;
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   cursor: pointer;
   transition: all .15s;
@@ -1644,7 +1653,7 @@ webview {
   top: 9px;
   display: flex;
   justify-content: space-between;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   color: var(--text2);
   pointer-events: none;
@@ -1726,14 +1735,14 @@ webview {
 
 #playback-progress-tooltip-title {
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 #playback-progress-tooltip-artist {
   margin-top: 3px;
   color: var(--text2);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 #np-left {
@@ -1754,7 +1763,7 @@ webview {
   border: 2px solid var(--accent);
   background: transparent;
   color: var(--accent);
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1789,7 +1798,7 @@ webview {
 #pp-icon { display: flex; align-items: center; justify-content: center; }
 
 #np-tracknum {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--accent);
   letter-spacing: .05em;
@@ -1820,7 +1829,7 @@ webview {
 #np-track-text {
   display: block;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1828,7 +1837,7 @@ webview {
 }
 
 #np-artist {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   margin-top: 2px;
   white-space: nowrap;
@@ -1845,7 +1854,7 @@ webview {
 }
 
 #np-set {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -1853,7 +1862,7 @@ webview {
 }
 
 #np-source {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text2);
   margin-top: 2px;
   white-space: nowrap;
@@ -1889,14 +1898,14 @@ webview {
 }
 
 #scrobble-dot {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   color: var(--text2);
   transition: color .3s;
 }
 
 #scrobble-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text2);
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -2045,14 +2054,14 @@ body.compact-layout #scrobble-label {
 .tl-unavailable-icon { opacity: .3; }
 
 .tl-unavailable-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   opacity: .7;
 }
 
 .tl-unavailable-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   line-height: 1.6;
   max-width: 400px;
@@ -2068,7 +2077,7 @@ body.compact-layout #scrobble-label {
 #tl-contribute-actions.hidden { display: none; }
 
 .tl-contribute-note {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text2);
   opacity: .7;
   margin: 0;
@@ -2079,7 +2088,7 @@ body.compact-layout #scrobble-label {
 .tl-footer {
   text-align: center;
   color: var(--text2);
-  font-size: 10px;
+  font-size: 11px;
   padding: 18px 12px 18px;
   opacity: .6;
   line-height: 1.6;
@@ -2145,7 +2154,7 @@ body.compact-layout #scrobble-label {
   border: none;
   padding: 0;
   margin-right: 10px;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.4;
   font-family: inherit;
   letter-spacing: .02em;
@@ -2185,7 +2194,7 @@ body.compact-layout #scrobble-label {
 .track-list.compact .track-item.track-mashup { display: none; }
 
 .track-num {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--text2);
   width: 20px;
@@ -2196,7 +2205,7 @@ body.compact-layout #scrobble-label {
 
 .track-num-with {
   color: var(--text2);
-  font-size: 8px;
+  font-size: 9px;
   width: 20px;
   text-align: right;
 }
@@ -2224,7 +2233,7 @@ body.compact-layout #scrobble-label {
 }
 
 .track-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text);
   white-space: nowrap;
@@ -2236,7 +2245,7 @@ body.compact-layout #scrobble-label {
 .track-item.active .track-title { color: var(--accent); }
 
 .track-artist {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text2);
   white-space: nowrap;
   overflow: hidden;
@@ -2245,7 +2254,7 @@ body.compact-layout #scrobble-label {
 }
 
 .track-cue {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text2);
   flex-shrink: 0;
   letter-spacing: .03em;
@@ -2264,16 +2273,16 @@ body.compact-layout #scrobble-label {
 .track-list.compact .track-artist { display: none; }
 
 .track-list.compact .track-num {
-  font-size: 8px;
+  font-size: 9px;
   width: 16px;
 }
 
 .track-list.compact .track-title {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .track-list.compact .track-cue {
-  font-size: 9px;
+  font-size: 10px;
 }
 
 /* ── Scrollbar ── */
@@ -2335,7 +2344,7 @@ body.compact-layout #scrobble-label {
 
 .resume-dialog-title,
 .support-dialog-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text);
   margin: 0;
@@ -2343,14 +2352,14 @@ body.compact-layout #scrobble-label {
 
 .resume-dialog-sub,
 .support-dialog-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   margin: 0;
   line-height: 1.5;
 }
 
 .no-ts-dialog-note {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text2);
   opacity: .7;
   margin: 0;
@@ -2361,7 +2370,7 @@ body.compact-layout #scrobble-label {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   cursor: pointer;
 }
@@ -2380,7 +2389,7 @@ body.compact-layout #scrobble-label {
   background: var(--bg);
   color: var(--text);
   padding: 12px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
   outline: none;
 }
@@ -2389,7 +2398,7 @@ body.compact-layout #scrobble-label {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   cursor: pointer;
 }
@@ -2418,7 +2427,7 @@ body.compact-layout #scrobble-label {
 
 .resume-dialog-btns button,
 .support-dialog-btns button {
-  font-size: 11px;
+  font-size: 12px;
   padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -2488,7 +2497,7 @@ body.compact-layout #scrobble-label {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text2);
   cursor: pointer;
 }

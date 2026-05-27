@@ -523,6 +523,10 @@ async function init() {
   updateViewTabs()
   wireFooterMarquees()
 
+  // Restore which sidebar panel was open when the app was last closed
+  const activePanel = state.store.settings?.activeSidebarPanel
+  if (activePanel) applySidebarPanel(activePanel)
+
   state.lfmStatus = await window.api.lfmStatusGet()
   refreshScrobbleBadge()
   await loadSettings()
@@ -1322,10 +1326,17 @@ function refreshScrobbleBadge() {
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
-function switchSidebarPanel(name) {
+function applySidebarPanel(name) {
   navBtns.forEach((b) => b.classList.toggle('active', b.dataset.panel === name))
   panels.forEach((p) => p.classList.toggle('active', p.id === `panel-${name}`))
   requestAnimationFrame(updateMiniPlayerMetrics)
+}
+
+function switchSidebarPanel(name) {
+  applySidebarPanel(name)
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings.activeSidebarPanel = name
+  persist()
 }
 
 function toggleSidebar() {
@@ -2066,6 +2077,11 @@ function clearTracklist() {
   tlCompactFooter.classList.add('hidden')
   mainContent.classList.remove('has-tracklist')
   tracklistUnavailableEl.classList.add('hidden')
+  // Reset scroll position so every new set starts from the top, then
+  // highlightTracklistByNum will scroll to the resumed track once it fires.
+  tracklistBelowVideo.scrollTop = 0
+  const compactScroll = rightPanel.querySelector('.panel-items')
+  if (compactScroll) compactScroll.scrollTop = 0
 }
 
 // ── Right panel ───────────────────────────────────────────────────────────────
@@ -2356,6 +2372,9 @@ function wireEvents() {
         navBtns.forEach(b => b.classList.remove('active'))
         panels.forEach(p => p.classList.remove('active'))
         requestAnimationFrame(updateMiniPlayerMetrics)
+        if (!state.store.settings) state.store.settings = {}
+        state.store.settings.activeSidebarPanel = null
+        persist()
       } else {
         // If sidebar is narrower than usable panel width, restore it first.
         // Remove sidebar-narrow immediately (don't wait for CSS transition to finish
@@ -2382,6 +2401,9 @@ function wireEvents() {
       navBtns.forEach(b => b.classList.remove('active'))
       panels.forEach(p => p.classList.remove('active'))
       requestAnimationFrame(updateMiniPlayerMetrics)
+      if (!state.store.settings) state.store.settings = {}
+      state.store.settings.activeSidebarPanel = null
+      persist()
     })
   )
 
