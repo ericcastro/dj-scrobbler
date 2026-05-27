@@ -508,7 +508,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%);
 }
 
 .sidebar-panel {
