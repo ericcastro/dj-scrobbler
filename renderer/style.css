@@ -502,18 +502,27 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   color: var(--accent);
 }
 
+#sidebar-panels {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
 .sidebar-panel {
   display: none;
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  /* background exposed here is draggable (inherits from #sidebar) */
 }
 
 .sidebar-panel.active {
   display: flex;
   flex-direction: column;
   position: relative; /* anchor for the absolute collapse button */
+  background: var(--bg2);
 }
 
 /* Collapse button — floats centred over the panel title row, hidden until hover */
