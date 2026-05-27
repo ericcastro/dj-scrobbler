@@ -194,7 +194,6 @@ const ICON = {
 const MIN_SIDEBAR_W              = 270
 const MAX_SIDEBAR_W              = 480
 const DEFAULT_SIDEBAR_W          = 360
-const PANEL_MIN_SIDEBAR_W        = 360  // auto-restore to this when opening a panel
 const COMPACT_SIDEBAR_BREAKPOINT = DEFAULT_SIDEBAR_W * 2
 
 const GREETINGS = [
@@ -644,7 +643,7 @@ let pendingKeyboardVolumeTarget = null
 function setSidebarWidthVar() {
   const w = sidebar.offsetWidth || DEFAULT_SIDEBAR_W
   document.documentElement.style.setProperty('--sidebar-w-current', `${w}px`)
-  sidebar.classList.toggle('sidebar-narrow', w < PANEL_MIN_SIDEBAR_W)
+  sidebar.classList.toggle('sidebar-narrow', w < DEFAULT_SIDEBAR_W)
 }
 
 function clampSidebarWidth(width) {
@@ -2379,21 +2378,6 @@ function wireEvents() {
         state.store.settings.activeSidebarPanel = null
         persist()
       } else {
-        // If sidebar is narrower than usable panel width, restore it first.
-        // Remove sidebar-narrow immediately (don't wait for CSS transition to finish
-        // before setSidebarWidthVar reads offsetWidth — transition delays the reflow).
-        if (sidebar.offsetWidth < PANEL_MIN_SIDEBAR_W) {
-          sidebar.style.width = DEFAULT_SIDEBAR_W + 'px'
-          sidebar.classList.remove('sidebar-narrow')
-          if (!state.store.settings) state.store.settings = {}
-          state.store.settings.sidebarWidth = DEFAULT_SIDEBAR_W
-          persist()
-          // Re-run metrics after the 200 ms width transition finishes
-          setTimeout(() => {
-            setSidebarWidthVar()
-            requestAnimationFrame(updateMiniPlayerMetrics)
-          }, 220)
-        }
         switchSidebarPanel(btn.dataset.panel)
       }
     })
