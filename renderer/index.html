@@ -19,7 +19,7 @@
           <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2C0 8 0 12 0 12s0 4 .5 5.8a3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1C24 16 24 12 24 12s0-4-.5-5.8zM9.7 15.5V8.5l6.3 3.5-6.3 3.5z"/></svg>
           YouTube
         </button>
-        <button class="toggle-btn" data-source="soundcloud" id="btn-sc">
+        <button class="toggle-btn hidden" data-source="soundcloud" id="btn-sc" disabled aria-hidden="true" title="Dormant during the v0.5 player refactor">
           <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M1.2 10.9c-.1 0-.2.1-.2.2L.5 12l.5.9c0 .1.1.2.2.2s.2-.1.2-.2L1.7 12l-.3-.9c0-.1-.1-.2-.2-.2zm1.5-.4c-.1 0-.3.1-.3.2l-.4 1.3.4 1.2c0 .1.2.2.3.2s.3-.1.3-.2l.5-1.2-.5-1.3c0-.1-.2-.2-.3-.2zm1.6-.8c-.2 0-.3.1-.3.3l-.5 2 .5 1.9c0 .2.1.3.3.3s.3-.1.3-.3l.5-1.9-.5-2c0-.2-.1-.3-.3-.3zm1.6.2c-.2 0-.4.1-.4.4l-.4 1.7.4 1.9c0 .2.2.4.4.4s.4-.2.4-.4l.5-1.9-.5-1.7c0-.2-.2-.4-.4-.4zm1.7-.3c-.2 0-.4.2-.4.4l-.4 1.8.4 2c0 .2.2.4.4.4.2 0 .4-.2.4-.4l.5-2-.5-1.8c0-.2-.2-.4-.4-.4zm1.7-.4c-.3 0-.5.2-.5.5L8.5 12l.3 2.1c0 .3.2.5.5.5s.5-.2.5-.5l.4-2.1-.4-2.2c0-.3-.2-.5-.5-.5zm1.7-.5c-.3 0-.5.2-.5.5L10.2 12l.3 2.2c0 .3.2.5.5.5s.5-.2.5-.5l.4-2.2-.4-2.3c0-.3-.2-.5-.5-.5zm5.3-3.2a4.8 4.8 0 0 0-4.8 4.4l-.2 1.9.2 2.2c0 .3.2.5.5.5s.5-.2.5-.5l.3-2.2-.3-1.9a3.8 3.8 0 0 1 3.8-3.5 3.8 3.8 0 0 1 3.8 3.8v.2a1.5 1.5 0 0 1 1.5 1.5 1.5 1.5 0 0 1-1.5 1.5H16c-.3 0-.5.2-.5.5s.2.5.5.5h4.8a2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2-2.4 4.8 4.8 0 0 0-4.3-3.5z"/></svg>
           SoundCloud
         </button>
@@ -28,13 +28,21 @@
       <div id="search-box">
         <input type="text" id="search-input" placeholder="Search for a DJ set…" autocomplete="off" />
         <div id="search-dropdown"></div>
-        <button id="search-btn">Search</button>
+        <button id="search-btn" title="Search" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7"/>
+            <path d="m16.5 16.5 4 4"/>
+          </svg>
+        </button>
       </div>
     </div>
 
     <div id="header-actions">
-      <button class="icon-btn" id="btn-devtools" title="Open webview DevTools">
+      <button class="icon-btn hidden" id="btn-devtools" title="Open webview DevTools">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-video-mode" title="Mini-player mode">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/></svg>
       </button>
       <button class="icon-btn" id="btn-sidebar-toggle" title="Toggle sidebar">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
@@ -49,6 +57,62 @@
   <div id="layout">
     <!-- Left sidebar — DJ set navigation only -->
     <aside id="sidebar">
+      <!-- View tabs: Home / Now Playing / Search Results -->
+      <div id="sidebar-view-tabs">
+        <button id="btn-view-home" class="view-tab active">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Home
+        </button>
+        <button id="btn-view-nowplaying" class="view-tab tab-disabled">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+          Now Playing
+          <div class="spectrum-bars" aria-hidden="true">
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-bar"></div>
+            <div class="spectrum-bar"></div>
+          </div>
+        </button>
+        <button id="btn-view-search" class="view-tab tab-disabled">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m16.5 16.5 4 4"/></svg>
+          Search Results
+        </button>
+      </div>
+      <div id="sidebar-view-sep">
+        <div id="sep-stats">
+          <!-- Listening time -->
+          <span class="sep-stat">
+            <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.5"/>
+              <circle cx="8" cy="8" r="2.5"/>
+              <circle cx="8" cy="8" r="0.8" fill="currentColor" stroke="none"/>
+            </svg>
+            <span id="sep-listen-time">0m</span>
+          </span>
+          <span class="sep-dot">·</span>
+          <!-- DJ sets past the listening threshold -->
+          <span class="sep-stat">
+            <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M2 10V7a6 6 0 0 1 12 0v3"/>
+              <rect x="1" y="9" width="3" height="4" rx="1.5"/>
+              <rect x="12" y="9" width="3" height="4" rx="1.5"/>
+            </svg>
+            <span id="sep-sets-count">0</span> sets
+          </span>
+          <span class="sep-dot">·</span>
+          <!-- Tracks heard organically (sequential progressions) -->
+          <span class="sep-stat">
+            <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+              <path d="M6 12V4l8-1.5V11"/>
+              <circle cx="4.5" cy="12" r="1.8"/>
+              <circle cx="12.5" cy="11" r="1.8"/>
+            </svg>
+            <span id="sep-tracks-count">0</span> tracks
+          </span>
+        </div>
+        <div id="sep-listen-tooltip">Start listening to track your stats</div>
+      </div>
+
       <nav id="sidebar-nav">
         <button class="nav-btn active" data-panel="favorites">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
@@ -65,6 +129,7 @@
       </nav>
 
       <div id="panel-favorites" class="sidebar-panel active">
+        <button class="panel-collapse-btn" title="Collapse">✕</button>
         <div class="panel-items">
           <div class="panel-title">Favorites</div>
           <ul id="favorites-list" class="set-list"></ul>
@@ -73,6 +138,7 @@
       </div>
 
       <div id="panel-history" class="sidebar-panel">
+        <button class="panel-collapse-btn" title="Collapse">✕</button>
         <div class="panel-items">
           <div class="panel-title">History</div>
           <ul id="history-list" class="set-list"></ul>
@@ -81,6 +147,7 @@
       </div>
 
       <div id="panel-settings" class="sidebar-panel">
+        <button class="panel-collapse-btn" title="Collapse">✕</button>
         <div class="panel-items">
           <div class="panel-title">Theme</div>
           <div class="theme-swatches">
@@ -140,14 +207,31 @@
               <input type="radio" name="resume-behavior" value="never"> Always start from beginning
             </label>
           </div>
+
+          <div class="panel-title" style="margin-top:12px">Updates</div>
+          <p class="setting-desc" id="update-settings-status">Check GitHub Releases for newer builds.</p>
+          <button id="btn-check-updates" class="btn-secondary">Check for updates</button>
+          <label class="resume-radio-label update-notify-label">
+            <input type="checkbox" id="updates-disable-notifications"> Disable update notifications
+          </label>
+          <div class="panel-title" style="margin-top:12px">History</div>
+          <p class="setting-desc" id="history-clear-status">Remove all played sets from history.</p>
+          <button id="btn-clear-history" class="btn-secondary">Clear history</button>
+          <div class="panel-title" style="margin-top:12px">Tracklists</div>
+          <p class="setting-desc" id="tracklist-cache-status">Tracklists are cached for 7 days.</p>
+          <button id="btn-clear-tracklist-cache" class="btn-secondary">Clear tracklist cache</button>
         </div>
       </div>
 
       <footer id="sidebar-footer">
         <span class="sidebar-footer-link" data-href="https://www.djscrobbler.com" id="footer-app-name">DJ Scrobbler</span>
         <span class="sidebar-footer-sep"> · </span>
-        <span class="sidebar-footer-link" data-href="https://github.com/ericcastro/dj-scrobbler">GitHub</span>
+        <span class="sidebar-footer-link" data-feedback-type="bug">Report a bug</span>
+        <span class="sidebar-footer-sep"> · </span>
+        <span class="sidebar-footer-link" data-feedback-type="feature">Suggest a feature</span>
       </footer>
+
+      <div id="sidebar-mini-player-slot"></div>
     </aside>
 
     <div id="sidebar-resize-handle"></div>
@@ -205,8 +289,22 @@
             </svg>
           </div>
           <div id="intro-greeting"></div>
-          <div id="intro-subtitle">What are you in the mood for today?</div>
+          <div id="intro-subtitle">What are you in the mood for?</div>
+          <div id="intro-search">
+            <input id="intro-search-input" type="text" placeholder="search for a DJ, mix or event…" autocomplete="off" spellcheck="false" />
+            <span id="intro-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m16.5 16.5 4 4"/></svg></span>
+          </div>
         </div>
+        <div id="intro-resume" class="hidden">
+          <div id="intro-resume-inner">
+            <div id="intro-resume-label">Or maybe pick up where you left off?</div>
+            <div id="intro-resume-grid"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="browse-area">
+        <webview id="browser-webview" src="about:blank" allowpopups></webview>
       </div>
 
       <!-- Video area: fills full height normally; collapses to 16:9 in tracklist mode -->
@@ -215,6 +313,13 @@
           <div id="loading-overlay" class="hidden">
             <div class="spinner"></div>
             <span id="loading-msg">Searching tracklist…</span>
+          </div>
+          <div id="player-status-overlay" class="hidden">
+            <div class="spinner player-status-spinner"></div>
+            <div>
+              <p id="player-status-title">Starting YouTube player…</p>
+              <p id="player-status-sub">Tracklist can load before video is ready.</p>
+            </div>
           </div>
           <div id="no-tracklist-msg" class="hidden">
             <div class="big-icon">
@@ -228,9 +333,20 @@
             </div>
             <p id="no-tl-prompt-title">No tracklist found for this DJ set :(</p>
             <p class="no-tl-prompt-sub">This set might not have a tracklist yet.</p>
-            <button id="btn-play-anyway" class="btn-play-anyway">Play set anyway</button>
+            <div class="no-tl-prompt-actions">
+              <button id="btn-retry-load" class="btn-play-anyway hidden">Retry</button>
+              <button id="btn-play-anyway" class="btn-play-anyway">Play set anyway</button>
+            </div>
           </div>
           <webview id="webview" src="about:blank" allowpopups></webview>
+          <!-- Seek shield: covers the webview briefly on any programmatic seek
+               to mask YouTube's native controls/buffering flash -->
+          <div id="seek-shield"></div>
+        </div>
+        <div id="video-controls" aria-label="Video controls">
+          <button class="video-control-btn" id="btn-video-dock" title="Mini-player mode"></button>
+          <button class="video-control-btn" id="btn-video-fullscreen" title="Full screen"></button>
+          <button class="video-control-btn" id="btn-video-hide" title="Audio only"></button>
         </div>
       </div>
 
@@ -243,8 +359,52 @@
             <input type="checkbox" id="resume-dont-ask"> Don't ask again
           </label>
           <div class="resume-dialog-btns">
+            <button id="btn-resume-dismiss">Dismiss</button>
             <button id="btn-resume-start">Restart</button>
             <button id="btn-resume-resume" class="btn-primary">Resume (<span id="resume-countdown-num">3</span>)</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="support-dialog" class="hidden">
+        <div id="support-dialog-box">
+          <button id="btn-support-close" class="dialog-close-btn" title="Close" aria-label="Close">×</button>
+          <p class="support-dialog-title" id="support-dialog-title">Send feedback</p>
+          <p class="support-dialog-sub" id="support-dialog-sub">
+            If you have a GitHub account, you can open an issue on GitHub. If not, you can send feedback anonymously by email.
+          </p>
+          <div class="support-dialog-btns">
+            <button id="btn-support-github" class="btn-primary">Open issue on GitHub</button>
+            <button id="btn-support-email">Send email anonymously</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="update-dialog" class="hidden">
+        <div id="update-dialog-box">
+          <button id="btn-update-close" class="dialog-close-btn" title="Close" aria-label="Close">×</button>
+          <p class="support-dialog-title" id="update-dialog-title">Checking for updates…</p>
+          <p class="support-dialog-sub" id="update-dialog-sub">Looking at GitHub Releases.</p>
+          <textarea id="update-changelog" aria-label="Release notes" readonly></textarea>
+          <label class="update-disable-label">
+            <input type="checkbox" id="update-disable-notifications"> Disable update notifications
+          </label>
+          <div class="support-dialog-btns update-dialog-btns">
+            <button id="btn-update-download" class="btn-primary">Download and restart</button>
+            <button id="btn-update-later">Remind me later</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="contribute-dialog" class="hidden">
+        <div id="contribute-dialog-box">
+          <button id="btn-contribute-close" class="dialog-close-btn" title="Close" aria-label="Close">×</button>
+          <p class="support-dialog-title" id="contribute-dialog-title"></p>
+          <p class="support-dialog-sub" id="contribute-dialog-sub"></p>
+          <p class="no-ts-dialog-note" id="contribute-dialog-note"></p>
+          <div class="support-dialog-btns">
+            <button id="btn-contribute-open" class="btn-primary">Open on 1001Tracklists</button>
+            <button id="btn-contribute-dismiss">Dismiss</button>
           </div>
         </div>
       </div>
@@ -255,10 +415,15 @@
           <div class="tl-unavailable-icon">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
-          <p class="tl-unavailable-title">Tracklist not yet available</p>
-          <p class="tl-unavailable-sub">No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.</p>
+          <p class="tl-unavailable-title" id="tracklist-unavailable-title">Tracklist not yet available</p>
+          <p class="tl-unavailable-sub" id="tracklist-unavailable-sub">No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.</p>
+          <div id="tl-contribute-actions" class="hidden">
+            <button id="btn-contribute-tracklist" class="btn-secondary"></button>
+            <p id="tl-contribute-note" class="tl-contribute-note"></p>
+          </div>
         </div>
         <ul id="tracklist-list" class="track-list"></ul>
+        <div id="tl-list-footer" class="tl-footer hidden"></div>
       </div>
     </main>
 
@@ -268,22 +433,49 @@
       <div class="panel-items">
         <div class="panel-title">Tracklist</div>
         <ul id="tracklist-compact-list" class="track-list"></ul>
+        <div id="tl-compact-footer" class="tl-footer hidden"></div>
       </div>
     </aside>
   </div>
 
   <!-- Now-playing footer -->
   <footer id="now-playing-bar">
+    <div id="playback-progress">
+      <div id="playback-progress-track">
+        <div id="playback-progress-fill"></div>
+        <div id="playback-progress-segments"></div>
+        <div id="playback-progress-thumb"></div>
+      </div>
+      <div id="playback-progress-tooltip" aria-hidden="true">
+        <img id="playback-progress-tooltip-art" alt="" />
+        <div class="playback-progress-tooltip-copy">
+          <div id="playback-progress-tooltip-title"></div>
+          <div id="playback-progress-tooltip-artist"></div>
+        </div>
+      </div>
+      <div id="playback-time-row">
+        <span id="playback-elapsed">00:00:00</span>
+        <span id="playback-remaining">-00:00:00</span>
+      </div>
+    </div>
     <div id="np-left">
+      <button id="btn-prev-track" class="transport-btn" title="Previous track">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>
+      </button>
       <button id="btn-playpause" class="play-btn" title="Play / Pause">
         <span id="pp-icon">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         </span>
       </button>
-      <div id="np-tracknum"></div>
+      <button id="btn-next-track" class="transport-btn" title="Next track">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+      </button>
     </div>
     <div id="np-info">
-      <div id="np-track"></div>
+      <div id="np-title-row">
+        <span id="np-tracknum"></span>
+        <span id="np-track"><span id="np-track-text"></span></span>
+      </div>
       <div id="np-artist"></div>
     </div>
     <div id="np-right">
@@ -293,6 +485,14 @@
     <button class="icon-btn" id="btn-bookmark" title="Add to favorites">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
     </button>
+    <div id="volume-control">
+      <button id="btn-volume" class="volume-btn" aria-label="Mute">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      </button>
+      <div id="volume-popover" role="tooltip">
+        <input id="volume-slider" type="range" min="0" max="100" value="80" aria-label="Volume" />
+      </div>
+    </div>
     <div id="scrobble-badge" title="Last.fm scrobbling status">
       <span id="scrobble-dot">●</span>
       <span id="scrobble-label">Scrobbling not configured</span>

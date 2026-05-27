@@ -2,9 +2,11 @@
 
 ## Overview
 
-DJ Scrobbler is an Electron app that embeds YouTube or SoundCloud in a webview, intercepts
-navigation to DJ set pages, finds a matching tracklist on a third-party provider, and
-scrobbles the currently-playing track to Last.fm in real time.
+DJ Scrobbler is an Electron app that embeds an app-owned YouTube player in a webview,
+intercepts navigation to DJ set pages, finds a matching tracklist on a third-party
+provider, and scrobbles the currently-playing track to Last.fm in real time.
+
+> v0.5 branch note: SoundCloud/set79 is dormant while playback moves to an app-owned YouTube player. Several diagrams below still describe the v0.4 provider-page playback model; see `docs/v0.5-refactor-plan.md` for the active refactor direction.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

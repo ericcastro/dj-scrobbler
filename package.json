@@ -1,13 +1,15 @@
 {
   "name": "dj-scrobbler",
   "productName": "DJ Scrobbler",
-  "version": "0.4.3",
-  "description": "Scrobble tracks from DJ sets on YouTube and SoundCloud",
+  "version": "0.5.0",
+  "description": "Scrobble tracks from DJ sets on YouTube",
   "author": "Eric Castro <errrick@gmail.com>",
   "license": "MIT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "dev": "electron . --developer",
+    "test": "node --test tests/run-tests.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
@@ -89,5 +91,8 @@
   "devDependencies": {
     "electron": "^41.3.0",
     "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
   }
 }

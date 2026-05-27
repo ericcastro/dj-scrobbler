@@ -68,8 +68,13 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; }
 
 :root {
   --topbar-h:  52px;
-  --sidebar-w: 220px;
-  --footer-h:  64px;
+  --sidebar-w: 360px;
+  --sidebar-w-current: 360px;
+  --mini-player-left: 8px;
+  --mini-player-top: 0px;
+  --mini-player-width: 204px;
+  --mini-player-height: 115px;
+  --footer-h:  88px;
   --radius:    8px;
 }
 
@@ -91,10 +96,19 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 16px 0 80px; /* 80px left for macOS traffic lights */
+  padding: 0 16px;
   -webkit-app-region: drag;
   position: relative;
   z-index: 10;
+}
+
+body.platform-darwin #topbar {
+  padding-left: 80px; /* macOS traffic lights */
+}
+
+body.platform-win32 #topbar,
+body.platform-linux #topbar {
+  padding-right: 144px; /* native window controls / resize affordance */
 }
 
 #topbar button,
@@ -180,11 +194,15 @@ html, body {
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 12px;
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
   font-family: inherit;
   cursor: pointer;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background .15s;
 }
 
@@ -209,6 +227,9 @@ html, body {
 #search-dropdown.open { display: block; }
 
 .search-dropdown-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px 12px;
   font-size: 11px;
   color: var(--text);
@@ -240,6 +261,14 @@ html, body {
 .icon-btn:hover { color: var(--text); border-color: var(--accent); }
 .icon-btn.active { color: var(--accent); border-color: var(--accent); }
 
+body.compact-layout.has-active-set #search-area {
+  display: none;
+}
+
+body.compact-layout.has-active-set #header-actions {
+  margin-left: auto;
+}
+
 /* ── Layout ── */
 #layout {
   display: flex;
@@ -248,7 +277,7 @@ html, body {
 
 /* ── Sidebar ── */
 #sidebar {
-  /* width set via JS inline style; default 220px */
+  /* width set via JS inline style; default 360px */
   background: var(--bg2);
   border-right: 1px solid var(--border);
   display: flex;
@@ -256,7 +285,7 @@ html, body {
   flex-shrink: 0;
   overflow: hidden;
   transition: width .2s;
-  min-width: 160px;
+  min-width: 270px;
   max-width: 480px;
   -webkit-app-region: drag;
 }
@@ -295,6 +324,13 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: auto; /* stays pinned to bottom whether or not a panel is open */
+}
+
+/* When sidebar is narrower than default, keep only the app name */
+#sidebar.sidebar-narrow #sidebar-footer .sidebar-footer-sep,
+#sidebar.sidebar-narrow #sidebar-footer [data-feedback-type] {
+  display: none;
 }
 
 .sidebar-footer-link {
@@ -306,6 +342,135 @@ html, body {
 
 .sidebar-footer-link:hover { color: var(--accent); }
 .sidebar-footer-sep { opacity: .5; }
+
+/* ── View tabs (Now Playing / Search Results) ── */
+#sidebar-view-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 8px 3px;
+}
+#sidebar-view-tabs.hidden { display: none; }
+
+#sidebar-view-sep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 5px 12px;
+  margin: 1px 8px 2px;
+  flex-shrink: 0;
+  cursor: default;
+  color: var(--text2);
+  background: color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%);
+  border-radius: 6px;
+  opacity: 0.6;
+  transition: opacity .2s, padding .25s ease;
+  -webkit-app-region: no-drag;
+}
+#sidebar-view-sep:hover {
+  opacity: 1;
+  padding: 6px 12px;
+}
+
+#sep-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sep-stat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+
+.sep-dot {
+  font-size: 9px;
+  opacity: 0.45;
+}
+
+#sep-listen-tooltip {
+  font-size: 9px;
+  text-align: center;
+  line-height: 1.5;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .25s ease, margin-top .25s ease;
+  margin-top: 0;
+}
+#sidebar-view-sep:hover #sep-listen-tooltip {
+  max-height: 60px;
+  margin-top: 5px;
+}
+
+/* ── Spectrum bar animation (Now Playing indicator) ── */
+@keyframes spectrumBounce {
+  from { height: 2px; }
+  to   { height: 9px; }
+}
+
+.spectrum-bars {
+  display: flex;
+  align-items: center;
+  gap: 1.5px;
+  height: 9px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity .2s;
+}
+
+body.is-track-playing .spectrum-bars { opacity: 0.5; }
+
+.spectrum-bar {
+  width: 2px;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  animation: spectrumBounce 0.6s ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+
+body.is-track-playing .spectrum-bar { animation-play-state: running; }
+
+/* Staggered durations for organic randomness */
+.spectrum-bar:nth-child(1) { animation-duration: 0.28s; animation-delay:  0.00s; }
+.spectrum-bar:nth-child(2) { animation-duration: 0.38s; animation-delay:  0.09s; }
+.spectrum-bar:nth-child(3) { animation-duration: 0.22s; animation-delay:  0.04s; }
+.spectrum-bar:nth-child(4) { animation-duration: 0.34s; animation-delay:  0.13s; }
+
+.view-tab {
+  background: transparent;
+  border: none;
+  color: var(--text2);
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all .15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.view-tab:not(.tab-disabled):hover { background: var(--bg3); color: var(--text); }
+.view-tab.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.view-tab.tab-disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
 
 #sidebar-nav {
   display: flex;
@@ -331,23 +496,72 @@ html, body {
 }
 
 .nav-btn:hover { background: var(--bg3); color: var(--text); }
-.nav-btn.active { background: var(--accent); color: #fff; }
+.nav-btn.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
 
 .sidebar-panel {
   display: none;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   /* background exposed here is draggable (inherits from #sidebar) */
 }
 
-.sidebar-panel.active { display: block; }
+.sidebar-panel.active {
+  display: flex;
+  flex-direction: column;
+  position: relative; /* anchor for the absolute collapse button */
+}
 
-/* Scrollable content — only takes the height it needs, capped at panel height */
+/* Collapse button — floats centred over the panel title row, hidden until hover */
+.panel-collapse-btn {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  background: transparent;
+  border: 1px solid currentColor;
+  color: var(--text2);
+  border-radius: 99px;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .2s;
+  -webkit-app-region: no-drag;
+}
+.sidebar-panel:hover .panel-collapse-btn { opacity: 0.4; }
+.panel-collapse-btn:hover { opacity: 0.85 !important; }
+
+/* Scrollable content — flex-driven, fills remaining panel height */
 .panel-items {
-  max-height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 8px;
   -webkit-app-region: no-drag;
+}
+
+#sidebar-mini-player-slot {
+  display: none;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-top: 1px solid var(--border);
+  background: #000;
+  overflow: hidden;
+}
+
+body.video-mode-mini #sidebar-mini-player-slot {
+  display: block;
 }
 
 .panel-title {
@@ -358,6 +572,17 @@ html, body {
   color: var(--text2);
   margin-bottom: 8px;
   padding: 0 4px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+/* First timeframe label embedded in the History panel title row */
+.history-title-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  opacity: .45;
 }
 
 .set-list {
@@ -366,6 +591,25 @@ html, body {
   flex-direction: column;
   gap: 4px;
 }
+
+/* Timeframe group separator inside history list.
+   Selector uses .set-list .history-group-sep (0,2,0) so it beats
+   .set-list li (0,1,1) and the font-size / other overrides take effect. */
+.set-list .history-group-sep {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text2);
+  opacity: .45;
+  padding: 10px 4px 2px;
+  cursor: default;
+  justify-content: flex-end;
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+}
+.set-list .history-group-sep:first-child { padding-top: 2px; }
 
 .set-list li {
   background: var(--bg3);
@@ -433,10 +677,11 @@ html, body {
 }
 
 /* Marquee state — li clips, title slides */
-.set-list li .set-item-title.marquee {
+.overflow-marquee,
+.set-list li .set-item-title.overflow-marquee,
+#now-playing-bar .overflow-marquee {
   overflow: visible;
   text-overflow: clip;
-  animation: marquee-ping-pong var(--marquee-dur, 3s) linear 0.3s infinite alternate;
 }
 
 @keyframes marquee-ping-pong {
@@ -560,6 +805,10 @@ html, body {
   min-height: 16px;
 }
 
+.update-notify-label {
+  margin-top: 10px;
+}
+
 /* ── Theme picker ── */
 .theme-swatches {
   display: flex;
@@ -629,6 +878,20 @@ html, body {
   min-width: 0;
 }
 
+/* ── Browse area ── */
+/* Absolute overlay so it covers video+tracklist without disrupting the flex
+   layout — audio keeps playing in the background webview when browsing. */
+#browse-area {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+body.is-browsing #browse-area { display: block; }
+
 /* ── Video area ── */
 /* Default: fills all space (browsing, loading states) */
 #video-area {
@@ -636,6 +899,64 @@ html, body {
   position: relative;
   overflow: hidden;
   min-height: 0;
+}
+
+body.video-mode-mini #video-area {
+  position: fixed;
+  left: var(--mini-player-left);
+  top: var(--mini-player-top);
+  width: var(--mini-player-width);
+  height: var(--mini-player-height);
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  background: #000;
+  z-index: 40;
+}
+
+body.video-mode-mini #webview-container {
+  overflow: hidden;
+}
+
+body.video-mode-fullscreen #video-area {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  background: #000;
+  z-index: 8000;
+}
+
+body.video-mode-hidden #video-area {
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  width: 320px;
+  height: 180px;
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.sidebar-player-hidden #video-area {
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+  width: 320px !important;
+  height: 180px !important;
+  min-height: 0;
+  padding: 0 !important;
+  flex: none !important;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* Tracklist mode: collapse to 16:9 aspect ratio.
@@ -646,6 +967,92 @@ html, body {
   flex: none;
   height: 0;
   padding-bottom: 56.25%;
+}
+
+body.video-mode-mini #main-content.has-tracklist #video-area {
+  position: fixed;
+  left: var(--mini-player-left);
+  top: var(--mini-player-top);
+  width: var(--mini-player-width);
+  height: var(--mini-player-height);
+  padding-bottom: 0;
+  flex: none;
+}
+
+body.video-mode-fullscreen #main-content.has-tracklist #video-area {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  padding-bottom: 0;
+  flex: none;
+}
+
+body.video-mode-hidden #main-content.has-tracklist #video-area {
+  height: 0;
+  padding-bottom: 0;
+}
+
+#video-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  background: rgba(0, 0, 0, .01);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+body.video-mode-fullscreen #topbar,
+body.video-mode-fullscreen #now-playing-bar {
+  display: none;
+}
+
+body.video-mode-fullscreen #layout {
+  height: 100vh;
+}
+
+body.video-mode-hidden #video-controls { display: none; }
+/* Hide video controls when the browse webview is covering the video area */
+body.is-browsing #video-controls { display: none; }
+
+.video-control-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(6, 26, 30, .82);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity .12s, transform .12s, border-color .12s, color .12s;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  -webkit-app-region: no-drag;
+}
+
+#video-controls:hover .video-control-btn,
+.video-control-btn:focus-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.video-control-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ── Tracklist below video ── */
@@ -710,11 +1117,14 @@ html, body {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: var(--bg);
-  z-index: 6; /* above video-area AND tracklist-below-video */
-  pointer-events: none; /* let clicks fall through to search bar */
+  z-index: 80; /* must exceed #video-controls (70) so it intercepts mouse events */
+  pointer-events: auto;
+  overflow-y: auto;
+  padding: 32px 16px;
 }
 
 #intro-screen.hidden { display: none; }
@@ -726,13 +1136,183 @@ html, body {
   gap: 20px;
   text-align: center;
   user-select: none;
+  width: 100%;
+  max-width: 500px;
+  pointer-events: none;
+}
+
+/* Interactive elements inside intro need explicit pointer-events */
+#intro-search,
+#intro-resume { pointer-events: auto; }
+
+/* ── Intro search bar ── */
+#intro-search {
+  width: 100%;
+  position: relative;
+}
+
+#intro-search-input {
+  width: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 36px 10px 16px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  letter-spacing: .01em;
+  outline: none;
+  transition: border-color .15s;
+}
+#intro-search-input::placeholder { color: var(--text2); opacity: .55; }
+#intro-search-input:focus { border-color: var(--accent); }
+
+#intro-search-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text2);
+  opacity: .4;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Intro resume section ── */
+#intro-resume {
+  width: 100%;
+  margin-top: 50px;
+  display: flex;
+  justify-content: center; /* center the inner wrapper as a unit */
+}
+#intro-resume.hidden { display: none; }
+
+/* Inner wrapper — width is determined by the grid (widest child).
+   Label's left edge naturally aligns with the grid's left edge. */
+#intro-resume-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+#intro-resume-label {
+  font-size: 13px;
+  color: var(--text2);
+  letter-spacing: .01em;
+  margin-bottom: 10px;
+  text-align: center;
+  opacity: 0.5;
+}
+
+#intro-resume-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.intro-resume-item {
+  width: 155px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  transition: opacity .2s ease, border-color .15s;
+  text-align: left;
+  opacity: 0.4;
+}
+.intro-resume-item:hover { border-color: var(--accent); opacity: 1; }
+
+/* The clip boundary for the marquee is .intro-resume-title-wrap (overflow:hidden),
+   so the card itself never needs overflow:visible — keep it clipping the progress bar. */
+.intro-resume-thumb { border-radius: 5px 5px 0 0; }
+
+/* Heart + title row */
+.intro-resume-title-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px 5px;
+  gap: 3px;
+}
+.intro-resume-heart {
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: .85;
+  pointer-events: none;
+  line-height: 0;
+}
+.intro-resume-title-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+/* Base state: truncated with ellipsis */
+.intro-resume-title-text {
+  font-size: 9px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+/* Marquee active — higher specificity (2 classes) beats the rule above (1 class) */
+.intro-resume-title-text.overflow-marquee {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Ghost "browse history" card — single unified block, no bottom section.
+   Aspect ratio 155/110 ≈ full card height: 16:9 thumb (87px) + title row (~20px) + bar (3px). */
+.intro-resume-ghost .intro-resume-ghost-thumb {
+  width: 100%;
+  aspect-ratio: 155 / 110;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--border) 22%, transparent);
+  /* no border-radius — parent .intro-resume-item clips with overflow:hidden + border-radius:6px */
+  color: var(--text2);
+  opacity: .65;
+}
+.intro-resume-ghost .intro-resume-ghost-label {
+  font-size: 11px;
+  letter-spacing: .03em;
+  color: var(--text2);
+}
+
+.intro-resume-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  background: var(--bg3);
+}
+.intro-resume-thumb-empty {
+  background: var(--bg3);
+}
+
+
+.intro-resume-bar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 0 0 5px 5px;
+  overflow: hidden;
+}
+.intro-resume-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  opacity: .7;
 }
 
 #intro-logo {
   color: var(--accent);
   opacity: .2;
-  width: 320px;
-  height: 320px;
+  width:  clamp(100px, 26vh, 320px);
+  height: clamp(100px, 26vh, 320px);
 }
 
 #intro-logo svg { width: 100%; height: 100%; }
@@ -778,6 +1358,23 @@ webview {
 
 #loading-overlay.hidden { display: none; }
 
+/* Seek shield — appears instantly over the player on any programmatic seek,
+   fades out ~1 s later to mask YouTube's native controls/buffering flash.
+   Must sit above the webview but below the loading overlay (z-index 5). */
+#seek-shield {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+#seek-shield.active {
+  opacity: 1;
+  transition: none; /* appear instantly; fade-out uses the base transition above */
+}
+
 .spinner {
   width: 36px;
   height: 36px;
@@ -790,6 +1387,47 @@ webview {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 #loading-msg { color: var(--text2); font-size: 13px; }
+
+#player-status-overlay {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 280px;
+  max-width: min(520px, calc(100% - 56px));
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(19, 29, 53, .94);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, .26);
+  z-index: 6;
+  pointer-events: none;
+}
+
+#player-status-overlay.hidden { display: none; }
+
+.player-status-spinner {
+  width: 22px;
+  height: 22px;
+  border-width: 2px;
+  flex-shrink: 0;
+}
+
+#player-status-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+#player-status-sub {
+  font-size: 10px;
+  color: var(--text2);
+  line-height: 1.4;
+}
 
 #no-tracklist-msg {
   position: absolute;
@@ -834,6 +1472,13 @@ webview {
   margin-bottom: 8px;
 }
 
+.no-tl-prompt-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .btn-play-anyway {
   background: transparent;
   color: var(--accent);
@@ -857,19 +1502,254 @@ webview {
 #now-playing-bar {
   height: var(--footer-h);
   background: var(--bg2);
-  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  padding: 27px 16px 15px;
   gap: 16px;
+  position: relative;
+  z-index: 120;
   -webkit-app-region: drag;
 }
 
-#now-playing-bar button { -webkit-app-region: no-drag; }
+#now-playing-bar button,
+#np-track,
+#np-artist,
+#np-set,
+#np-source,
+#scrobble-label,
+#volume-control {
+  -webkit-app-region: no-drag;
+}
+
+#np-track,
+#np-artist,
+#np-set,
+#np-source,
+#scrobble-label {
+  cursor: default;
+}
+
+#playback-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  color: var(--text2);
+  z-index: 130;
+  -webkit-app-region: no-drag;
+}
+
+#playback-progress-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: pointer;
+}
+
+#playback-progress-track::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--border);
+  transition: height .12s, background .12s;
+}
+
+#playback-progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 1px;
+  width: 0;
+  background: var(--accent);
+  transition: height .12s;
+  z-index: 1;
+}
+
+#playback-progress-segments {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.playback-progress-segment {
+  position: absolute;
+  top: 0;
+  height: 8px;
+  min-width: 2px;
+  cursor: pointer;
+}
+
+.playback-progress-segment::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  opacity: .55;
+  transition: height .12s, opacity .12s, background .12s;
+}
+
+.playback-progress-segment:first-child::after {
+  display: none;
+}
+
+#playback-progress:hover .playback-progress-segment::after,
+#playback-progress.dragging .playback-progress-segment::after {
+  height: 4px;
+  opacity: .75;
+}
+
+.playback-progress-segment:hover::after {
+  background: var(--accent2);
+  opacity: .9;
+}
+
+#playback-progress-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -4px) scale(0);
+  transition: transform .12s;
+  z-index: 3;
+}
+
+#playback-progress:hover #playback-progress-track::before,
+#playback-progress.dragging #playback-progress-track::before,
+#playback-progress:hover #playback-progress-fill,
+#playback-progress.dragging #playback-progress-fill {
+  height: 4px;
+}
+
+#playback-progress:hover #playback-progress-thumb,
+#playback-progress.dragging #playback-progress-thumb {
+  transform: translate(-50%, -3px) scale(1);
+}
+
+#playback-time-row {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 9px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text2);
+  pointer-events: none;
+}
+
+#playback-progress:not(.has-duration) #playback-progress-fill,
+#playback-progress:not(.has-duration) #playback-progress-thumb {
+  opacity: 0;
+}
+
+#playback-progress-tooltip {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translate(-50%, -100%) translateY(4px);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 32px));
+  min-height: 52px;
+  padding: 7px 10px 7px 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg2) 94%, #000 6%);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, .35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s, transform .12s;
+  z-index: 140;
+}
+
+#playback-progress-tooltip.visible {
+  opacity: 1;
+  transform: translate(-50%, -100%);
+}
+
+#playback-progress-tooltip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: inherit;
+}
+
+#playback-progress-tooltip-art {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+#playback-progress-tooltip-art[hidden] {
+  display: none;
+}
+
+#playback-progress-tooltip-art[hidden] + .playback-progress-tooltip-copy {
+  grid-column: 1 / -1;
+}
+
+.playback-progress-tooltip-copy {
+  min-width: 0;
+  max-width: 260px;
+}
+
+#playback-progress-tooltip-title,
+#playback-progress-tooltip-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#playback-progress-tooltip-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#playback-progress-tooltip-artist {
+  margin-top: 3px;
+  color: var(--text2);
+  font-size: 10px;
+}
+
+#np-left {
+  display: grid;
+  grid-template-columns: 32px 46px 32px;
+  grid-template-rows: 46px;
+  align-items: center;
+  justify-items: center;
+  gap: 0 4px;
+  flex-shrink: 0;
+  transform: translate(-4px, 0);
+}
 
 .play-btn {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   border: 2px solid var(--accent);
   background: transparent;
@@ -883,6 +1763,25 @@ webview {
   flex-shrink: 0;
 }
 
+.transport-btn {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+
+.transport-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .play-btn:hover { background: var(--accent); color: #000; }
 .play-btn.playing { border-color: var(--accent2); color: var(--accent2); }
 .play-btn.playing:hover { background: var(--accent2); color: #000; }
@@ -894,21 +1793,38 @@ webview {
   font-weight: 700;
   color: var(--accent);
   letter-spacing: .05em;
-  text-align: center;
-  margin-top: 3px;
+  flex: 0 0 auto;
 }
 
 #np-info {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+}
+
+#np-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 #np-track {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+#np-track-text {
+  display: block;
   font-weight: 600;
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 #np-artist {
@@ -925,6 +1841,7 @@ webview {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 40%;
+  overflow: hidden;
 }
 
 #np-set {
@@ -945,6 +1862,18 @@ webview {
   letter-spacing: .03em;
 }
 
+/* Clickable tracklist-source link inside #np-source */
+.tl-source-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.tl-source-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ── Scrobble badge ── */
 #scrobble-badge {
   display: flex;
@@ -956,6 +1885,7 @@ webview {
   background: var(--bg3);
   border: 1px solid var(--border);
   cursor: default;
+  overflow: hidden;
 }
 
 #scrobble-dot {
@@ -971,6 +1901,10 @@ webview {
   text-transform: uppercase;
   letter-spacing: .05em;
   transition: color .3s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
 }
 
 #scrobble-badge.ok     #scrobble-dot,
@@ -982,6 +1916,119 @@ webview {
 /* "enabled" = configured but not playing — same muted look as unconfigured */
 /* "dim" = tracklist unavailable — muted with dashed border */
 #scrobble-badge.dim    { border-style: dashed; }
+
+#volume-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  z-index: 160;
+}
+
+#volume-control::before {
+  content: '';
+  position: absolute;
+  right: -18px;
+  bottom: 24px;
+  width: 74px;
+  height: 24px;
+}
+
+.volume-btn {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: color .15s, transform .15s;
+}
+
+.volume-btn:hover,
+#volume-control.open .volume-btn {
+  color: var(--accent);
+}
+
+.volume-btn:active {
+  transform: scale(.94);
+}
+
+.volume-btn.muted {
+  color: var(--text3);
+}
+
+#volume-popover {
+  position: absolute;
+  left: 50%;
+  bottom: 36px;
+  width: 44px;
+  height: 140px;
+  padding: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 6px);
+  transition: opacity .15s, transform .15s;
+  z-index: 170;
+}
+
+#volume-control.open #volume-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+#volume-slider {
+  width: 96px;
+  height: 4px;
+  transform: rotate(-90deg);
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+body.compact-layout #np-info,
+body.compact-layout #np-right {
+  display: none;
+}
+
+body.compact-layout #now-playing-bar {
+  justify-content: flex-start;
+  gap: 10px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+body.compact-layout #btn-bookmark {
+  margin-left: auto;
+}
+
+body.compact-layout #volume-control,
+body.compact-layout .volume-btn {
+  width: 28px;
+}
+
+body.compact-layout #scrobble-badge {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+  border-color: transparent;
+  background: transparent;
+}
+
+body.compact-layout #scrobble-label {
+  display: none;
+}
 
 /* ── Tracklist unavailable message ── */
 #tracklist-unavailable {
@@ -1009,6 +2056,46 @@ webview {
   color: var(--text2);
   line-height: 1.6;
   max-width: 400px;
+}
+
+#tl-contribute-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+#tl-contribute-actions.hidden { display: none; }
+
+.tl-contribute-note {
+  font-size: 10px;
+  color: var(--text2);
+  opacity: .7;
+  margin: 0;
+}
+.tl-contribute-note.hidden { display: none; }
+
+/* Tracklist footer — edit-on-1001tl link */
+.tl-footer {
+  text-align: center;
+  color: var(--text2);
+  font-size: 10px;
+  padding: 18px 12px 18px;
+  opacity: .6;
+  line-height: 1.6;
+}
+.tl-footer.hidden { display: none; }
+.tl-footer-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: transparent;
+  cursor: pointer;
+  transition: color .12s, text-decoration-color .12s;
+}
+.tl-footer-link:hover {
+  color: var(--text);
+  text-decoration-color: var(--text);
 }
 
 /* ── Tracklist panel ── */
@@ -1039,50 +2126,62 @@ webview {
   padding-left: 4px;
 }
 
-.track-item.track-id { opacity: .45; }
-.track-item.track-id.active { opacity: 1; }
-.track-item.track-with { padding-left: 20px; }
+/* ID tracks: seekable when timestamped — don't mute, just let the button explain */
+.track-item.track-with {
+  padding-left: 20px;
+  cursor: pointer;
+}
 
 /* Tracks with no timestamp — listed but not seekable */
 .track-item.track-no-timestamp {
   cursor: default;
-  opacity: .45;
-}
-.track-item.track-no-timestamp:hover { background: transparent; }
-
-/* CSS tooltip — appears to the left of the ! icon on hover, no browser delay */
-.track-item.track-no-timestamp:hover::after {
-  content: "Jump/Scrobbling disabled for this track, no timestamp was found";
-  position: absolute;
-  right: 22px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: var(--bg2);
-  color: var(--text);
-  font-size: 10px;
-  line-height: 1.4;
-  padding: 3px 8px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 200;
+  opacity: .6;
 }
 
-.track-no-ts-icon {
+/* Inline contribute buttons — used in cue column (no timestamp) and title row (ID) */
+.inline-track-btn {
   flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 10px;
+  font-size: 9px;
+  line-height: 1.4;
+  font-family: inherit;
+  letter-spacing: .02em;
+  color: var(--text2);
+  opacity: .45;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.inline-track-btn:hover {
+  opacity: .8;
+  color: var(--accent);
+}
+
+/* Flex row: text column on the left, identify button centered on the right */
+.track-title-row {
   display: flex;
   align-items: center;
-  color: var(--text2);
+  gap: 8px;
+  min-width: 0;
 }
 
-/* Mashup component sub-tracks — informational only, not seekable */
+/* Stacks title + artist so the button can center against their combined height */
+.track-text-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Mashup component sub-tracks — informational only (click opens explanation) */
 .track-item.track-mashup {
   padding-left: 28px;
-  cursor: default;
+  cursor: pointer;
   opacity: .55;
 }
-.track-item.track-mashup:hover { background: transparent; }
 .track-list.compact .track-item.track-mashup { display: none; }
 
 .track-num {
@@ -1096,7 +2195,7 @@ webview {
 }
 
 .track-num-with {
-  color: var(--accent2);
+  color: var(--text2);
   font-size: 8px;
   width: 20px;
   text-align: right;
@@ -1182,8 +2281,11 @@ webview {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 
-/* ── Resume dialog ── */
-#resume-dialog {
+/* ── Dialogs ── */
+#resume-dialog,
+#support-dialog,
+#update-dialog,
+#contribute-dialog {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, .55);
@@ -1194,9 +2296,15 @@ webview {
   align-items: center;
   justify-content: center;
 }
-#resume-dialog.hidden { display: none; }
+#resume-dialog.hidden,
+#support-dialog.hidden,
+#update-dialog.hidden,
+#contribute-dialog.hidden { display: none; }
 
-#resume-dialog-box {
+#resume-dialog-box,
+#support-dialog-box,
+#update-dialog-box,
+#contribute-dialog-box {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1205,18 +2313,46 @@ webview {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  position: relative;
 }
 
-.resume-dialog-title {
+#support-dialog-box {
+  width: 560px;
+  max-width: calc(100vw - 40px);
+  padding-right: 52px;
+}
+
+#update-dialog-box {
+  width: 560px;
+  max-width: calc(100vw - 40px);
+  padding-right: 24px;
+}
+
+#update-dialog-title,
+#update-dialog-sub {
+  padding-right: 48px;
+}
+
+.resume-dialog-title,
+.support-dialog-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   margin: 0;
 }
 
-.resume-dialog-sub {
+.resume-dialog-sub,
+.support-dialog-sub {
   font-size: 11px;
   color: var(--text2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.no-ts-dialog-note {
+  font-size: 10px;
+  color: var(--text2);
+  opacity: .7;
   margin: 0;
   line-height: 1.5;
 }
@@ -1230,13 +2366,58 @@ webview {
   cursor: pointer;
 }
 
-.resume-dialog-btns {
+#update-changelog {
+  min-height: 130px;
+  max-height: 240px;
+  width: 100%;
+  resize: none;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  user-select: text;
+  cursor: text;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 12px;
+  font-size: 11px;
+  line-height: 1.55;
+  outline: none;
+}
+
+.update-disable-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.resume-dialog-btns,
+.support-dialog-btns {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
-.resume-dialog-btns button {
+/* Dismiss sits to the left, Restart + Resume stay on the right */
+#btn-resume-dismiss { margin-right: auto; }
+
+.support-dialog-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  justify-content: stretch;
+  flex-wrap: nowrap;
+}
+
+.update-dialog-btns {
+  grid-template-columns: 1fr 1fr;
+}
+
+.resume-dialog-btns button,
+.support-dialog-btns button {
   font-size: 11px;
   padding: 6px 12px;
   border-radius: 6px;
@@ -1247,16 +2428,53 @@ webview {
   transition: background .12s;
 }
 
-.resume-dialog-btns button:hover { background: var(--border); }
+.support-dialog-btns button {
+  white-space: nowrap;
+}
 
-.resume-dialog-btns .btn-primary {
+.support-dialog-btns button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+.resume-dialog-btns .btn-primary,
+.support-dialog-btns .btn-primary {
+  width: auto;
+  margin-top: 0;
+}
+
+.resume-dialog-btns button:hover,
+.support-dialog-btns button:hover { background: var(--border); }
+
+.resume-dialog-btns .btn-primary,
+.support-dialog-btns .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #000;
   font-weight: 600;
 }
 
-.resume-dialog-btns .btn-primary:hover { opacity: .85; background: var(--accent); }
+.resume-dialog-btns .btn-primary:hover,
+.support-dialog-btns .btn-primary:hover { opacity: .85; background: var(--accent); }
+
+.dialog-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--text2);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.dialog-close-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
 
 /* Resume setting radios in the settings panel */
 .resume-options {

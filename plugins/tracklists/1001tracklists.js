@@ -22,9 +22,38 @@ const COMMON_HEADERS = {
   Cookie: 'guid=3dc62f90cce8f',
 }
 
+function providerError(code, message) {
+  const err = new Error(message)
+  err.code = code
+  err.providerId = '1001tracklists'
+  return err
+}
+
+function networkError(message) {
+  return providerError(
+    'network_unavailable',
+    message || 'Network connection is unavailable. Check your connection and try again.'
+  )
+}
+
+function assertProviderResponse(html) {
+  if (/access has been limited due to overuse/i.test(html || '')) {
+    throw providerError(
+      'provider_access_limited',
+      '1001Tracklists temporarily limited access due to overuse. Wait a bit before retrying.'
+    )
+  }
+  if (/challenges\.cloudflare\.com\/turnstile|turnstile-container|Please wait, you will be forwarded/i.test(html || '')) {
+    throw providerError(
+      'provider_challenge',
+      '1001Tracklists requested a browser verification challenge.'
+    )
+  }
+}
+
 // Fetch a 1001tracklists page by path, following one level of redirect.
 function fetchPage(path) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const req = https.request({
       hostname: 'www.1001tracklists.com',
       path,
@@ -42,10 +71,21 @@ function fetchPage(path) {
       }
       const chunks = []
       res.on('data', c => chunks.push(c))
-      res.on('end', () => resolve(Buffer.concat(chunks).toString()))
+      res.on('end', () => {
+        try {
+          const html = Buffer.concat(chunks).toString()
+          assertProviderResponse(html)
+          resolve(html)
+        } catch (err) {
+          reject(err)
+        }
+      })
     })
-    req.setTimeout(10_000, () => { req.destroy(); resolve('') })
-    req.on('error', () => resolve(''))
+    req.setTimeout(10_000, () => {
+      req.destroy()
+      reject(networkError('Network timed out while checking 1001Tracklists.'))
+    })
+    req.on('error', () => reject(networkError('Could not reach 1001Tracklists. Check your connection and try again.')))
     req.end()
   })
 }
@@ -53,7 +93,7 @@ function fetchPage(path) {
 // POST the YouTube URL to the search endpoint; return an ordered list of
 // { path, url, title } for every tracklist result found.
 function searchByUrl(sourceUrl) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const postData = new URLSearchParams({
       main_search: sourceUrl,
       search_selection: '9',
@@ -75,30 +115,38 @@ function searchByUrl(sourceUrl) {
       const chunks = []
       res.on('data', c => chunks.push(c))
       res.on('end', () => {
-        const html = Buffer.concat(chunks).toString()
+        try {
+          const html = Buffer.concat(chunks).toString()
+          assertProviderResponse(html)
 
-        if (html.includes('returns nothing')) { resolve([]); return }
+          if (html.includes('returns nothing')) { resolve([]); return }
 
-        const seen    = new Set()
-        const results = []
-        const re = /href="(\/tracklist\/[a-z0-9]+\/([^"]+)\.html)"/g
-        let m
-        while ((m = re.exec(html)) !== null) {
-          const path = m[1]
-          if (seen.has(path)) continue
-          seen.add(path)
-          // Derive a human-readable title from the URL slug for logging
-          const title = m[2]
-            .replace(/-\d{4}-\d{2}-\d{2}(-\d{4}-\d{2}-\d{2})?$/, '')
-            .replace(/-/g, ' ')
-            .trim()
-          results.push({ path, url: 'https://www.1001tracklists.com' + path, title })
+          const seen    = new Set()
+          const results = []
+          const re = /href="(\/tracklist\/[a-z0-9]+\/([^"]+)\.html)"/g
+          let m
+          while ((m = re.exec(html)) !== null) {
+            const path = m[1]
+            if (seen.has(path)) continue
+            seen.add(path)
+            // Derive a human-readable title from the URL slug for logging
+            const title = m[2]
+              .replace(/-\d{4}-\d{2}-\d{2}(-\d{4}-\d{2}-\d{2})?$/, '')
+              .replace(/-/g, ' ')
+              .trim()
+            results.push({ path, url: 'https://www.1001tracklists.com' + path, title })
+          }
+          resolve(results)
+        } catch (err) {
+          reject(err)
         }
-        resolve(results)
       })
     })
-    req.setTimeout(10_000, () => { req.destroy(); resolve([]) })
-    req.on('error', () => resolve([]))
+    req.setTimeout(10_000, () => {
+      req.destroy()
+      reject(networkError('Network timed out while searching 1001Tracklists.'))
+    })
+    req.on('error', () => reject(networkError('Could not reach 1001Tracklists. Check your connection and try again.')))
     req.write(postData)
     req.end()
   })
@@ -131,8 +179,10 @@ module.exports = {
     return url.includes('1001tracklists.com/tracklist/')
   },
 
-  // Returns [{ url, title, confirmed: true }] when the video ID matches,
-  // or [] when no result matches (caller falls back to YouTube embed).
+  // Returns [{ url, title, confirmed: true }] when the video ID matches.
+  // If 1001 returns a browser challenge while confirming the result page, keep
+  // the search result as an unconfirmed candidate so the BrowserWindow loader
+  // still gets a chance to resolve and extract it.
   async findTracklists(meta) {
     const { url: sourceUrl, videoId } = meta
     if (!videoId) return []
@@ -140,19 +190,33 @@ module.exports = {
     const results = await searchByUrl(sourceUrl)
     if (results.length === 0) return []
 
+    let confirmationBlocked = false
     for (const result of results) {
-      const html      = await fetchPage(result.path)
+      let html
+      try {
+        html = await fetchPage(result.path)
+      } catch (err) {
+        if (err?.code === 'provider_challenge' || err?.code === 'provider_access_limited') {
+          confirmationBlocked = true
+          continue
+        }
+        throw err
+      }
       const foundId   = extractVideoIdFromHtml(html)
       if (foundId === videoId) {
         return [{ url: result.url, title: result.title, confirmed: true }]
       }
     }
 
+    if (confirmationBlocked) {
+      return results.map(result => ({ ...result, confirmationBlocked: true }))
+    }
+
     return []
   },
 
-  // Primary: direct access to the YouTube iframe via 1001tl's own JS API.
-  // Fallback CSS selectors cover any edge cases where the API isn't ready.
+  // Dormant v0.4 playback fields. v0.5 keeps them here as reference only while
+  // playback moves to the app-owned YouTube player.
   playerConfig: {
     finderScript: 'getYTPlayer(ytPlayer.idPlayer).player.g',
     selectors: ['#playerWidget', 'iframe[src*="youtube"]', 'iframe[src*="youtube-nocookie"]'],
@@ -166,10 +230,11 @@ module.exports = {
   `,
 
   // Extracts the full tracklist from the #tlTab DOM.
-  // Returns an array of track objects; executed once after the page loads.
+  // Returns normalized-ish provider track objects; v0.5 uses cueSeconds for
+  // app-owned seeking/highlighting instead of 1001tl's playPosition handlers.
   tracklistExtractScript: `(() => {
     const rows = Array.from(document.querySelectorAll('.tlpItem'))
-    return rows.map(row => {
+    return rows.map((row, index) => {
       const trackNumEl   = row.querySelector('.fontXL')
       const trackNumText = trackNumEl ? trackNumEl.textContent.trim() : ''
       const isWWith      = /^w\\//.test(trackNumText)
@@ -182,21 +247,27 @@ module.exports = {
       const prefix       = artist ? artist + ' - ' : ''
       const title        = prefix && rawName.startsWith(prefix) ? rawName.substring(prefix.length) : rawName
       const cueInput     = row.querySelector('input[id$="_cue_seconds"]')
-      const cueSeconds   = cueInput ? (parseInt(cueInput.value) || 0) : 0
       const cueEl        = row.querySelector('.cue')
       const cueDisplay   = cueEl ? cueEl.textContent.trim() : ''
+      // 1001tl injects a _cue_seconds input on every row as a template field,
+      // even when no timestamp has been entered (value stays "0").  A track
+      // only has a real timestamp when the value is > 0 OR the cue element
+      // shows display text (e.g. "0:00" for the first track at the start).
+      const hasTimestamp = !!cueInput && (parseInt(cueInput.value) > 0 || cueDisplay !== '')
+      const cueSeconds   = hasTimestamp ? (parseInt(cueInput.value) || 0) : null
       const artImg       = row.querySelector('img.artM')
       const artUrl       = artImg ? (artImg.dataset.src || artImg.src || '') : ''
       const playEl    = row.querySelector('i[onclick*="playPosition"]')
       const onclickStr = playEl ? (playEl.getAttribute('onclick') || null) : null
       // Mashup component: a named sub-track with no play position and no track number.
       // These are the source songs blended into a mashup — display-only, not seekable.
-      const isMashupComponent = !onclickStr && !isWWith && trackNum === null
+      const isMashupComponent = !hasTimestamp && !onclickStr && !isWWith && trackNum === null
       // noTimestamp: a numbered track that exists in the tracklist but has no cue
       // time — 1001tl lists it but there's no position data to seek or track.
-      const noTimestamp = !onclickStr && !isMashupComponent && !isWWith
-      return { trackNum, trackNumText, isWWith, isMashupComponent, noTimestamp, isId, artist, title, raw: rawName, cueSeconds, cueDisplay, artUrl, onclickStr }
-    }).filter(t => t.raw || t.onclickStr)
+      const noTimestamp = !hasTimestamp && !isMashupComponent && !isWWith
+      const providerTrackId = row.id || '1001tl-row-' + index
+      return { providerTrackId, trackNum, trackNumText, isWWith, isMashupComponent, noTimestamp, isId, artist, title, raw: rawName, hasTimestamp, cueSeconds, cueDisplay, artUrl, onclickStr }
+    }).filter(t => t.raw || t.hasTimestamp || t.onclickStr)
   })()`,
 
   nowPlayingScript: `(() => {
@@ -243,4 +314,20 @@ module.exports = {
       return { currentTime: cur, duration: dur }
     } catch(e) { return null }
   })()`,
+
+  // Shown in the "no tracklist found" UI so the user can submit one.
+  // Receives the source URL (YouTube/SC) and returns the full contribute URL.
+  contributeInfo: {
+    label: 'Create tracklist on 1001Tracklists',
+    note:  'You\'ll need a 1001Tracklists account — they\'re community-powered.',
+    url: (sourceUrl) =>
+      `https://www.1001tracklists.com/action/tracklist_add.php?medialink=${encodeURIComponent(sourceUrl)}`,
+  },
+
+  _test: {
+    assertProviderResponse,
+    extractVideoIdFromHtml,
+    networkError,
+    providerError,
+  },
 }
