@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('api', {
   getStore:     ()      => ipcRenderer.invoke('store-get'),
   setStore:     (data)  => ipcRenderer.invoke('store-set', data),
+  getStats:     ()      => ipcRenderer.invoke('stats-get'),
+  setStats:     (data)  => ipcRenderer.invoke('stats-set', data),
   getSources:   ()      => ipcRenderer.invoke('get-sources'),
   getRecentLogs: ()     => ipcRenderer.invoke('get-recent-logs'),
   isDeveloper:  ()      => ipcRenderer.invoke('is-developer'),
@@ -35,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
   updatesInstall: ()    => ipcRenderer.invoke('updates-install'),
   updatesNotificationsDisabledSet: (disabled) => ipcRenderer.invoke('updates-notifications-disabled-set', disabled),
   openExternal: (url)   => ipcRenderer.invoke('open-external', url),
+  tracklistCacheClear: () => ipcRenderer.invoke('tracklist-cache-clear'),
 
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data',

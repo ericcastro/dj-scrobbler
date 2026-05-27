@@ -94,12 +94,38 @@ function writeStore(data) {
   fs.writeFileSync(getStorePath(), JSON.stringify(data, null, 2))
 }
 
+// ── Stats persistence (separate file — personal data, never seed/commit) ──────
+
+function getStatsPath() {
+  return path.join(app.getPath('userData'), 'dj-scrobbler-stats.json')
+}
+
+const DEFAULT_STATS = {
+  totalListenedSeconds: 0,
+  totalTracksListened:  0,
+  listenDays:           [],   // 'YYYY-MM-DD' strings, deduplicated
+  firstListenDate:      null, // 'YYYY-MM-DD', set once on first playback tick
+}
+
+function readStats() {
+  try {
+    return { ...DEFAULT_STATS, ...JSON.parse(fs.readFileSync(getStatsPath(), 'utf8')) }
+  } catch {
+    return { ...DEFAULT_STATS }
+  }
+}
+
+function writeStats(data) {
+  fs.writeFileSync(getStatsPath(), JSON.stringify(data, null, 2))
+}
+
 function tracklistCacheKey(providerId, sourceUrl) {
   return crypto.createHash('sha1').update(`${providerId}:${sourceUrl}`).digest('hex')
 }
 
 function isUsableCachedTracklist(entry, now = Date.now()) {
   return entry &&
+    entry.version >= 2 &&       // v1 had incorrect hasTimestamp detection — force re-fetch
     entry.expiresAt > now &&
     typeof entry.sourceUrl === 'string' &&
     typeof entry.providerId === 'string' &&
@@ -151,7 +177,7 @@ function writeCachedTracklist({ sourceUrl, providerId, tracklistUrl, title, thum
   const now = Date.now()
   const key = tracklistCacheKey(providerId, sourceUrl)
   store.tracklistCache[key] = {
-    version: 1,
+    version: 2,
     sourceUrl,
     providerId,
     tracklistUrl,
@@ -820,14 +846,18 @@ async function handleSourceUrl(source, url, wvContents) {
   if (!best) {
     log('[lookup] → no tracklist found')
     isTracklistLookupPending = false
+    const contributeInfo = tlPlugin.contributeInfo
     mainWindow.webContents.send('tracklist-loaded', {
       url: currentSourceUrl,
       sourceUrl: currentSourceUrl,
       title: currentSetTitle,
       thumbnailUrl: currentThumbnailUrl,
-      providerId: null,
+      providerId: tlPlugin.id,
       tracklistUrl: null,
       isFallback: true,
+      contributeLabel: contributeInfo?.label || null,
+      contributeNote:  contributeInfo?.note  || null,
+      contributeUrl:   contributeInfo?.url?.(currentSourceUrl) || null,
     })
     mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
     return
@@ -901,7 +931,7 @@ function wireWebview(wvContents) {
   }
 
   // Catch intercept signals from source plugins that use click interception
-  wvContents.on('console-message', async (_e, _level, message) => {
+  wvContents.on('console-message', async ({ message }) => {
     if (role() === 'player') return
     for (const source of plugins.SOURCES) {
       const interceptedUrl = source.parseIntercept(message)
@@ -1305,7 +1335,7 @@ function setDockIcon(theme) {
 function persistBounds() {
   clearTimeout(saveBoundsTimer)
   saveBoundsTimer = setTimeout(() => {
-    if (!mainWindow || displayFullscreenBounds || mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
+    if (!mainWindow || mainWindow.isDestroyed() || displayFullscreenBounds || mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
     const store = readStore()
     if (!store.settings) store.settings = {}
     store.settings.windowBounds = mainWindow.getBounds()
@@ -1405,7 +1435,10 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => { isQuitting = true })
+app.on('before-quit', () => {
+  isQuitting = true
+  clearTimeout(saveBoundsTimer) // prevent in-flight timer from firing on a destroyed window
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
@@ -1413,7 +1446,9 @@ app.on('window-all-closed', () => {
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
-ipcMain.handle('store-get', () => readStore())
+ipcMain.handle('store-get',  () => readStore())
+ipcMain.handle('stats-get',  () => readStats())
+ipcMain.handle('stats-set',  (_event, data) => writeStats(data))
 ipcMain.handle('store-set', (_event, data) => {
   const existing = readStore()
   const next = { ...data }
@@ -1493,6 +1528,15 @@ ipcMain.handle('get-sources', () =>
 
 ipcMain.handle('get-version', () => app.getVersion())
 ipcMain.handle('get-platform', () => process.platform)
+
+ipcMain.handle('tracklist-cache-clear', () => {
+  const store = readStore()
+  const count = Object.keys(store.tracklistCache || {}).length
+  store.tracklistCache = {}
+  writeStore(store)
+  log(`[cache] cleared ${count} tracklist entries`)
+  return count
+})
 ipcMain.handle('updates-check', () => checkForUpdates({ manual: true }))
 ipcMain.handle('updates-download', () => downloadUpdate())
 ipcMain.handle('updates-install', () => {
@@ -1525,7 +1569,7 @@ ipcMain.handle('window-drag-end', () => {
 })
 
 ipcMain.handle('open-external', (_event, url) => {
-  const allowed = ['djscrobbler.com', 'github.com']
+  const allowed = ['djscrobbler.com', 'github.com', '1001tracklists.com']
   try {
     const { hostname, protocol } = new URL(url)
     if (protocol === 'mailto:') shell.openExternal(url)

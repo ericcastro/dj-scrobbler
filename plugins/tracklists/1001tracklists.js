@@ -247,10 +247,14 @@ module.exports = {
       const prefix       = artist ? artist + ' - ' : ''
       const title        = prefix && rawName.startsWith(prefix) ? rawName.substring(prefix.length) : rawName
       const cueInput     = row.querySelector('input[id$="_cue_seconds"]')
-      const hasTimestamp = !!cueInput
-      const cueSeconds   = hasTimestamp ? (parseInt(cueInput.value) || 0) : null
       const cueEl        = row.querySelector('.cue')
       const cueDisplay   = cueEl ? cueEl.textContent.trim() : ''
+      // 1001tl injects a _cue_seconds input on every row as a template field,
+      // even when no timestamp has been entered (value stays "0").  A track
+      // only has a real timestamp when the value is > 0 OR the cue element
+      // shows display text (e.g. "0:00" for the first track at the start).
+      const hasTimestamp = !!cueInput && (parseInt(cueInput.value) > 0 || cueDisplay !== '')
+      const cueSeconds   = hasTimestamp ? (parseInt(cueInput.value) || 0) : null
       const artImg       = row.querySelector('img.artM')
       const artUrl       = artImg ? (artImg.dataset.src || artImg.src || '') : ''
       const playEl    = row.querySelector('i[onclick*="playPosition"]')
@@ -310,6 +314,15 @@ module.exports = {
       return { currentTime: cur, duration: dur }
     } catch(e) { return null }
   })()`,
+
+  // Shown in the "no tracklist found" UI so the user can submit one.
+  // Receives the source URL (YouTube/SC) and returns the full contribute URL.
+  contributeInfo: {
+    label: 'Create tracklist on 1001Tracklists',
+    note:  'You\'ll need a 1001Tracklists account — they\'re community-powered.',
+    url: (sourceUrl) =>
+      `https://www.1001tracklists.com/action/tracklist_add.php?medialink=${encodeURIComponent(sourceUrl)}`,
+  },
 
   _test: {
     assertProviderResponse,

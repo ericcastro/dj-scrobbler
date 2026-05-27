@@ -14,6 +14,7 @@ const state = {
   currentSource: '',
   currentTracklistUrl: null,
   currentTracklistProvider: null,
+  currentContributeUrl: null,
   currentThumbnailUrl: null,
   nowPlaying: null,
   playbackCurrentTime: 0,
@@ -23,6 +24,7 @@ const state = {
   isIdTrack: false,
   tracklistUnavailable: false,
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
+  stats: { totalListenedSeconds: 0, totalTracksListened: 0, listenDays: [], firstListenDate: null },
   currentTracks: [],       // full track array from tracklist-data, used for progress lookups
   pendingResumeTime: null, // seconds to seek to after first playback-progress tick
 }
@@ -50,6 +52,7 @@ const sidebarMiniPlayerSlot = document.getElementById('sidebar-mini-player-slot'
 const introScreen        = document.getElementById('intro-screen')
 const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
+const seekShield         = document.getElementById('seek-shield')
 const loadingMsg         = document.getElementById('loading-msg')
 const playerStatusOverlay = document.getElementById('player-status-overlay')
 const playerStatusTitle  = document.getElementById('player-status-title')
@@ -70,9 +73,12 @@ const histEmpty          = document.getElementById('hist-empty')
 const mainContent              = document.getElementById('main-content')
 const tracklistBelowVideo      = document.getElementById('tracklist-below-video')
 const tracklistList            = document.getElementById('tracklist-list')
-const tracklistUnavailableEl   = document.getElementById('tracklist-unavailable')
-const tracklistUnavailableTitle = document.getElementById('tracklist-unavailable-title')
-const tracklistUnavailableSub   = document.getElementById('tracklist-unavailable-sub')
+const tracklistUnavailableEl      = document.getElementById('tracklist-unavailable')
+const tracklistUnavailableTitle   = document.getElementById('tracklist-unavailable-title')
+const tracklistUnavailableSub     = document.getElementById('tracklist-unavailable-sub')
+const tlContributeActions         = document.getElementById('tl-contribute-actions')
+const btnContributeTracklist      = document.getElementById('btn-contribute-tracklist')
+const tlContributeNote            = document.getElementById('tl-contribute-note')
 const tracklistCompactList  = document.getElementById('tracklist-compact-list')
 const rightPanel            = document.getElementById('right-panel')
 const rightPanelHandle      = document.getElementById('right-panel-handle')
@@ -101,8 +107,21 @@ const npSource           = document.getElementById('np-source')
 const resumeDialog        = document.getElementById('resume-dialog')
 const resumeCountdownNum  = document.getElementById('resume-countdown-num')
 const resumeDontAsk       = document.getElementById('resume-dont-ask')
+const btnResumeDismiss    = document.getElementById('btn-resume-dismiss')
 const btnResumeStart      = document.getElementById('btn-resume-start')
 const btnResumeResume     = document.getElementById('btn-resume-resume')
+const btnViewHome         = document.getElementById('btn-view-home')
+const btnViewNowplaying   = document.getElementById('btn-view-nowplaying')
+const btnViewSearch       = document.getElementById('btn-view-search')
+const btnClearHistory     = document.getElementById('btn-clear-history')
+const historyClearStatus  = document.getElementById('history-clear-status')
+const contributeDialog      = document.getElementById('contribute-dialog')
+const contributeDialogTitle = document.getElementById('contribute-dialog-title')
+const contributeDialogSub   = document.getElementById('contribute-dialog-sub')
+const contributeDialogNote  = document.getElementById('contribute-dialog-note')
+const btnContributeClose    = document.getElementById('btn-contribute-close')
+const btnContributeOpen     = document.getElementById('btn-contribute-open')
+const btnContributeDismiss  = document.getElementById('btn-contribute-dismiss')
 const supportDialog       = document.getElementById('support-dialog')
 const supportDialogTitle  = document.getElementById('support-dialog-title')
 const supportDialogSub    = document.getElementById('support-dialog-sub')
@@ -111,6 +130,8 @@ const btnSupportEmail     = document.getElementById('btn-support-email')
 const btnSupportClose     = document.getElementById('btn-support-close')
 const btnCheckUpdates     = document.getElementById('btn-check-updates')
 const updateSettingsStatus = document.getElementById('update-settings-status')
+const btnClearTracklistCache  = document.getElementById('btn-clear-tracklist-cache')
+const tracklistCacheStatus    = document.getElementById('tracklist-cache-status')
 const updatesDisableNotifications = document.getElementById('updates-disable-notifications')
 const updateDialog        = document.getElementById('update-dialog')
 const updateDialogTitle   = document.getElementById('update-dialog-title')
@@ -132,6 +153,16 @@ const lfmDisconnected    = document.getElementById('lfm-disconnected')
 const lfmUsername        = document.getElementById('lfm-username')
 const lfmConnectStatus   = document.getElementById('lfm-connect-status')
 const footerAppName      = document.getElementById('footer-app-name')
+const sepListenTime      = document.getElementById('sep-listen-time')
+const sepSetsCount       = document.getElementById('sep-sets-count')
+const sepTracksCount     = document.getElementById('sep-tracks-count')
+const sepListenTooltip   = document.getElementById('sep-listen-tooltip')
+const tlListFooter       = document.getElementById('tl-list-footer')
+const tlCompactFooter    = document.getElementById('tl-compact-footer')
+const introSearchInput   = document.getElementById('intro-search-input')
+const introResumeSection  = document.getElementById('intro-resume')
+const introResumeGrid     = document.getElementById('intro-resume-grid')
+const historyPanelTitle   = document.querySelector('#panel-history .panel-title')
 
 // ── Icons (Lucide MIT) ────────────────────────────────────────────────────────
 
@@ -160,10 +191,11 @@ const ICON = {
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 
-const MIN_SIDEBAR_W = 360
-const MAX_SIDEBAR_W = 480
-const DEFAULT_SIDEBAR_W = 360
-const COMPACT_SIDEBAR_BREAKPOINT = MIN_SIDEBAR_W * 2
+const MIN_SIDEBAR_W              = 270
+const MAX_SIDEBAR_W              = 480
+const DEFAULT_SIDEBAR_W          = 360
+const PANEL_MIN_SIDEBAR_W        = 360  // auto-restore to this when opening a panel
+const COMPACT_SIDEBAR_BREAKPOINT = DEFAULT_SIDEBAR_W * 2
 
 const GREETINGS = [
   'Welcome back.',
@@ -254,6 +286,64 @@ async function supportEmailUrl(type) {
   const body = `${cfg.emailBody}\nApp version:\n${feedbackVersionLine()}\n\nRecent app logs:\n${logs}\n`
   const subject = `${cfg.emailSubject}${appVersion ? ` (v${appVersion})` : ''}`
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+}
+
+const ID_COMMUNITY_NOTE = '1001Tracklists is community-driven — anyone with an account can help identify missing track information for everyone to benefit from.'
+
+const ID_SUB = "You can help out and complete its information!"
+
+const CONTRIBUTE_CONFIGS = {
+  'no-timestamp': {
+    title: 'No timestamp for this track',
+    sub:   "This track hasn't been timestamped yet, so we can't seek to it.",
+    note:  ID_COMMUNITY_NOTE,
+  },
+  'id': {
+    btnLabel: 'do you know this track?',
+    title:    'Do you know this track?',
+    sub:      ID_SUB,
+    note:     ID_COMMUNITY_NOTE,
+  },
+  'id-title': {
+    btnLabel: 'do you know the title?',
+    title:    'Do you know the title for this track?',
+    sub:      ID_SUB,
+    note:     ID_COMMUNITY_NOTE,
+  },
+  'id-artist': {
+    btnLabel: 'do you know the artist?',
+    title:    'Do you know the artist for this track?',
+    sub:      ID_SUB,
+    note:     ID_COMMUNITY_NOTE,
+  },
+}
+
+function openContributeDialog(type) {
+  const cfg = CONTRIBUTE_CONFIGS[type] || CONTRIBUTE_CONFIGS['no-timestamp']
+  contributeDialogTitle.textContent = cfg.title
+  contributeDialogSub.textContent   = cfg.sub
+  contributeDialogNote.textContent  = cfg.note
+  contributeDialogNote.classList.toggle('hidden', !cfg.note)
+  // noAction types have no link to open — hide action buttons
+  btnContributeOpen.classList.toggle('hidden', !!cfg.noAction)
+  btnContributeDismiss.classList.toggle('hidden', !!cfg.noAction)
+  contributeDialog.classList.remove('hidden')
+}
+
+function closeContributeDialog() {
+  contributeDialog.classList.add('hidden')
+}
+
+// Set #np-source text, optionally as a clickable link (when url is provided).
+function setNpSource(text, url) {
+  if (url) {
+    npSource.innerHTML = `<a class="tl-source-link">${text}</a>`
+    npSource.querySelector('.tl-source-link').addEventListener('click', () => {
+      window.api.openExternal(url)
+    })
+  } else {
+    npSource.textContent = text
+  }
 }
 
 function openSupportDialog(type) {
@@ -371,16 +461,36 @@ function startWindowDrag(e) {
 let webviewReady = false
 let browserWebviewReady = false
 let pendingNav = null
+let browserHasContent = false
+let hasEverPlayed = false
+
+function updateViewTabs() {
+  const browsing = document.body.classList.contains('is-browsing')
+  const introVisible = !introScreen.classList.contains('hidden')
+  btnViewHome.classList.toggle('active', introVisible)
+  btnViewNowplaying.classList.toggle('active', !introVisible && !browsing)
+  btnViewSearch.classList.toggle('active', !introVisible && browsing)
+  btnViewNowplaying.classList.toggle('tab-disabled', !hasEverPlayed)
+  btnViewSearch.classList.toggle('tab-disabled', !browserHasContent)
+}
+
+function setTrackPlaying(playing) {
+  state.isTrackPlaying = playing
+  document.body.classList.toggle('is-track-playing', playing)
+}
 
 function navigateTo(url) {
+  browserHasContent = true
   hideIntro()
   document.body.classList.add('is-browsing')
+  updateViewTabs()
   if (browserWebviewReady) browserWebview.loadURL(url)
   else pendingNav = url
 }
 
 async function init() {
   state.store = await window.api.getStore()
+  state.stats = await window.api.getStats()
   document.body.classList.add(`platform-${await window.api.getPlatform()}`)
   if (await window.api.isDeveloper()) btnDevtools.classList.remove('hidden')
 
@@ -408,7 +518,9 @@ async function init() {
   introGreeting.textContent = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
 
   renderFavorites()
-  renderHistory()
+  renderHistory()  // also calls renderIntroResume()
+  updateListenTimeSep()
+  updateViewTabs()
   wireFooterMarquees()
 
   state.lfmStatus = await window.api.lfmStatusGet()
@@ -438,6 +550,80 @@ function hideIntro() {
   introScreen.classList.add('hidden')
 }
 
+function showIntro() {
+  introScreen.classList.remove('hidden')
+  // Re-render after layout so we can measure the actual available width
+  requestAnimationFrame(renderIntroResume)
+}
+
+// Must match the CSS --item width and gap for the resume grid
+const RESUME_ITEM_W = 155
+const RESUME_ITEM_GAP = 8
+
+function countResumeSlots() {
+  // Use the full intro-screen width minus horizontal padding (16px × 2 = 32px)
+  const screenW = introScreen.offsetWidth
+  const avail = screenW > 0
+    ? Math.max(280, screenW - 32)
+    : mainContent ? Math.max(280, mainContent.offsetWidth - 32) : 468
+  return Math.max(2, Math.floor((avail + RESUME_ITEM_GAP) / (RESUME_ITEM_W + RESUME_ITEM_GAP)))
+}
+
+function renderIntroResume() {
+  const totalSlots = countResumeSlots()
+  const maxHistory = totalSlots - 1 // last slot is always the ghost "browse history" card
+
+  // Only YouTube sets that have meaningful progress (5–94%)
+  const items = state.store.history.filter(item => {
+    const pct = getProgressPct(item)
+    return pct >= 5 && pct < 95 && isYouTubeSourceUrl(item.url)
+  }).slice(0, maxHistory)
+
+  introResumeSection.classList.toggle('hidden', items.length === 0)
+  introResumeGrid.innerHTML = ''
+
+  items.forEach(item => {
+    const pct = getProgressPct(item)
+    const fav = isFavorited(item.url)
+    const thumbHtml = item.thumbnailUrl
+      ? `<img class="intro-resume-thumb" src="${escHtml(item.thumbnailUrl)}" alt="" loading="lazy" />`
+      : `<div class="intro-resume-thumb intro-resume-thumb-empty"></div>`
+    const heartHtml = fav
+      ? `<span class="intro-resume-heart" aria-hidden="true"><svg viewBox="0 0 24 24" width="8" height="8" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></span>`
+      : ''
+    const card = document.createElement('div')
+    card.className = 'intro-resume-item'
+    card.innerHTML = `
+      ${thumbHtml}
+      <div class="intro-resume-title-row">
+        ${heartHtml}
+        <div class="intro-resume-title-wrap">
+          <span class="intro-resume-title-text">${escHtml(item.title || item.url)}</span>
+        </div>
+      </div>
+      <div class="intro-resume-bar"><div class="intro-resume-bar-fill" style="width:${pct}%"></div></div>
+    `
+    // Always resume from where left off — no dialog for home screen quick-resume
+    card.addEventListener('click', () => loadSet(item, true))
+    wireOverflowMarquee(card.querySelector('.intro-resume-title-text'), card)
+    introResumeGrid.appendChild(card)
+  })
+
+  // Ghost "browse history" card — single unified block, no split sections
+  const ghost = document.createElement('div')
+  ghost.className = 'intro-resume-item intro-resume-ghost'
+  ghost.innerHTML = `
+    <div class="intro-resume-ghost-thumb">
+      <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span class="intro-resume-ghost-label">browse history</span>
+    </div>
+  `
+  ghost.addEventListener('click', () => {
+    document.querySelector('.nav-btn[data-panel="history"]')?.click()
+  })
+  introResumeGrid.appendChild(ghost)
+}
+
 // ── Video mode ───────────────────────────────────────────────────────────────
 
 const VIDEO_MODES = ['inline', 'mini', 'hidden', 'fullscreen']
@@ -452,7 +638,9 @@ let pendingKeyboardSeekTarget = null
 let pendingKeyboardVolumeTarget = null
 
 function setSidebarWidthVar() {
-  document.documentElement.style.setProperty('--sidebar-w-current', `${sidebar.offsetWidth || DEFAULT_SIDEBAR_W}px`)
+  const w = sidebar.offsetWidth || DEFAULT_SIDEBAR_W
+  document.documentElement.style.setProperty('--sidebar-w-current', `${w}px`)
+  sidebar.classList.toggle('sidebar-narrow', w < PANEL_MIN_SIDEBAR_W)
 }
 
 function clampSidebarWidth(width) {
@@ -548,6 +736,46 @@ function cycleVideoMode() {
   applyVideoMode(videoModePrimaryAction())
 }
 
+// ── Lifetime listening stats ──────────────────────────────────────────────────
+
+let _listenTickLastTime  = null  // previous currentTime value, for delta accumulation
+let _lastSeenTrackNum    = null  // for organic (sequential +1) track counting
+
+function formatListenTime(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h === 0) return m <= 1 ? '<1m' : `${m}m`
+  return `${h}h ${m}m`
+}
+
+function updateListenTimeSep() {
+  const listenSec  = state.stats.totalListenedSeconds  || 0
+  const tracks     = state.stats.totalTracksListened   || 0
+  const sets       = state.store.history
+    ? state.store.history.filter(item => getProgressPct(item) >= 5).length
+    : 0
+
+  if (sepListenTime)   sepListenTime.textContent  = formatListenTime(listenSec)
+  if (sepSetsCount)    sepSetsCount.textContent    = sets
+  if (sepTracksCount)  sepTracksCount.textContent  = tracks
+
+  if (sepListenTooltip) {
+    if (listenSec === 0 && sets === 0 && tracks === 0) {
+      sepListenTooltip.innerHTML = '<div>Start listening to track your stats</div>'
+    } else {
+      const h = Math.floor(listenSec / 3600)
+      const m = Math.floor((listenSec % 3600) / 60)
+      const timePart = h > 0 ? `${h}h ${m}m` : `${m || '<1'}m`
+      sepListenTooltip.innerHTML = [
+        `<div>Total listening time: ${timePart}</div>`,
+        `<div>Total DJ sets played: ${sets}</div>`,
+        `<div>Total tracks played: ${tracks}</div>`,
+      ].join('')
+    }
+  }
+}
+
 function formatPlaybackTime(seconds) {
   const total = Math.max(0, Math.floor(Number(seconds) || 0))
   const h = Math.floor(total / 3600)
@@ -570,6 +798,47 @@ function updatePlaybackProgress(currentTime = state.playbackCurrentTime, duratio
   renderPlaybackSegments()
 }
 
+// ── Seek shield ───────────────────────────────────────────────────────────────
+// Masks YouTube's native controls/buffering flash on every programmatic seek.
+// The shield appears instantly (transition: none on .active) and fades out
+// 1 s after the last seek event — drag seeks keep resetting the timer so the
+// shield stays up for the full drag duration, then fades once released.
+
+let _seekShieldTimer  = null
+let _seekPersistTimer = null
+
+function flashSeekShield() {
+  seekShield.classList.add('active')
+  clearTimeout(_seekShieldTimer)
+  _seekShieldTimer = setTimeout(() => seekShield.classList.remove('active'), 1000)
+}
+
+function playerSeek(seconds) {
+  flashSeekShield()
+  window.api.playerSeek(seconds)
+  // Persist seek position soon — debounced so rapid seeks (held arrow key,
+  // dragging progress bar) collapse into one write.
+  if (state.currentSetUrl && state.playbackDuration > 0) {
+    const pct = Math.min(99, Math.round((seconds / state.playbackDuration) * 100))
+    if (pct >= 1) {
+      // Update in-memory store immediately so the resume section is always current
+      ;['history', 'favorites'].forEach(key => {
+        state.store[key] = state.store[key].map(item =>
+          item.url === state.currentSetUrl
+            ? { ...item, progressTimePct: pct, progressTime: seconds }
+            : item
+        )
+      })
+      paintProgressBars(state.currentSetUrl, pct)
+      clearTimeout(_seekPersistTimer)
+      _seekPersistTimer = setTimeout(() => {
+        _seekPersistTimer = null
+        persist()
+      }, 600)
+    }
+  }
+}
+
 function seekFromProgressEvent(e) {
   if (!state.playbackDuration) return
   const rect = playbackProgressTrack.getBoundingClientRect()
@@ -578,7 +847,7 @@ function seekFromProgressEvent(e) {
   const seconds = pct * state.playbackDuration
   state.playbackCurrentTime = seconds
   updatePlaybackProgress(seconds, state.playbackDuration)
-  window.api.playerSeek(seconds)
+  playerSeek(seconds)
 }
 
 function seekRelativeSeconds(deltaSeconds) {
@@ -589,7 +858,7 @@ function seekRelativeSeconds(deltaSeconds) {
     : current + deltaSeconds)
   state.playbackCurrentTime = target
   updatePlaybackProgress(target, state.playbackDuration)
-  window.api.playerSeek(target)
+  playerSeek(target)
 }
 
 function previewRelativeSeek(deltaSeconds) {
@@ -607,7 +876,7 @@ function commitKeyboardSeek() {
   if (pendingKeyboardSeekTarget == null) return
   const target = pendingKeyboardSeekTarget
   pendingKeyboardSeekTarget = null
-  window.api.playerSeek(target)
+  playerSeek(target)
 }
 
 function startProgressDrag(e) {
@@ -739,7 +1008,7 @@ function seekRelativeTrack(direction) {
   } else {
     target = tracks.find(track => track.cueSeconds > now + 0.75) || tracks[tracks.length - 1]
   }
-  if (target) window.api.playerSeek(target.cueSeconds)
+  if (target) playerSeek(target.cueSeconds)
 }
 
 // ── Search ──────────────────────────────────────────────────────────────────
@@ -835,11 +1104,12 @@ function wireMainEvents() {
     }
   })
 
-  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, tracklistUrl, lookupError }) => {
+  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, tracklistUrl, lookupError, contributeLabel, contributeNote, contributeUrl }) => {
     // Don't update set state or history while the user is deciding in the dialog.
     if (isResumeDialogOpen()) return
     document.body.classList.add('has-active-set')
     document.body.classList.remove('is-browsing')
+    updateViewTabs()
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
     state.currentSetUrl        = url
@@ -850,11 +1120,20 @@ function wireMainEvents() {
     if (isFallback) {
       state.currentTracks  = []   // prevent stale count leaking into bookmark
       state.currentSource  = 'youtube'
+      state.currentContributeUrl = contributeUrl || null
       npSet.textContent     = title
-      npSource.textContent  = 'youtube (no tracklist yet)'
+      setNpSource('no tracklist yet')
       tracklistUnavailableTitle.textContent = lookupError ? 'Tracklist lookup paused' : 'Tracklist not yet available'
       tracklistUnavailableSub.textContent = lookupError?.message ||
-        'No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.'
+        'It may become available later — or maybe create one yourself?'
+      // Show contribute prompt only for genuine "not found" (no lookupError) with a known URL
+      const showContribute = !lookupError && contributeUrl && contributeLabel
+      tlContributeActions.classList.toggle('hidden', !showContribute)
+      if (showContribute) {
+        btnContributeTracklist.textContent = contributeLabel
+        tlContributeNote.textContent = contributeNote || ''
+        tlContributeNote.classList.toggle('hidden', !contributeNote)
+      }
       // Show the below-video area with the unavailable message
       tracklistUnavailableEl.classList.remove('hidden')
       tracklistList.innerHTML = ''
@@ -862,7 +1141,7 @@ function wireMainEvents() {
       mainContent.classList.add('has-tracklist')
       // Clear any stale track info from a previous set
       state.nowPlaying       = null
-      state.isTrackPlaying   = false
+      setTrackPlaying(false)
       npTrackText.textContent = ''
       npArtist.textContent   = ''
       npTracknum.textContent = ''
@@ -871,12 +1150,16 @@ function wireMainEvents() {
     } else {
       state.currentSource  = 'youtube'
       npSet.textContent    = title
-      npSource.textContent = providerId === '1001tracklists'
-        ? 'tracklist courtesy of 1001tracklists'
-        : 'youtube'
+      if (providerId === '1001tracklists') {
+        setNpSource('tracklist obtained from 1001Tracklists', tracklistUrl || null)
+      } else {
+        setNpSource('youtube')
+      }
       tracklistUnavailableTitle.textContent = 'Tracklist not yet available'
       tracklistUnavailableSub.textContent = 'No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.'
       tracklistUnavailableEl.classList.add('hidden')
+      tlContributeActions.classList.add('hidden')
+      state.currentContributeUrl = null
     }
 
     state.isIdTrack = false
@@ -897,7 +1180,7 @@ function wireMainEvents() {
     const playing = data.isPlaying !== false
     ppIcon.innerHTML = playing ? icon(ICON.pause, 16) : icon(ICON.play, 16)
     btnPlayPause.classList.toggle('playing', playing)
-    state.isTrackPlaying = playing
+    setTrackPlaying(playing)
     state.isIdTrack      = !!data.isId
     // Player-only events carry play/pause state, not track metadata.
     if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
@@ -909,6 +1192,14 @@ function wireMainEvents() {
     // Save playback progress so history/favorites items can show a progress bar
     if (data.trackNum && state.currentSetUrl && data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
       updateSetProgress(state.currentSetUrl, data.trackNum, data.cueSeconds)
+    }
+    // Count organic track progressions: sequential +1 advances only, not manual jumps
+    if (data.trackNum && data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
+      if (_lastSeenTrackNum !== null && data.trackNum === _lastSeenTrackNum + 1) {
+        state.stats.totalTracksListened = (state.stats.totalTracksListened || 0) + 1
+        updateListenTimeSep()
+      }
+      _lastSeenTrackNum = data.trackNum
     }
     refreshScrobbleBadge()
   })
@@ -924,12 +1215,38 @@ function wireMainEvents() {
     state.playbackCurrentTime = currentTime || 0
     state.playbackDuration = duration || 0
     updatePlaybackProgress()
+
+    // Accumulate lifetime listening time while actually playing (not paused)
+    if (document.body.classList.contains('is-track-playing')) {
+      if (_listenTickLastTime !== null) {
+        const delta = currentTime - _listenTickLastTime
+        // Accept only forward deltas up to ~5 s (rejects seeks and pauses)
+        if (delta > 0 && delta < 5) {
+          state.stats.totalListenedSeconds = (state.stats.totalListenedSeconds || 0) + delta
+          // Record today as a listening day (deduplicated)
+          const today = new Date().toISOString().slice(0, 10)
+          if (!state.stats.listenDays) state.stats.listenDays = []
+          if (!state.stats.listenDays.includes(today)) {
+            state.stats.listenDays.push(today)
+          }
+          // Record the very first listen date
+          if (!state.stats.firstListenDate) {
+            state.stats.firstListenDate = today
+          }
+          updateListenTimeSep()
+        }
+      }
+      _listenTickLastTime = currentTime
+    } else {
+      _listenTickLastTime = null
+    }
+
     if (!state.currentSetUrl) return
     // On first valid tick after a resume load, seek to the saved position then clear
     if (state.pendingResumeTime !== null) {
       const t = state.pendingResumeTime
       state.pendingResumeTime = null
-      window.api.playerSeek(t)
+      playerSeek(t)
       return  // progress bar will update on the next tick at the new position
     }
     const pct = Math.min(99, Math.round((currentTime / duration) * 100))
@@ -1123,6 +1440,7 @@ function shouldIgnorePlayerShortcut(e) {
   if (!resumeDialog.classList.contains('hidden')) return true
   if (!supportDialog.classList.contains('hidden')) return true
   if (!updateDialog.classList.contains('hidden')) return true
+  if (!contributeDialog.classList.contains('hidden')) return true
   const target = e.target
   if (!target) return false
   if (typeof target.closest !== 'function') return false
@@ -1250,6 +1568,12 @@ function removeFromFavorites(url) {
   updateBookmarkBtn()
 }
 
+function removeFromHistory(url) {
+  state.store.history = state.store.history.filter((h) => h.url !== url)
+  persist()
+  renderHistory()
+}
+
 function renderFavorites() {
   const favs = state.store.favorites
   favoritesList.innerHTML = ''
@@ -1289,11 +1613,58 @@ function addToHistory(item) {
   renderHistory()
 }
 
+function historyGroupLabel(playedAt) {
+  if (!playedAt) return 'earlier'
+  const now     = new Date()
+  const nowDay  = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const thenDay = new Date(new Date(playedAt).getFullYear(), new Date(playedAt).getMonth(), new Date(playedAt).getDate())
+  const days    = Math.round((nowDay - thenDay) / 86_400_000)
+
+  if (days === 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days < 30)  return `${days} days ago`
+
+  const then   = new Date(playedAt)
+  const months = (now.getFullYear() - then.getFullYear()) * 12 + (now.getMonth() - then.getMonth())
+
+  if (months <= 1)  return 'last month'
+  if (months < 12)  return `${months} months ago`
+
+  const years = now.getFullYear() - then.getFullYear()
+  if (years <= 1) return 'last year'
+  return `${years} years ago`
+}
+
 function renderHistory() {
   const hist = state.store.history
   historyList.innerHTML = ''
   histEmpty.style.display = hist.length ? 'none' : ''
-  hist.forEach((item) => historyList.appendChild(makeSetListItem(item)))
+
+  let lastLabel = null
+  let firstGroup = true
+  hist.forEach((item) => {
+    const label = historyGroupLabel(item.playedAt)
+    if (label !== lastLabel) {
+      lastLabel = label
+      if (firstGroup) {
+        // Embed the first label inline with the "History" panel title
+        historyPanelTitle.innerHTML =
+          `History<span class="history-title-label">${escHtml(label)}</span>`
+        firstGroup = false
+      } else {
+        const sep = document.createElement('li')
+        sep.className = 'history-group-sep'
+        sep.textContent = label
+        historyList.appendChild(sep)
+      }
+    }
+    historyList.appendChild(makeSetListItem(item, () => removeFromHistory(item.url)))
+  })
+
+  // Reset title when history is empty
+  if (hist.length === 0) historyPanelTitle.textContent = 'History'
+
+  renderIntroResume()
 }
 
 function wireOverflowMarquee(target, hoverTarget = target) {
@@ -1420,6 +1791,7 @@ function updateFallbackProgress(url, pct, currentTime) {
     _fallbackPersistTimer = setTimeout(() => {
       _fallbackPersistTimer = null
       persist()
+      persistStats()
       renderHistory()
       renderFavorites()
     }, 10_000)
@@ -1427,6 +1799,8 @@ function updateFallbackProgress(url, pct, currentTime) {
 }
 
 function loadSet(item, resume) {
+  hasEverPlayed = true
+  _lastSeenTrackNum = null  // reset organic track counter for the new set
   state.pendingResumeTime = resume
     ? (item.progressTime ?? item.lastTrackCueSeconds ?? null)
     : null
@@ -1435,6 +1809,7 @@ function loadSet(item, resume) {
     hideIntro()
     showLoading('Searching tracklist…')
     window.api.loadSourceUrl(item.url)
+    updateViewTabs()
   } else {
     navigateTo(item.url)
     hideOverlays()
@@ -1566,25 +1941,70 @@ function createTrackItem(track, compact) {
     ? `<span class="track-artist">${escHtml(track.artist)}</span>`
     : ''
 
-  // cue column: timestamp if available, warning icon if the track has no timestamp
+  // Determine identify type — drives both button label and dialog content
+  const needsIdentify = track.isId || track.title === 'ID' || track.artist === 'ID'
+  let idDialogType = 'id'
+  if (!track.isId && track.title === 'ID') idDialogType = 'id-title'
+  else if (!track.isId && track.artist === 'ID') idDialogType = 'id-artist'
+  const idBtnLabel = CONTRIBUTE_CONFIGS[idDialogType].btnLabel
+
+  // When needsIdentify: wrap title + artist in a column so the button can
+  // center vertically against the full text block, not just the title line.
+  const trackInfoHtml = needsIdentify
+    ? `<div class="track-info">
+         <div class="track-title-row">
+           <div class="track-text-col">
+             <span class="track-title">${titleText}</span>
+             ${artistHtml}
+           </div>
+           <button class="inline-track-btn track-id-btn">${idBtnLabel}</button>
+         </div>
+       </div>`
+    : `<div class="track-info">
+         <span class="track-title">${titleText}</span>
+         ${artistHtml}
+       </div>`
+
+  // cue column: timestamp if available, inline button if no timestamp
   const cueHtml = track.cueDisplay
     ? `<span class="track-cue">${escHtml(track.cueDisplay)}</span>`
     : (track.noTimestamp
-        ? `<span class="track-no-ts-icon">${icon(ICON.alertCircle, 11)}</span>`
+        ? `<button class="inline-track-btn track-no-ts-btn">no timestamp</button>`
         : '')
 
   li.innerHTML = `
     ${numHtml}
     ${artHtml}
-    <div class="track-info">
-      <span class="track-title">${titleText}</span>
-      ${artistHtml}
-    </div>
+    ${trackInfoHtml}
     ${cueHtml}
   `
 
-  if (typeof track.cueSeconds === 'number' && !track.noTimestamp && !track.isMashupComponent && !track.isWWith) {
-    li.addEventListener('click', () => window.api.playerSeek(track.cueSeconds))
+  // Wire inline contribute buttons — stop propagation so they don't trigger seek
+  li.querySelector('.track-no-ts-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    openContributeDialog('no-timestamp')
+  })
+  li.querySelector('.track-id-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    openContributeDialog(idDialogType)
+  })
+
+  // A track is only seekable when it has a user-visible timestamp (cueDisplay).
+  // cueSeconds alone is not enough — mashup components and w/ items can have
+  // cueSeconds:0 as a placeholder with no real displayed timestamp.
+  if (track.cueDisplay && typeof track.cueSeconds === 'number' && !track.noTimestamp) {
+    // Has a real displayed timestamp — row click seeks
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.inline-track-btn')) return
+      playerSeek(track.cueSeconds)
+    })
+  } else {
+    // No visible timestamp — row click opens the no-timestamp dialog.
+    // ID-button and no-ts-button clicks are already handled with stopPropagation.
+    li.addEventListener('click', (e) => {
+      if (e.target.closest('.inline-track-btn')) return
+      openContributeDialog('no-timestamp')
+    })
   }
 
   return li
@@ -1610,6 +2030,20 @@ function renderTracklist(tracks) {
     tracklistCompactList.appendChild(createTrackItem(track, false))
   })
 
+  // Tracklist footer — "found an error? edit on 1001Tracklists"
+  const footerUrl = state.currentTracklistUrl
+  for (const footer of [tlListFooter, tlCompactFooter]) {
+    if (footerUrl && tracks.length > 0) {
+      footer.innerHTML = `found an error in this tracklist? <a class="tl-footer-link">edit on 1001Tracklists ↗</a>`
+      footer.querySelector('.tl-footer-link').addEventListener('click', () => {
+        window.api.openExternal(footerUrl)
+      })
+      footer.classList.remove('hidden')
+    } else {
+      footer.classList.add('hidden')
+    }
+  }
+
   mainContent.classList.toggle('has-tracklist', tracks.length > 0)
 }
 
@@ -1628,6 +2062,8 @@ function highlightTracklistByNum(trackNum) {
 function clearTracklist() {
   tracklistList.innerHTML = ''
   tracklistCompactList.innerHTML = ''
+  tlListFooter.classList.add('hidden')
+  tlCompactFooter.classList.add('hidden')
   mainContent.classList.remove('has-tracklist')
   tracklistUnavailableEl.classList.add('hidden')
 }
@@ -1731,6 +2167,10 @@ function persist() {
   window.api.setStore(state.store)
 }
 
+function persistStats() {
+  window.api.setStats(state.stats)
+}
+
 // ── Now-playing reset ─────────────────────────────────────────────────────────
 
 function resetNowPlaying() {
@@ -1747,12 +2187,12 @@ function resetNowPlaying() {
   state.playbackDuration    = 0
   updatePlaybackProgress(0, 0)
   document.body.classList.remove('is-browsing')
-  state.isTrackPlaying     = false
+  setTrackPlaying(false)
   npTrackText.textContent = ''
   npArtist.textContent   = ''
   npTracknum.textContent = ''
   npSet.textContent      = ''
-  npSource.textContent   = ''
+  setNpSource('')
   ppIcon.innerHTML       = icon(ICON.play, 16)
   btnPlayPause.classList.remove('playing')
   updateBookmarkBtn()
@@ -1910,7 +2350,39 @@ function wireEvents() {
   volumeSlider.addEventListener('change', () => applyPlayerVolume(volumeSlider.value, true))
 
   navBtns.forEach((btn) =>
-    btn.addEventListener('click', () => switchSidebarPanel(btn.dataset.panel))
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('active')) {
+        // Second click on the active panel — collapse it
+        navBtns.forEach(b => b.classList.remove('active'))
+        panels.forEach(p => p.classList.remove('active'))
+        requestAnimationFrame(updateMiniPlayerMetrics)
+      } else {
+        // If sidebar is narrower than usable panel width, restore it first.
+        // Remove sidebar-narrow immediately (don't wait for CSS transition to finish
+        // before setSidebarWidthVar reads offsetWidth — transition delays the reflow).
+        if (sidebar.offsetWidth < PANEL_MIN_SIDEBAR_W) {
+          sidebar.style.width = DEFAULT_SIDEBAR_W + 'px'
+          sidebar.classList.remove('sidebar-narrow')
+          if (!state.store.settings) state.store.settings = {}
+          state.store.settings.sidebarWidth = DEFAULT_SIDEBAR_W
+          persist()
+          // Re-run metrics after the 200 ms width transition finishes
+          setTimeout(() => {
+            setSidebarWidthVar()
+            requestAnimationFrame(updateMiniPlayerMetrics)
+          }, 220)
+        }
+        switchSidebarPanel(btn.dataset.panel)
+      }
+    })
+  )
+
+  document.querySelectorAll('.panel-collapse-btn').forEach(btn =>
+    btn.addEventListener('click', () => {
+      navBtns.forEach(b => b.classList.remove('active'))
+      panels.forEach(p => p.classList.remove('active'))
+      requestAnimationFrame(updateMiniPlayerMetrics)
+    })
   )
 
   btnBookmark.addEventListener('click', () => {
@@ -1957,7 +2429,7 @@ function wireEvents() {
     await window.api.lfmDisconnect()
     showLfmDisconnected()
     state.lfmStatus = 'unconfigured'
-    state.isTrackPlaying = false
+    setTrackPlaying(false)
     refreshScrobbleBadge()
   })
 
@@ -1968,7 +2440,7 @@ function wireEvents() {
       ppIcon.innerHTML = icon(ICON.play, 16)
       btnPlayPause.classList.remove('playing')
       npTracknum.textContent = ''
-      state.isTrackPlaying = false
+      setTrackPlaying(false)
       refreshScrobbleBadge()
     }
   })
@@ -1977,7 +2449,9 @@ function wireEvents() {
     if (!pendingPlayUrl) return
     const url = pendingPlayUrl
     pendingPlayUrl = null
+    hasEverPlayed = true
     navigateTo(url)
+    updateViewTabs()
   })
   btnRetryLoad.addEventListener('click', () => {
     if (!pendingPlayUrl) return
@@ -2001,6 +2475,20 @@ function wireEvents() {
     else if (link?.dataset.href) window.api.openExternal(link.dataset.href)
   })
 
+  btnContributeTracklist.addEventListener('click', () => {
+    if (state.currentContributeUrl) window.api.openExternal(state.currentContributeUrl)
+  })
+
+  btnContributeClose.addEventListener('click', closeContributeDialog)
+  btnContributeDismiss.addEventListener('click', closeContributeDialog)
+  btnContributeOpen.addEventListener('click', () => {
+    closeContributeDialog()
+    window.api.openExternal(state.currentTracklistUrl || 'https://www.1001tracklists.com')
+  })
+  contributeDialog.addEventListener('click', (e) => {
+    if (e.target === contributeDialog) closeContributeDialog()
+  })
+
   btnSupportGithub.addEventListener('click', () => {
     supportGithubUrl(supportType).then(url => window.api.openExternal(url))
     closeSupportDialog()
@@ -2013,6 +2501,15 @@ function wireEvents() {
   supportDialog.addEventListener('click', (e) => {
     if (e.target === supportDialog) closeSupportDialog()
   })
+  btnClearTracklistCache.addEventListener('click', async () => {
+    btnClearTracklistCache.disabled = true
+    const count = await window.api.tracklistCacheClear()
+    tracklistCacheStatus.textContent = count > 0
+      ? `Cleared ${count} cached tracklist${count === 1 ? '' : 's'}.`
+      : 'Cache was already empty.'
+    btnClearTracklistCache.disabled = false
+  })
+
   btnCheckUpdates.addEventListener('click', async () => {
     openUpdateDialog({ status: 'checking', currentVersion: appVersion })
     await window.api.updatesCheck()
@@ -2040,10 +2537,51 @@ function wireEvents() {
   })
 
   // Resume dialog
-  btnResumeStart.addEventListener('click',  () => doResumeChoice(false))
-  btnResumeResume.addEventListener('click', () => doResumeChoice(true))
+  btnResumeDismiss.addEventListener('click', () => closeResumeDialog())
+  btnResumeStart.addEventListener('click',   () => doResumeChoice(false))
+  btnResumeResume.addEventListener('click',  () => doResumeChoice(true))
   resumeDialog.addEventListener('click', (e) => {
-    if (e.target === resumeDialog) doResumeChoice(false)  // backdrop click = start fresh
+    if (e.target === resumeDialog) closeResumeDialog()  // backdrop click = dismiss
+  })
+
+  // View tabs — Home / Now Playing / Search Results
+  btnViewHome.addEventListener('click', () => {
+    document.body.classList.remove('is-browsing')
+    showIntro()
+    updateViewTabs()
+  })
+  btnViewNowplaying.addEventListener('click', () => {
+    hideIntro()
+    document.body.classList.remove('is-browsing')
+    updateViewTabs()
+  })
+  btnViewSearch.addEventListener('click', () => {
+    hideIntro()
+    document.body.classList.add('is-browsing')
+    updateViewTabs()
+  })
+
+  // Intro screen — allow window drag from blank/non-interactive areas
+  introScreen.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    if (e.target.closest('#intro-search, #intro-resume')) return
+    startWindowDrag(e)
+  })
+
+  // Intro search bar
+  introSearchInput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return
+    const q = introSearchInput.value.trim()
+    if (q) navigateToSearch(q)
+  })
+
+  // Clear history
+  btnClearHistory.addEventListener('click', () => {
+    state.store.history = []
+    persist()
+    renderHistory()
+    historyClearStatus.textContent = 'History cleared.'
+    setTimeout(() => { historyClearStatus.textContent = 'Remove all played sets from history.' }, 3000)
   })
 
   // Resume behavior setting radio buttons
@@ -2053,6 +2591,29 @@ function wireEvents() {
       state.store.settings.resumeBehavior = r.value
       persist()
     })
+  })
+
+  // Re-render resume thumbnails whenever the intro screen changes size
+  // (covers both window resize and sidebar drag — no polling, fires on layout change)
+  const introResizeObserver = new ResizeObserver(() => {
+    if (!introScreen.classList.contains('hidden')) renderIntroResume()
+  })
+  introResizeObserver.observe(introScreen)
+
+  // Flush any throttled progress persists so seek position survives an immediate quit
+  window.addEventListener('beforeunload', () => {
+    let needsPersist = false
+    if (_fallbackPersistTimer) {
+      clearTimeout(_fallbackPersistTimer)
+      _fallbackPersistTimer = null
+      needsPersist = true
+    }
+    if (_seekPersistTimer) {
+      clearTimeout(_seekPersistTimer)
+      _seekPersistTimer = null
+      needsPersist = true
+    }
+    if (needsPersist) { persist(); persistStats() }
   })
 
   wireSidebarResize()

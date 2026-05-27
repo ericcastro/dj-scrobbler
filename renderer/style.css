@@ -285,7 +285,7 @@ body.compact-layout.has-active-set #header-actions {
   flex-shrink: 0;
   overflow: hidden;
   transition: width .2s;
-  min-width: 360px;
+  min-width: 270px;
   max-width: 480px;
   -webkit-app-region: drag;
 }
@@ -324,6 +324,13 @@ body.compact-layout.has-active-set #header-actions {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-top: auto; /* stays pinned to bottom whether or not a panel is open */
+}
+
+/* When sidebar is narrower than default, keep only the app name */
+#sidebar.sidebar-narrow #sidebar-footer .sidebar-footer-sep,
+#sidebar.sidebar-narrow #sidebar-footer [data-feedback-type] {
+  display: none;
 }
 
 .sidebar-footer-link {
@@ -335,6 +342,135 @@ body.compact-layout.has-active-set #header-actions {
 
 .sidebar-footer-link:hover { color: var(--accent); }
 .sidebar-footer-sep { opacity: .5; }
+
+/* ── View tabs (Now Playing / Search Results) ── */
+#sidebar-view-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 8px 3px;
+}
+#sidebar-view-tabs.hidden { display: none; }
+
+#sidebar-view-sep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 5px 12px;
+  margin: 1px 8px 2px;
+  flex-shrink: 0;
+  cursor: default;
+  color: var(--text2);
+  background: color-mix(in srgb, var(--bg) 55%, var(--bg2) 45%);
+  border-radius: 6px;
+  opacity: 0.6;
+  transition: opacity .2s, padding .25s ease;
+  -webkit-app-region: no-drag;
+}
+#sidebar-view-sep:hover {
+  opacity: 1;
+  padding: 6px 12px;
+}
+
+#sep-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sep-stat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .03em;
+}
+
+.sep-dot {
+  font-size: 9px;
+  opacity: 0.45;
+}
+
+#sep-listen-tooltip {
+  font-size: 9px;
+  text-align: center;
+  line-height: 1.5;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height .25s ease, margin-top .25s ease;
+  margin-top: 0;
+}
+#sidebar-view-sep:hover #sep-listen-tooltip {
+  max-height: 60px;
+  margin-top: 5px;
+}
+
+/* ── Spectrum bar animation (Now Playing indicator) ── */
+@keyframes spectrumBounce {
+  from { height: 2px; }
+  to   { height: 9px; }
+}
+
+.spectrum-bars {
+  display: flex;
+  align-items: center;
+  gap: 1.5px;
+  height: 9px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity .2s;
+}
+
+body.is-track-playing .spectrum-bars { opacity: 0.5; }
+
+.spectrum-bar {
+  width: 2px;
+  min-height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  animation: spectrumBounce 0.6s ease-in-out infinite alternate;
+  animation-play-state: paused;
+}
+
+body.is-track-playing .spectrum-bar { animation-play-state: running; }
+
+/* Staggered durations for organic randomness */
+.spectrum-bar:nth-child(1) { animation-duration: 0.28s; animation-delay:  0.00s; }
+.spectrum-bar:nth-child(2) { animation-duration: 0.38s; animation-delay:  0.09s; }
+.spectrum-bar:nth-child(3) { animation-duration: 0.22s; animation-delay:  0.04s; }
+.spectrum-bar:nth-child(4) { animation-duration: 0.34s; animation-delay:  0.13s; }
+
+.view-tab {
+  background: transparent;
+  border: none;
+  color: var(--text2);
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all .15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.view-tab:not(.tab-disabled):hover { background: var(--bg3); color: var(--text); }
+.view-tab.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.view-tab.tab-disabled {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
 
 #sidebar-nav {
   display: flex;
@@ -360,7 +496,10 @@ body.compact-layout.has-active-set #header-actions {
 }
 
 .nav-btn:hover { background: var(--bg3); color: var(--text); }
-.nav-btn.active { background: var(--accent); color: #fff; }
+.nav-btn.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
 
 .sidebar-panel {
   display: none;
@@ -370,11 +509,42 @@ body.compact-layout.has-active-set #header-actions {
   /* background exposed here is draggable (inherits from #sidebar) */
 }
 
-.sidebar-panel.active { display: block; }
+.sidebar-panel.active {
+  display: flex;
+  flex-direction: column;
+  position: relative; /* anchor for the absolute collapse button */
+}
 
-/* Scrollable content — only takes the height it needs, capped at panel height */
+/* Collapse button — floats centred over the panel title row, hidden until hover */
+.panel-collapse-btn {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  background: transparent;
+  border: 1px solid currentColor;
+  color: var(--text2);
+  border-radius: 99px;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .2s;
+  -webkit-app-region: no-drag;
+}
+.sidebar-panel:hover .panel-collapse-btn { opacity: 0.4; }
+.panel-collapse-btn:hover { opacity: 0.85 !important; }
+
+/* Scrollable content — flex-driven, fills remaining panel height */
 .panel-items {
-  max-height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 8px;
   -webkit-app-region: no-drag;
@@ -402,6 +572,17 @@ body.video-mode-mini #sidebar-mini-player-slot {
   color: var(--text2);
   margin-bottom: 8px;
   padding: 0 4px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+/* First timeframe label embedded in the History panel title row */
+.history-title-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  opacity: .45;
 }
 
 .set-list {
@@ -410,6 +591,25 @@ body.video-mode-mini #sidebar-mini-player-slot {
   flex-direction: column;
   gap: 4px;
 }
+
+/* Timeframe group separator inside history list.
+   Selector uses .set-list .history-group-sep (0,2,0) so it beats
+   .set-list li (0,1,1) and the font-size / other overrides take effect. */
+.set-list .history-group-sep {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text2);
+  opacity: .45;
+  padding: 10px 4px 2px;
+  cursor: default;
+  justify-content: flex-end;
+  background: none;
+  border-radius: 0;
+  overflow: visible;
+}
+.set-list .history-group-sep:first-child { padding-top: 2px; }
 
 .set-list li {
   background: var(--bg3);
@@ -679,22 +879,18 @@ body.video-mode-mini #sidebar-mini-player-slot {
 }
 
 /* ── Browse area ── */
+/* Absolute overlay so it covers video+tracklist without disrupting the flex
+   layout — audio keeps playing in the background webview when browsing. */
 #browse-area {
   display: none;
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 5;
   background: var(--bg);
+  overflow: hidden;
 }
 
-body.is-browsing #browse-area {
-  display: block;
-}
-
-body.is-browsing:not(.video-mode-mini):not(.video-mode-hidden) #main-content:not(.has-tracklist) #video-area {
-  display: none;
-}
+body.is-browsing #browse-area { display: block; }
 
 /* ── Video area ── */
 /* Default: fills all space (browsing, loading states) */
@@ -824,6 +1020,8 @@ body.video-mode-fullscreen #layout {
 }
 
 body.video-mode-hidden #video-controls { display: none; }
+/* Hide video controls when the browse webview is covering the video area */
+body.is-browsing #video-controls { display: none; }
 
 .video-control-btn {
   width: 32px;
@@ -919,11 +1117,14 @@ body.video-mode-hidden #video-controls { display: none; }
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: var(--bg);
-  z-index: 6; /* above video-area AND tracklist-below-video */
-  pointer-events: none; /* let clicks fall through to search bar */
+  z-index: 80; /* must exceed #video-controls (70) so it intercepts mouse events */
+  pointer-events: auto;
+  overflow-y: auto;
+  padding: 32px 16px;
 }
 
 #intro-screen.hidden { display: none; }
@@ -935,13 +1136,183 @@ body.video-mode-hidden #video-controls { display: none; }
   gap: 20px;
   text-align: center;
   user-select: none;
+  width: 100%;
+  max-width: 500px;
+  pointer-events: none;
+}
+
+/* Interactive elements inside intro need explicit pointer-events */
+#intro-search,
+#intro-resume { pointer-events: auto; }
+
+/* ── Intro search bar ── */
+#intro-search {
+  width: 100%;
+  position: relative;
+}
+
+#intro-search-input {
+  width: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 36px 10px 16px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  letter-spacing: .01em;
+  outline: none;
+  transition: border-color .15s;
+}
+#intro-search-input::placeholder { color: var(--text2); opacity: .55; }
+#intro-search-input:focus { border-color: var(--accent); }
+
+#intro-search-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text2);
+  opacity: .4;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Intro resume section ── */
+#intro-resume {
+  width: 100%;
+  margin-top: 50px;
+  display: flex;
+  justify-content: center; /* center the inner wrapper as a unit */
+}
+#intro-resume.hidden { display: none; }
+
+/* Inner wrapper — width is determined by the grid (widest child).
+   Label's left edge naturally aligns with the grid's left edge. */
+#intro-resume-inner {
+  display: flex;
+  flex-direction: column;
+}
+
+#intro-resume-label {
+  font-size: 13px;
+  color: var(--text2);
+  letter-spacing: .01em;
+  margin-bottom: 10px;
+  text-align: center;
+  opacity: 0.5;
+}
+
+#intro-resume-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.intro-resume-item {
+  width: 155px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  transition: opacity .2s ease, border-color .15s;
+  text-align: left;
+  opacity: 0.4;
+}
+.intro-resume-item:hover { border-color: var(--accent); opacity: 1; }
+
+/* The clip boundary for the marquee is .intro-resume-title-wrap (overflow:hidden),
+   so the card itself never needs overflow:visible — keep it clipping the progress bar. */
+.intro-resume-thumb { border-radius: 5px 5px 0 0; }
+
+/* Heart + title row */
+.intro-resume-title-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 6px 5px;
+  gap: 3px;
+}
+.intro-resume-heart {
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: .85;
+  pointer-events: none;
+  line-height: 0;
+}
+.intro-resume-title-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+/* Base state: truncated with ellipsis */
+.intro-resume-title-text {
+  font-size: 9px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+/* Marquee active — higher specificity (2 classes) beats the rule above (1 class) */
+.intro-resume-title-text.overflow-marquee {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* Ghost "browse history" card — single unified block, no bottom section.
+   Aspect ratio 155/110 ≈ full card height: 16:9 thumb (87px) + title row (~20px) + bar (3px). */
+.intro-resume-ghost .intro-resume-ghost-thumb {
+  width: 100%;
+  aspect-ratio: 155 / 110;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--border) 22%, transparent);
+  /* no border-radius — parent .intro-resume-item clips with overflow:hidden + border-radius:6px */
+  color: var(--text2);
+  opacity: .65;
+}
+.intro-resume-ghost .intro-resume-ghost-label {
+  font-size: 11px;
+  letter-spacing: .03em;
+  color: var(--text2);
+}
+
+.intro-resume-thumb {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  display: block;
+  background: var(--bg3);
+}
+.intro-resume-thumb-empty {
+  background: var(--bg3);
+}
+
+
+.intro-resume-bar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 0 0 5px 5px;
+  overflow: hidden;
+}
+.intro-resume-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  opacity: .7;
 }
 
 #intro-logo {
   color: var(--accent);
   opacity: .2;
-  width: 320px;
-  height: 320px;
+  width:  clamp(100px, 26vh, 320px);
+  height: clamp(100px, 26vh, 320px);
 }
 
 #intro-logo svg { width: 100%; height: 100%; }
@@ -986,6 +1357,23 @@ webview {
 }
 
 #loading-overlay.hidden { display: none; }
+
+/* Seek shield — appears instantly over the player on any programmatic seek,
+   fades out ~1 s later to mask YouTube's native controls/buffering flash.
+   Must sit above the webview but below the loading overlay (z-index 5). */
+#seek-shield {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+#seek-shield.active {
+  opacity: 1;
+  transition: none; /* appear instantly; fade-out uses the base transition above */
+}
 
 .spinner {
   width: 36px;
@@ -1474,6 +1862,18 @@ webview {
   letter-spacing: .03em;
 }
 
+/* Clickable tracklist-source link inside #np-source */
+.tl-source-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.tl-source-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ── Scrobble badge ── */
 #scrobble-badge {
   display: flex;
@@ -1658,6 +2058,46 @@ body.compact-layout #scrobble-label {
   max-width: 400px;
 }
 
+#tl-contribute-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+#tl-contribute-actions.hidden { display: none; }
+
+.tl-contribute-note {
+  font-size: 10px;
+  color: var(--text2);
+  opacity: .7;
+  margin: 0;
+}
+.tl-contribute-note.hidden { display: none; }
+
+/* Tracklist footer — edit-on-1001tl link */
+.tl-footer {
+  text-align: center;
+  color: var(--text2);
+  font-size: 10px;
+  padding: 18px 12px 18px;
+  opacity: .6;
+  line-height: 1.6;
+}
+.tl-footer.hidden { display: none; }
+.tl-footer-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: transparent;
+  cursor: pointer;
+  transition: color .12s, text-decoration-color .12s;
+}
+.tl-footer-link:hover {
+  color: var(--text);
+  text-decoration-color: var(--text);
+}
+
 /* ── Tracklist panel ── */
 .track-list {
   list-style: none;
@@ -1686,50 +2126,62 @@ body.compact-layout #scrobble-label {
   padding-left: 4px;
 }
 
-.track-item.track-id { opacity: .45; }
-.track-item.track-id.active { opacity: 1; }
-.track-item.track-with { padding-left: 20px; }
+/* ID tracks: seekable when timestamped — don't mute, just let the button explain */
+.track-item.track-with {
+  padding-left: 20px;
+  cursor: pointer;
+}
 
 /* Tracks with no timestamp — listed but not seekable */
 .track-item.track-no-timestamp {
   cursor: default;
-  opacity: .45;
-}
-.track-item.track-no-timestamp:hover { background: transparent; }
-
-/* CSS tooltip — appears to the left of the ! icon on hover, no browser delay */
-.track-item.track-no-timestamp:hover::after {
-  content: "Jump/Scrobbling disabled for this track, no timestamp was found";
-  position: absolute;
-  right: 22px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: var(--bg2);
-  color: var(--text);
-  font-size: 10px;
-  line-height: 1.4;
-  padding: 3px 8px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 200;
+  opacity: .6;
 }
 
-.track-no-ts-icon {
+/* Inline contribute buttons — used in cue column (no timestamp) and title row (ID) */
+.inline-track-btn {
   flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 10px;
+  font-size: 9px;
+  line-height: 1.4;
+  font-family: inherit;
+  letter-spacing: .02em;
+  color: var(--text2);
+  opacity: .45;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.inline-track-btn:hover {
+  opacity: .8;
+  color: var(--accent);
+}
+
+/* Flex row: text column on the left, identify button centered on the right */
+.track-title-row {
   display: flex;
   align-items: center;
-  color: var(--text2);
+  gap: 8px;
+  min-width: 0;
 }
 
-/* Mashup component sub-tracks — informational only, not seekable */
+/* Stacks title + artist so the button can center against their combined height */
+.track-text-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Mashup component sub-tracks — informational only (click opens explanation) */
 .track-item.track-mashup {
   padding-left: 28px;
-  cursor: default;
+  cursor: pointer;
   opacity: .55;
 }
-.track-item.track-mashup:hover { background: transparent; }
 .track-list.compact .track-item.track-mashup { display: none; }
 
 .track-num {
@@ -1743,7 +2195,7 @@ body.compact-layout #scrobble-label {
 }
 
 .track-num-with {
-  color: var(--accent2);
+  color: var(--text2);
   font-size: 8px;
   width: 20px;
   text-align: right;
@@ -1832,7 +2284,8 @@ body.compact-layout #scrobble-label {
 /* ── Dialogs ── */
 #resume-dialog,
 #support-dialog,
-#update-dialog {
+#update-dialog,
+#contribute-dialog {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, .55);
@@ -1845,11 +2298,13 @@ body.compact-layout #scrobble-label {
 }
 #resume-dialog.hidden,
 #support-dialog.hidden,
-#update-dialog.hidden { display: none; }
+#update-dialog.hidden,
+#contribute-dialog.hidden { display: none; }
 
 #resume-dialog-box,
 #support-dialog-box,
-#update-dialog-box {
+#update-dialog-box,
+#contribute-dialog-box {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1890,6 +2345,14 @@ body.compact-layout #scrobble-label {
 .support-dialog-sub {
   font-size: 11px;
   color: var(--text2);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.no-ts-dialog-note {
+  font-size: 10px;
+  color: var(--text2);
+  opacity: .7;
   margin: 0;
   line-height: 1.5;
 }
@@ -1938,6 +2401,9 @@ body.compact-layout #scrobble-label {
   justify-content: flex-end;
   flex-wrap: wrap;
 }
+
+/* Dismiss sits to the left, Restart + Resume stay on the right */
+#btn-resume-dismiss { margin-right: auto; }
 
 .support-dialog-btns {
   display: grid;
