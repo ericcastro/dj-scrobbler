@@ -15,6 +15,7 @@ const {
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
+if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId('com.djscrobbler.app')
 
 // Force dark color scheme for all webviews — YouTube and other sources will
 // respect prefers-color-scheme: dark and render in their native dark mode.
@@ -43,6 +44,13 @@ function log(...args) {
 }
 const DEVELOPER_MODE = process.argv.includes('--developer')
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const TITLE_BAR_HEIGHT = 52
+const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = TITLE_BAR_HEIGHT - 1
+const THEME_TITLE_BAR = {
+  'neon-night': { color: '#0f1a30', symbolColor: '#e7f7ff' },
+  'signal-teal': { color: '#071f25', symbolColor: '#f0fffc' },
+  'sunset-deck': { color: '#190c1e', symbolColor: '#fff3ea' },
+}
 const MAX_TRACKLIST_CACHE_ENTRIES = 200
 const UPDATE_OWNER = 'ericcastro'
 const UPDATE_REPO = 'dj-scrobbler'
@@ -647,6 +655,7 @@ function extractTracklistInBackground(tlPlugin, url) {
       show: false,
       width: 1280,
       height: 900,
+      icon: appIcon(),
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
@@ -1321,13 +1330,59 @@ function buildMenu() {
 
 function setDockIcon(theme) {
   if (process.platform !== 'darwin') return
-  const iconPath = path.join(__dirname, 'images', 'electron-icons', theme, 'icon.png')
   try {
-    app.dock.setIcon(nativeImage.createFromPath(iconPath))
+    app.dock.setIcon(appIcon(theme))
   } catch (e) {
     appendLog(['[dock] failed to set icon:', e.message])
     console.error('[dock] failed to set icon:', e.message)
   }
+}
+
+function appIconPath(theme = 'neon-night') {
+  const file = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+  return path.join(__dirname, 'images', 'electron-icons', theme, file)
+}
+
+function appIcon(theme) {
+  const image = nativeImage.createFromPath(appIconPath(theme))
+  return image.isEmpty() ? nativeImage.createFromPath(appIconPath('neon-night')) : image
+}
+
+function setWindowIcon(theme) {
+  if (!mainWindow || typeof mainWindow.setIcon !== 'function') return
+  mainWindow.setIcon(appIcon(theme))
+}
+
+// ── Native title bar controls ─────────────────────────────────────────────────
+
+function titleBarOptions(theme) {
+  if (process.platform === 'darwin') {
+    return { titleBarStyle: 'hiddenInset' }
+  }
+
+  if (process.platform === 'win32') {
+    const titleBar = THEME_TITLE_BAR[theme] || THEME_TITLE_BAR['neon-night']
+    return {
+      titleBarStyle: 'hidden',
+      titleBarOverlay: {
+        color: titleBar.color,
+        symbolColor: titleBar.symbolColor,
+        height: WINDOWS_TITLE_BAR_OVERLAY_HEIGHT,
+      },
+    }
+  }
+
+  return {}
+}
+
+function setTitleBarTheme(theme) {
+  if (process.platform !== 'win32' || !mainWindow || typeof mainWindow.setTitleBarOverlay !== 'function') return
+  const titleBar = THEME_TITLE_BAR[theme] || THEME_TITLE_BAR['neon-night']
+  mainWindow.setTitleBarOverlay({
+    color: titleBar.color,
+    symbolColor: titleBar.symbolColor,
+    height: WINDOWS_TITLE_BAR_OVERLAY_HEIGHT,
+  })
 }
 
 // ── Window bounds persistence ─────────────────────────────────────────────────
@@ -1379,27 +1434,18 @@ function titleBarOverlayForTheme(theme) {
 
 function createWindow() {
   const store = readStore()
-  const { windowBounds } = store.settings || {}
-  const initialTheme = store.settings?.theme || 'neon-night'
+  const { windowBounds, theme = 'neon-night' } = store.settings || {}
   mainWindow = new BrowserWindow({
     width:  windowBounds?.width  || 1400,
     height: windowBounds?.height || 900,
     ...(windowBounds?.x != null ? { x: windowBounds.x, y: windowBounds.y } : {}),
     minWidth: 360,
     minHeight: 600,
-    // macOS: hiddenInset keeps the traffic-light buttons visible
-    // Windows: hidden removes the native titlebar; titleBarOverlay puts the
-    //   min/max/close buttons back as a styled native overlay in the top-right
-    // Linux: frame:false — no native chrome, topbar drag handles window move
-    ...(process.platform === 'darwin'
-      ? { titleBarStyle: 'hiddenInset' }
-      : process.platform === 'win32'
-        ? { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlayForTheme(initialTheme) }
-        : { frame: false }
-    ),
+    ...titleBarOptions(theme),
     autoHideMenuBar: process.platform !== 'darwin',
     fullscreenable: false,
     backgroundColor: '#0c1220',
+    icon: appIcon(theme),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -1636,6 +1682,8 @@ ipcMain.handle('load-source-url', async (_event, url) => {
 // Theme change — update dock icon and persist.
 ipcMain.handle('set-theme', (_event, theme) => {
   setDockIcon(theme)
+  setWindowIcon(theme)
+  setTitleBarTheme(theme)
   const store = readStore()
   if (!store.settings) store.settings = {}
   store.settings.theme = theme

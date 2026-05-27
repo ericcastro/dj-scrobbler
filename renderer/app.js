@@ -1321,6 +1321,9 @@ function refreshScrobbleBadge() {
   else key = 'enabled'
   const cfg = BADGE[key]
   scrobbleBadge.className = cfg.cls
+  scrobbleBadge.dataset.tooltip = cfg.label
+  scrobbleBadge.title = cfg.label
+  scrobbleBadge.setAttribute('aria-label', cfg.label)
   scrobbleLabel.textContent = cfg.label
 }
 

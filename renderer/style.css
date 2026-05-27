@@ -261,11 +261,11 @@ body.platform-linux #topbar {
 .icon-btn:hover { color: var(--text); border-color: var(--accent); }
 .icon-btn.active { color: var(--accent); border-color: var(--accent); }
 
-body.compact-layout.has-active-set #search-area {
+body.compact-layout #search-area {
   display: none;
 }
 
-body.compact-layout.has-active-set #header-actions {
+body.compact-layout #header-actions {
   margin-left: auto;
 }
 
@@ -1526,6 +1526,7 @@ webview {
 #np-set,
 #np-source,
 #scrobble-label,
+#scrobble-badge,
 #volume-control {
   -webkit-app-region: no-drag;
 }
@@ -1885,6 +1886,7 @@ webview {
 
 /* ── Scrobble badge ── */
 #scrobble-badge {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -2033,10 +2035,56 @@ body.compact-layout #scrobble-badge {
   justify-content: center;
   border-color: transparent;
   background: transparent;
+  overflow: visible;
 }
 
 body.compact-layout #scrobble-label {
   display: none;
+}
+
+body.compact-layout #scrobble-badge::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  max-width: calc(100vw - 28px);
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg3);
+  color: var(--text2);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, .35);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity .15s, transform .15s;
+  z-index: 180;
+}
+
+body.compact-layout #scrobble-badge:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+body.compact-layout #scrobble-badge.ok::after {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+body.compact-layout #scrobble-badge.error::after {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+body.compact-layout #scrobble-badge.dim::after {
+  border-style: dashed;
 }
 
 /* ── Tracklist unavailable message ── */
