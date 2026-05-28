@@ -2,11 +2,9 @@
 
 ## Overview
 
-DJ Scrobbler is an Electron app that embeds an app-owned YouTube player in a webview,
-intercepts navigation to DJ set pages, finds a matching tracklist on a third-party
-provider, and scrobbles the currently-playing track to Last.fm in real time.
-
-> v0.5 branch note: SoundCloud/set79 is dormant while playback moves to an app-owned YouTube player. Several diagrams below still describe the v0.4 provider-page playback model; see `docs/v0.5-refactor-plan.md` for the active refactor direction.
+DJ Scrobbler is an Electron app that hosts an app-owned YouTube player in a `<webview>`,
+intercepts navigation to DJ set pages, finds a matching tracklist on 1001Tracklists,
+and scrobbles the currently-playing track to Last.fm in real time.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -53,9 +51,9 @@ provider, and scrobbles the currently-playing track to Last.fm in real time.
 │                            │        │                             │
 │  main.js                   │◄──────►│  renderer/index.html        │
 │  plugins/                  │  IPC   │  renderer/app.js            │
-│  Last.fm API calls         │        │  renderer/style.css         │
-│  File I/O (store)          │        │                             │
-│                            │        │  window.api  (contextBridge)│
+│  lib/update-utils.js       │        │  renderer/style.css         │
+│  Last.fm API calls         │        │                             │
+│  File I/O (store)          │        │  window.api  (contextBridge)│
 └────────────────────────────┘        └─────────────────────────────┘
                                                     │
                                        ┌────────────▼────────────┐
@@ -63,25 +61,41 @@ provider, and scrobbles the currently-playing track to Last.fm in real time.
                                        │   (isolated renderer)   │
                                        │                         │
                                        │   youtube.com           │
-                                       │   soundcloud.com        │
                                        │   1001tracklists.com    │
-                                       │   set79.com             │
                                        └─────────────────────────┘
 ```
 
 IPC channels used:
 
-| Direction        | Channel / method       | Purpose                           |
-|------------------|------------------------|-----------------------------------|
-| renderer → main  | `store-get`            | Load persisted state              |
-| renderer → main  | `store-set`            | Persist state                     |
-| renderer → main  | `player-toggle`        | Click play/pause in webview       |
-| renderer → main  | `open-devtools`        | Open webview DevTools             |
-| renderer → main  | `lfm-connect/disconnect/session/status-get` | Last.fm auth |
-| main → renderer  | `now-playing`          | Track changed                     |
-| main → renderer  | `tracklist-loaded`     | Tracklist page loaded             |
-| main → renderer  | `wv-status`            | loading / no-tracklist / hide-overlay |
-| main → renderer  | `lfm-status`           | `ok` / `error` / `unconfigured`   |
+| Direction        | Channel / method                            | Purpose                                      |
+|------------------|---------------------------------------------|----------------------------------------------|
+| renderer → main  | `store-get`                                 | Load persisted state                         |
+| renderer → main  | `store-set`                                 | Persist state                                |
+| renderer → main  | `stats-get` / `stats-set`                   | Load / persist listening stats               |
+| renderer → main  | `player-toggle`                             | Play / pause the active webview              |
+| renderer → main  | `player-seek`                               | Seek to a position in seconds                |
+| renderer → main  | `player-goto-track`                         | Seek to a specific track cue point           |
+| renderer → main  | `player-volume-get` / `player-volume-set`   | Get / set webview volume                     |
+| renderer → main  | `open-devtools`                             | Open webview DevTools                        |
+| renderer → main  | `lfm-connect` / `lfm-disconnect`            | Last.fm auth                                 |
+| renderer → main  | `lfm-session` / `lfm-status-get`            | Read current Last.fm session / status        |
+| renderer → main  | `get-sources`                               | List registered source plugins               |
+| renderer → main  | `get-version`                               | App version string                           |
+| renderer → main  | `get-platform`                              | `darwin` / `win32` / `linux`                 |
+| renderer → main  | `set-theme`                                 | Persist theme, update dock icon + titlebar   |
+| renderer → main  | `tracklist-cache-clear`                     | Wipe the tracklist cache                     |
+| renderer → main  | `updates-check` / `updates-download` / `updates-install` | Update lifecycle             |
+| renderer → main  | `updates-notifications-disabled-set`        | Suppress update toasts                       |
+| renderer → main  | `get-recent-logs`                           | Retrieve last 30 debug log lines             |
+| renderer → main  | `is-developer`                              | Whether app was launched with `--developer`  |
+| renderer → main  | `set-display-fullscreen`                    | Toggle theater / fullscreen video mode       |
+| renderer → main  | `window-drag-start/move/end`                | Custom frameless drag (Linux)                |
+| renderer → main  | `open-external`                             | Open a URL in the system browser             |
+| main → renderer  | `now-playing`                               | Track changed                                |
+| main → renderer  | `tracklist-loaded`                          | Tracklist page loaded                        |
+| main → renderer  | `wv-status`                                 | `loading` / `no-tracklist` / `hide-overlay`  |
+| main → renderer  | `lfm-status`                                | `ok` / `error` / `unconfigured`              |
+| main → renderer  | `update-status`                             | Update check / download / ready state        |
 
 ---
 
@@ -91,11 +105,11 @@ IPC channels used:
 plugins/
 ├── index.js               ← registry + routing + titleSimilarity
 ├── sources/
-│   ├── youtube.js         ← YouTube source plugin
-│   └── soundcloud.js      ← SoundCloud source plugin
+│   ├── youtube.js         ← YouTube source plugin (active)
+│   └── soundcloud.js      ← SoundCloud source plugin (dormant)
 └── tracklists/
-    ├── 1001tracklists.js  ← 1001Tracklists provider plugin
-    └── set79.js           ← set79 provider plugin
+    ├── 1001tracklists.js  ← 1001Tracklists provider plugin (active)
+    └── set79.js           ← set79 provider plugin (dormant)
 ```
 
 ### Routing
@@ -104,7 +118,7 @@ Source and tracklist plugins are decoupled. The registry maps source → trackli
 
 ```
 youtube    ──► 1001tracklists
-soundcloud ──► set79
+soundcloud ──► set79  (dormant)
 ```
 
 Adding a new source (e.g. Mixcloud) requires:
@@ -160,10 +174,13 @@ User clicks a video link on youtube.com
         │
         ▼
  handleSourceUrl(youtube, watchUrl, wvContents)
-   └── youtube.getMeta(url)   → oEmbed API → { title, channel }
-   └── 1001tl.findTracklists(meta) → POST search → [{ url, title }]
-   └── titleSimilarity score each result (Jaccard word overlap)
-   └── wvContents.loadURL(best match)
+   └── check tracklist cache (7-day TTL)
+         ├── cache hit  → load cached tracklist URL directly
+         └── cache miss → youtube.getMeta(url) → oEmbed API → { title, channel }
+                        → 1001tl.findTracklists(meta) → POST search → [{ url, title }]
+                        → titleSimilarity score each result (Jaccard word overlap)
+                        → store best match in cache
+                        → wvContents.loadURL(best match)
         │
         ▼
  1001tracklists page loads
@@ -171,25 +188,6 @@ User clicks a video link on youtube.com
    └── send 'tracklist-loaded' → renderer shows set info
    └── startMonitoring(wvContents, 1001tlPlugin)
    └── setTimeout → autoplayScript (ytPlayer.playVideo)
-```
-
-### SoundCloud → set79
-
-```
-User navigates to soundcloud.com/<artist>/<track>
-        │
-        ▼
- main: wvContents 'will-navigate' or 'did-navigate-in-page'
- source.matchUrl(url) → soundcloud plugin matches
-        │
-        ▼
- handleSourceUrl(soundcloud, url, wvContents)
-   └── soundcloud.getMeta(url)  → { url } (title from path)
-   └── set79.findTracklists(meta) → builds set79.com/tracklist/soundcloud.com/<path>
-   └── wvContents.loadURL(set79 url)
-        │
-        ▼
- set79 page loads → startMonitoring(wvContents, set79Plugin)
 ```
 
 ---
@@ -228,21 +226,70 @@ Renderer: btn-lfm-connect click
 
 ## Persistence
 
-A single JSON file at `app.getPath('userData')/dj-scrobbler.json`:
+Two JSON files under `app.getPath('userData')`:
+
+### `dj-scrobbler.json` — main store
 
 ```json
 {
-  "favorites":     [{ "title": "...", "url": "...", "source": "1001tl|set79" }],
-  "history":       [{ "title": "...", "url": "...", "source": "...", "playedAt": 1234567890 }],
-  "searchQueries": ["bicep live", "charlotte de witte", "..."],
+  "favorites":  [{ "title": "...", "url": "...", "thumbnailUrl": "...", "source": "1001tl" }],
+  "history":    [{ "title": "...", "url": "...", "source": "...", "playedAt": 1234567890 }],
+  "searchQueries": ["bicep live", "charlotte de witte"],
+  "tracklistCache": {
+    "<key>": {
+      "version": 2,
+      "sourceUrl": "...",
+      "providerId": "1001tracklists",
+      "tracklistUrl": "...",
+      "tracks": [...],
+      "cachedAt": 1234567890,
+      "expiresAt": 1234567890
+    }
+  },
   "settings": {
-    "lfmSession": { "key": "...", "name": "..." }
+    "lfmSession":           { "key": "...", "name": "..." },
+    "theme":                "neon-night",
+    "windowBounds":         { "x": 0, "y": 0, "width": 1400, "height": 900 },
+    "activeSidebarPanel":   "favorites",
+    "resumeMode":           "ask",
+    "updateNotificationsDisabled": false
   }
 }
 ```
 
 `lfmSession` is always re-injected by the main process `store-set` handler before writing,
 so the renderer can never accidentally wipe it.
+
+The tracklist cache has a 7-day TTL and is capped at 200 entries (oldest pruned first).
+
+### `dj-scrobbler-stats.json` — listening stats
+
+Tracks cumulative listening time, set count, and scrobble count. Written separately to avoid
+touching the main store on every scrobble tick.
+
+---
+
+## Platform-Specific Titlebar
+
+The main window uses a different titlebar strategy per platform:
+
+| Platform | Strategy                                          |
+|----------|---------------------------------------------------|
+| macOS    | `titleBarStyle: 'hiddenInset'` (native traffic lights, inset) |
+| Windows  | `titleBarStyle: 'hidden'` + `titleBarOverlay` (native Win32 buttons, theme-coloured) |
+| Linux    | `frame: false` (custom drag region via `window-drag-*` IPC) |
+
+On Windows, the overlay colours update in real time when the user switches themes via
+`mainWindow.setTitleBarOverlay()`. Each theme defines a `color` and `symbolColor` in
+`TITLEBAR_OVERLAY_THEMES`.
+
+---
+
+## Updates
+
+Auto-update is handled by `electron-updater` on macOS and Windows. Linux uses a manual
+GitHub Releases check via the GitHub API. The `lib/update-utils.js` module normalises both
+update sources into a shared `UpdateStatus` shape consumed by the renderer's update dialog.
 
 ---
 
@@ -251,22 +298,10 @@ so the renderer can never accidentally wipe it.
 Requirements: Node.js 20+, npm.
 
 ```sh
-npm install   # install dependencies
-npm start     # run the app locally
-```
-
-Build for the current platform:
-
-```sh
-npm run build
-```
-
-Platform-specific builds:
-
-```sh
-npm run build:mac
-npm run build:win
-npm run build:linux
+npm install        # install dependencies
+npm start          # run the app
+npm run dev        # run with developer extras enabled
+npm test           # run the test suite
 ```
 
 Enable verbose lookup logging:
@@ -275,10 +310,16 @@ Enable verbose lookup logging:
 DJ_VERBOSE=1 npm start
 ```
 
+Load a specific YouTube URL on startup:
+
+```sh
+DJ_DEBUG_LOAD_URL=https://www.youtube.com/watch?v=... npm start
+```
+
 Releases are triggered by pushing a version tag:
 
 ```sh
-git tag v0.4.0 && git push origin v0.4.0
+git tag v0.5.3 && git push origin v0.5.3
 ```
 
 GitHub Actions builds macOS, Windows, and Linux packages and publishes them to GitHub Releases.
@@ -289,18 +330,28 @@ GitHub Actions builds macOS, Windows, and Linux packages and publishes them to G
 
 ```
 dj-scrobbler/
-├── main.js                 ← Main process: window, webview wiring, IPC, Last.fm
+├── main.js                 ← Main process: window, webview wiring, IPC, Last.fm, updates
 ├── preload.js              ← contextBridge — exposes window.api to renderer
+├── lib/
+│   └── update-utils.js     ← Version comparison + update payload normalisation
 ├── plugins/
 │   ├── index.js            ← Registry, routing, titleSimilarity
 │   ├── sources/
-│   │   ├── youtube.js      ← YouTube source plugin
-│   │   └── soundcloud.js   ← SoundCloud source plugin
+│   │   ├── youtube.js      ← YouTube source plugin (active)
+│   │   └── soundcloud.js   ← SoundCloud source plugin (dormant)
 │   └── tracklists/
 │       ├── 1001tracklists.js ← 1001Tracklists plugin (search + monitor)
-│       └── set79.js          ← set79 plugin (direct URL + monitor)
-└── renderer/
-    ├── index.html          ← App shell HTML
-    ├── app.js              ← All UI logic (state, events, IPC listeners)
-    └── style.css           ← Dark-theme styles
+│       └── set79.js          ← set79 plugin (dormant)
+├── renderer/
+│   ├── index.html          ← App shell HTML
+│   ├── app.js              ← All UI logic (state, events, IPC listeners)
+│   └── style.css           ← Dark-theme styles (three colour themes)
+└── tests/
+    ├── run-tests.js          ← Test runner (collects *.test.js)
+    ├── renderer-contract.test.js ← DOM/CSS/app.js contract tests
+    ├── main-contract.test.js     ← main.js contract tests (IPC, titlebar, store)
+    ├── update-utils.test.js      ← Update payload and version comparison
+    ├── youtube-source.test.js    ← YouTube source plugin
+    ├── tracklists-1001.test.js   ← 1001Tracklists plugin
+    └── set79-tracklist.test.js   ← set79 plugin
 ```
