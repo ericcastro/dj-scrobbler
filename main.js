@@ -1256,7 +1256,7 @@ function buildMenu() {
     ...(isMac ? [{
       label: app.name,
       submenu: [
-        { role: 'about' },
+        { label: 'About DJ Scrobbler', click: () => mainWindow?.webContents.send('menu-open-about') },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -1645,7 +1645,7 @@ ipcMain.handle('window-drag-end', () => {
 })
 
 ipcMain.handle('open-external', (_event, url) => {
-  const allowed = ['djscrobbler.com', 'github.com', '1001tracklists.com']
+  const allowed = ['djscrobbler.com', 'github.com', '1001tracklists.com', 'cast.ro']
   try {
     const { hostname, protocol } = new URL(url)
     if (protocol === 'mailto:') shell.openExternal(url)

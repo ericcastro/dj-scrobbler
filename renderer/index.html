@@ -180,7 +180,7 @@
             </button>
           </div>
 
-          <div class="panel-title" style="margin-top:12px">Last.fm</div>
+          <div class="panel-title">Last.fm</div>
 
           <div id="lfm-disconnected">
             <p class="setting-desc">Connect your Last.fm account to scrobble tracks as you listen.</p>
@@ -197,7 +197,7 @@
             <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
           </div>
 
-          <div class="panel-title" style="margin-top:12px">Playback</div>
+          <div class="panel-title">Playback</div>
           <p class="setting-desc">When opening a set you've already started:</p>
           <div class="resume-options">
             <label class="resume-radio-label">
@@ -211,16 +211,16 @@
             </label>
           </div>
 
-          <div class="panel-title" style="margin-top:12px">Updates</div>
+          <div class="panel-title">Updates</div>
           <p class="setting-desc" id="update-settings-status">Check GitHub Releases for newer builds.</p>
           <button id="btn-check-updates" class="btn-secondary">Check for updates</button>
           <label class="resume-radio-label update-notify-label">
             <input type="checkbox" id="updates-disable-notifications"> Disable update notifications
           </label>
-          <div class="panel-title" style="margin-top:12px">History</div>
+          <div class="panel-title">History</div>
           <p class="setting-desc" id="history-clear-status">Remove all played sets from history.</p>
           <button id="btn-clear-history" class="btn-secondary">Clear history</button>
-          <div class="panel-title" style="margin-top:12px">Tracklists</div>
+          <div class="panel-title">Tracklists</div>
           <p class="setting-desc" id="tracklist-cache-status">Tracklists are cached for 7 days.</p>
           <button id="btn-clear-tracklist-cache" class="btn-secondary">Clear tracklist cache</button>
         </div>
@@ -228,7 +228,7 @@
       </div><!-- #sidebar-panels -->
 
       <footer id="sidebar-footer">
-        <span class="sidebar-footer-link" data-href="https://www.djscrobbler.com" id="footer-app-name">DJ Scrobbler</span>
+        <span class="sidebar-footer-link" data-action="about" id="footer-app-name">DJ Scrobbler</span>
         <span class="sidebar-footer-sep"> · </span>
         <span class="sidebar-footer-link" data-feedback-type="bug">Report a bug</span>
         <span class="sidebar-footer-sep"> · </span>
@@ -417,6 +417,26 @@
         </div>
       </div>
 
+      <div id="about-dialog" class="hidden">
+        <div id="about-dialog-box">
+          <button id="btn-about-close" class="dialog-close-btn" title="Close" aria-label="Close">×</button>
+          <div id="about-logo-row">
+            <div id="about-app-name">DJ Scrobbler</div>
+            <div id="about-version"></div>
+          </div>
+          <p id="about-desc">Thanks for helping me test this out<br>Hope you are enjoying it ♥</p>
+          <div id="about-credit">
+            made by <a class="about-link" id="about-author-link" data-href="https://eric.cast.ro">Eric Castro</a>
+          </div>
+          <div class="about-dialog-btns">
+            <button id="btn-about-changelog" class="btn-secondary">Changelog</button>
+            <button id="btn-about-feature" class="btn-secondary">Suggest a feature</button>
+            <button id="btn-about-bug" class="btn-secondary">Report a bug</button>
+            <button id="btn-about-website" class="btn-primary">Go to website</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Tracklist below the video — only visible when a tracklist is loaded -->
       <div id="tracklist-below-video">
         <div id="tracklist-unavailable" class="hidden">
@@ -424,7 +444,7 @@
             <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
           <p class="tl-unavailable-title" id="tracklist-unavailable-title">Tracklist not yet available</p>
-          <p class="tl-unavailable-sub" id="tracklist-unavailable-sub">No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.</p>
+          <p class="tl-unavailable-sub" id="tracklist-unavailable-sub">No tracklist was found for this DJ set.</p>
           <div id="tl-contribute-actions" class="hidden">
             <button id="btn-contribute-tracklist" class="btn-secondary"></button>
             <p id="tl-contribute-note" class="tl-contribute-note"></p>
@@ -472,7 +492,7 @@
       </button>
       <button id="btn-playpause" class="play-btn" title="Play / Pause">
         <span id="pp-icon">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         </span>
       </button>
       <button id="btn-next-track" class="transport-btn" title="Next track">

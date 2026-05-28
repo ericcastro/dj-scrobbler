@@ -190,8 +190,8 @@ body.platform-linux #topbar {
 #search-input::placeholder { color: var(--text2); }
 
 #search-btn {
-  background: var(--accent);
-  color: #fff;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
   border: none;
   border-radius: 6px;
   width: 42px;
@@ -206,7 +206,7 @@ body.platform-linux #topbar {
   transition: background .15s;
 }
 
-#search-btn:hover { background: var(--accent2); color: #000; }
+#search-btn:hover { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--accent); }
 
 /* ── Search autocomplete dropdown ── */
 #search-dropdown {
@@ -386,18 +386,18 @@ body.compact-layout.has-active-set #header-actions {
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: .03em;
 }
 
 .sep-dot {
-  font-size: 13px;
+  font-size: 12px;
   opacity: 0.45;
 }
 
 #sep-listen-tooltip {
-  font-size: 13px;
+  font-size: 12px;
   text-align: center;
   line-height: 1.5;
   font-weight: 400;
@@ -411,6 +411,10 @@ body.compact-layout.has-active-set #header-actions {
 #sidebar-view-sep:hover #sep-listen-tooltip {
   max-height: 60px;
   margin-top: 5px;
+}
+#sep-listen-tooltip .stat-detail {
+  font-size: 10px;
+  opacity: 0.6;
 }
 
 /* ── Spectrum bar animation (Now Playing indicator) ── */
@@ -534,7 +538,7 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
-  background: transparent;
+  background: var(--bg2);
   border: 1px solid currentColor;
   color: var(--text2);
   border-radius: 99px;
@@ -590,6 +594,12 @@ body.video-mode-mini #sidebar-mini-player-slot {
 }
 
 #sidebar .panel-title { font-size: 13px; }
+
+#panel-settings .panel-title ~ .panel-title {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
 
 /* First timeframe label embedded in the History panel title row */
 .history-title-label {
@@ -794,7 +804,7 @@ body.video-mode-mini #sidebar-mini-player-slot {
 #sidebar .btn-secondary { font-size: 14px; }
 
 .setting-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text2);
   line-height: 1.5;
   margin-bottom: 10px;
@@ -1827,6 +1837,7 @@ webview {
 .play-btn.playing:hover { background: var(--accent2); color: #000; }
 
 #pp-icon { display: flex; align-items: center; justify-content: center; }
+#btn-playpause:not(.playing) #pp-icon { margin-left: 2px; }
 
 #np-tracknum {
   font-size: 11px;
@@ -2372,7 +2383,8 @@ body.compact-layout #scrobble-badge.dim::after {
 #resume-dialog,
 #support-dialog,
 #update-dialog,
-#contribute-dialog {
+#contribute-dialog,
+#about-dialog {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, .55);
@@ -2386,12 +2398,14 @@ body.compact-layout #scrobble-badge.dim::after {
 #resume-dialog.hidden,
 #support-dialog.hidden,
 #update-dialog.hidden,
-#contribute-dialog.hidden { display: none; }
+#contribute-dialog.hidden,
+#about-dialog.hidden { display: none; }
 
 #resume-dialog-box,
 #support-dialog-box,
 #update-dialog-box,
-#contribute-dialog-box {
+#contribute-dialog-box,
+#about-dialog-box {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2581,3 +2595,126 @@ body.compact-layout #scrobble-badge.dim::after {
 }
 
 .resume-radio-label:hover { color: var(--text); }
+
+/* ── Custom radio & checkbox controls ── */
+input[type="radio"],
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color .15s, background .15s;
+}
+
+input[type="radio"] { border-radius: 50%; }
+
+input[type="checkbox"] { border-radius: 3px; }
+
+input[type="radio"]:hover:not(:checked),
+input[type="checkbox"]:hover:not(:checked) { border-color: var(--text2); }
+
+input[type="radio"]:checked {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 38%, transparent 39%);
+}
+
+input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background:
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 12 12' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 6l3 3 5-5' stroke='%23fff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 10px no-repeat,
+    color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* ── About dialog ── */
+#about-dialog-box {
+  width: 400px;
+  max-width: calc(100vw - 40px);
+  text-align: center;
+  gap: 10px;
+}
+
+#about-logo-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+
+#about-app-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: .02em;
+}
+
+#about-version {
+  font-size: 11px;
+  color: var(--text2);
+}
+
+#about-desc {
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.55;
+}
+
+#about-credit {
+  font-size: 12px;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.about-sep { opacity: 0.4; }
+
+.about-link {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity .15s;
+}
+
+.about-link:hover { opacity: 0.75; }
+
+.about-dialog-btns {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.about-dialog-btns button {
+  font-size: 12px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+
+.about-dialog-btns button:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.about-dialog-btns .btn-primary {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.about-dialog-btns .btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--accent);
+}

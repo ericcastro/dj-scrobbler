@@ -124,6 +124,13 @@ const contributeDialogNote  = document.getElementById('contribute-dialog-note')
 const btnContributeClose    = document.getElementById('btn-contribute-close')
 const btnContributeOpen     = document.getElementById('btn-contribute-open')
 const btnContributeDismiss  = document.getElementById('btn-contribute-dismiss')
+const aboutDialog         = document.getElementById('about-dialog')
+const aboutVersion        = document.getElementById('about-version')
+const btnAboutClose       = document.getElementById('btn-about-close')
+const btnAboutChangelog   = document.getElementById('btn-about-changelog')
+const btnAboutFeature     = document.getElementById('btn-about-feature')
+const btnAboutBug         = document.getElementById('btn-about-bug')
+const btnAboutWebsite     = document.getElementById('btn-about-website')
 const supportDialog       = document.getElementById('support-dialog')
 const supportDialogTitle  = document.getElementById('support-dialog-title')
 const supportDialogSub    = document.getElementById('support-dialog-sub')
@@ -289,9 +296,9 @@ async function supportEmailUrl(type) {
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
 
-const ID_COMMUNITY_NOTE = '1001Tracklists is community-driven — anyone with an account can help identify missing track information for everyone to benefit from.'
+const ID_COMMUNITY_NOTE = 'Tracklist metadata is obtained from 1001Tracklists, where anyone with an account can contribute :-)'
 
-const ID_SUB = "You can help out and complete its information!"
+const ID_SUB = "You can help out and complete what's missing!"
 
 const CONTRIBUTE_CONFIGS = {
   'no-timestamp': {
@@ -345,6 +352,15 @@ function setNpSource(text, url) {
   } else {
     npSource.textContent = text
   }
+}
+
+function openAboutDialog() {
+  if (appVersion) aboutVersion.textContent = `v${appVersion}`
+  aboutDialog.classList.remove('hidden')
+}
+
+function closeAboutDialog() {
+  aboutDialog.classList.add('hidden')
 }
 
 function openSupportDialog(type) {
@@ -716,6 +732,11 @@ function applyVideoMode(mode, persistSetting = true) {
   updateVideoModeButtons()
   setSidebarWidthVar()
   requestAnimationFrame(() => requestAnimationFrame(updateMiniPlayerMetrics))
+  if (next === 'inline' && persistSetting) {
+    hideIntro()
+    document.body.classList.remove('is-browsing')
+    updateViewTabs()
+  }
   if (persistSetting) {
     if (!state.store.settings) state.store.settings = {}
     state.store.settings.videoMode = next === 'fullscreen' ? 'inline' : next
@@ -797,9 +818,9 @@ function updateListenTimeSep() {
       const m = Math.floor((listenSec % 3600) / 60)
       const timePart = h > 0 ? `${h}h ${m}m` : `${m || '<1'}m`
       sepListenTooltip.innerHTML = [
-        `<div>Total listening time: ${timePart}</div>`,
-        `<div>Total DJ sets played: ${sets}</div>`,
-        `<div>Total tracks played: ${tracks}</div>`,
+        `<div class="stat-detail">Total listening time: ${timePart}</div>`,
+        `<div class="stat-detail">Total DJ sets played: ${sets}</div>`,
+        `<div class="stat-detail">Total tracks played: ${tracks}</div>`,
       ].join('')
     }
   }
@@ -1155,8 +1176,8 @@ function wireMainEvents() {
       npSet.textContent     = title
       setNpSource('no tracklist yet')
       tracklistUnavailableTitle.textContent = lookupError ? 'Tracklist lookup paused' : 'Tracklist not yet available'
-      tracklistUnavailableSub.textContent = lookupError?.message ||
-        'It may become available later — or maybe create one yourself?'
+      tracklistUnavailableSub.innerHTML = lookupError?.message ||
+        'It will retry automatically next time.<br /><br /> … or maybe create one yourself?'
       // Show contribute prompt only for genuine "not found" (no lookupError) with a known URL
       const showContribute = !lookupError && contributeUrl && contributeLabel
       tlContributeActions.classList.toggle('hidden', !showContribute)
@@ -1209,7 +1230,7 @@ function wireMainEvents() {
   window.api.on('now-playing', (data) => {
     state.nowPlaying = data
     const playing = data.isPlaying !== false
-    ppIcon.innerHTML = playing ? icon(ICON.pause, 16) : icon(ICON.play, 16)
+    ppIcon.innerHTML = playing ? icon(ICON.pause, 17) : icon(ICON.play, 18)
     btnPlayPause.classList.toggle('playing', playing)
     setTrackPlaying(playing)
     state.isIdTrack      = !!data.isId
@@ -1308,6 +1329,7 @@ function wireMainEvents() {
     renderFavorites()
   })
 
+  window.api.on('menu-open-about', () => openAboutDialog())
   window.api.on('menu-toggle-sidebar', () => toggleSidebar())
   window.api.on('menu-reload', () => navigateToSearch())
   window.api.on('update-status', (update) => {
@@ -2508,8 +2530,20 @@ function wireEvents() {
 
   sidebarFooter.addEventListener('click', (e) => {
     const link = e.target.closest('.sidebar-footer-link')
-    if (link?.dataset.feedbackType) openSupportDialog(link.dataset.feedbackType)
-    else if (link?.dataset.href) window.api.openExternal(link.dataset.href)
+    if (!link) return
+    if (link.dataset.action === 'about') openAboutDialog()
+    else if (link.dataset.feedbackType) openSupportDialog(link.dataset.feedbackType)
+    else if (link.dataset.href) window.api.openExternal(link.dataset.href)
+  })
+
+  btnAboutClose.addEventListener('click', closeAboutDialog)
+  aboutDialog.addEventListener('click', (e) => { if (e.target === aboutDialog) closeAboutDialog() })
+  btnAboutChangelog.addEventListener('click', () => { closeAboutDialog(); openUpdateDialog() })
+  btnAboutFeature.addEventListener('click', () => { closeAboutDialog(); openSupportDialog('feature') })
+  btnAboutBug.addEventListener('click', () => { closeAboutDialog(); openSupportDialog('bug') })
+  btnAboutWebsite.addEventListener('click', () => window.api.openExternal('https://www.djscrobbler.com'))
+  document.querySelectorAll('.about-link').forEach(a => {
+    a.addEventListener('click', () => window.api.openExternal(a.dataset.href))
   })
 
   btnContributeTracklist.addEventListener('click', () => {
