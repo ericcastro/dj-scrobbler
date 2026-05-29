@@ -8,7 +8,7 @@ DJ Scrobbler is a desktop music app for people who listen to long-form DJ sets o
 
 It searches for a matching tracklist, follows the currently playing track, and scrobbles individual songs instead of flattening a one-hour mix into a single play.
 
-[Website](https://www.djscrobbler.com) · [Releases](https://github.com/ericcastro/dj-scrobbler/releases) · [Architecture](./ARCHITECTURE.md)
+[Website](https://www.djscrobbler.com) · [Releases](https://github.com/ericcastro/dj-scrobbler/releases) · [Architecture](./ARCHITECTURE.md) · [Roadmap](./ROADMAP.md)
 
 ## What It Does
 

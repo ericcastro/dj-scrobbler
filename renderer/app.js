@@ -480,6 +480,7 @@ let browserWebviewReady = false
 let pendingNav = null
 let browserHasContent = false
 let hasEverPlayed = false
+let browseLoadingTimer = null
 
 function updateViewTabs() {
   const browsing = document.body.classList.contains('is-browsing')
@@ -496,6 +497,15 @@ function setTrackPlaying(playing) {
   document.body.classList.toggle('is-track-playing', playing)
 }
 
+function hideBrowseLoading(reason) {
+  if (!browseLoading.classList.contains('hidden')) {
+    console.log('[browser-wv] hideBrowseLoading via=' + reason)
+  }
+  clearTimeout(browseLoadingTimer)
+  browseLoadingTimer = null
+  browseLoading.classList.add('hidden')
+}
+
 function navigateTo(url, loadingLabel) {
   console.log('[browser-wv] navigateTo ready=' + browserWebviewReady + ' url=' + url)
   browserHasContent = true
@@ -504,8 +514,17 @@ function navigateTo(url, loadingLabel) {
   updateViewTabs()
   browseLoadingMsg.textContent = loadingLabel || 'Loading…'
   browseLoading.classList.remove('hidden')
+  // Fallback: force-hide after 12s in case did-stop-loading never fires (observed on Windows)
+  clearTimeout(browseLoadingTimer)
+  browseLoadingTimer = setTimeout(() => {
+    console.warn('[browser-wv] browse loading timeout — force-hiding spinner')
+    hideBrowseLoading('timeout')
+  }, 12000)
   if (browserWebviewReady) {
-    browserWebview.loadURL(url).catch(e => console.error('[browser-wv] loadURL failed', e))
+    browserWebview.loadURL(url).catch(e => {
+      console.error('[browser-wv] loadURL failed', e)
+      hideBrowseLoading('loadURL-error')
+    })
   } else {
     console.log('[browser-wv] not ready — queuing nav')
     pendingNav = url
@@ -572,14 +591,29 @@ async function init() {
     }
   })
 
+  // did-finish-load fires when the main frame HTML is done — reliable on Windows even when
+  // did-stop-loading never fires (YouTube background requests keep isLoading() true forever).
+  browserWebview.addEventListener('did-finish-load', () => {
+    console.log('[browser-wv] did-finish-load url=' + browserWebview.getURL())
+    hideBrowseLoading('did-finish-load')
+  })
+
+  browserWebview.addEventListener('did-fail-load', (e) => {
+    // errorCode -3 is ERR_ABORTED which fires on every redirect — not a real failure.
+    if (e.errorCode === -3) return
+    console.log('[browser-wv] did-fail-load code=' + e.errorCode + ' url=' + e.validatedURL)
+    hideBrowseLoading('did-fail-load')
+  })
+
   browserWebview.addEventListener('did-stop-loading', () => {
-    browseLoading.classList.add('hidden')
+    console.log('[browser-wv] did-stop-loading url=' + browserWebview.getURL())
+    hideBrowseLoading('did-stop-loading')
   })
 
   const resetBrowserWebview = (reason) => {
     console.warn('[browser-wv] renderer gone reason=' + reason + ' — resetting ready flag')
     browserWebviewReady = false
-    browseLoading.classList.add('hidden')
+    hideBrowseLoading('renderer-gone')
   }
   browserWebview.addEventListener('render-process-gone', (e) => resetBrowserWebview(e.reason || 'unknown'))
   browserWebview.addEventListener('crashed', () => resetBrowserWebview('crashed'))

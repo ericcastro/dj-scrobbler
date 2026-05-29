@@ -1379,7 +1379,10 @@ function titleBarOptions(theme) {
     }
   }
 
-  return { frame: false }
+  // Linux: use native frame so the window manager provides its own title bar and
+  // close/min/max buttons. This works across all DEs (GNOME, KDE, XFCE, tiling WMs…)
+  // without any platform-specific code. Custom frameless controls are tracked in ROADMAP.md.
+  return { frame: true }
 }
 
 function setTitleBarTheme(theme) {

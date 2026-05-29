@@ -106,9 +106,8 @@ body.platform-darwin #topbar {
   padding-left: 80px; /* macOS traffic lights */
 }
 
-body.platform-win32 #topbar,
-body.platform-linux #topbar {
-  padding-right: 144px; /* native window controls / resize affordance */
+body.platform-win32 #topbar {
+  padding-right: 144px; /* native window controls overlay */
 }
 
 #topbar button,
