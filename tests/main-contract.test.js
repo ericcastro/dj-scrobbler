@@ -25,12 +25,12 @@ test('titleBarOverlayForTheme falls back to neon-night for unknown themes', () =
 })
 
 test('createWindow uses platform-conditional titlebar style', () => {
-  // macOS gets hiddenInset, Windows gets hidden + overlay, Linux gets frame: false
+  // macOS gets hiddenInset, Windows gets hidden + overlay, Linux gets native frame (frame: true)
   assert.match(mainJs, /process\.platform\s*===\s*'darwin'/)
   assert.match(mainJs, /titleBarStyle:\s*'hiddenInset'/)
   assert.match(mainJs, /process\.platform\s*===\s*'win32'/)
   assert.match(mainJs, /titleBarStyle:\s*'hidden'/)
-  assert.match(mainJs, /frame:\s*false/)
+  assert.match(mainJs, /frame:\s*true/)
 })
 
 test('set-theme IPC handler delegates to setTitleBarTheme which calls setTitleBarOverlay on Windows', () => {
