@@ -1,7 +1,7 @@
 {
   "name": "dj-scrobbler",
   "productName": "DJ Scrobbler",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Scrobble tracks from DJ sets on YouTube",
   "author": "Eric Castro <errrick@gmail.com>",
   "license": "MIT",
@@ -20,12 +20,10 @@
     "appId": "com.djscrobbler.app",
     "productName": "DJ Scrobbler",
     "copyright": "Copyright © 2025 Eric Castro",
-
     "directories": {
       "buildResources": "build-resources",
       "output": "dist"
     },
-
     "files": [
       "main.js",
       "preload.js",
@@ -39,13 +37,23 @@
       "!**/node_modules/.cache/**",
       "!**/*.map"
     ],
-
     "afterPack": "./scripts/afterPack.js",
-
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] },
-        { "target": "zip", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "icon": "images/electron-icons/neon-night/icon.icns",
       "category": "public.app-category.music",
@@ -53,36 +61,52 @@
       "gatekeeperAssess": false,
       "identity": null
     },
-
     "dmg": {
       "title": "DJ Scrobbler ${version}",
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
-
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "images/electron-icons/neon-night/icon.ico"
     },
-
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
     },
-
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "images/electron-icons/neon-night/png",
       "category": "Audio"
     },
-
     "publish": {
       "provider": "github",
       "owner": "ericcastro",
