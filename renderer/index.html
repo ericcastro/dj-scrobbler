@@ -321,6 +321,14 @@
           <div id="loading-overlay" class="hidden">
             <div class="spinner"></div>
             <span id="loading-msg">Searching tracklist…</span>
+            <div id="loading-hung" class="hidden">
+              <p id="loading-hung-msg">This is taking longer than expected.</p>
+              <div class="loading-hung-actions">
+                <button id="btn-loading-report" class="loading-hung-btn loading-hung-btn-primary">Report bug</button>
+                <button id="btn-loading-restart" class="loading-hung-btn">Restart app</button>
+                <button id="btn-loading-dismiss" class="loading-hung-btn loading-hung-btn-ghost">Keep waiting</button>
+              </div>
+            </div>
           </div>
           <div id="player-status-overlay" class="hidden">
             <div class="spinner player-status-spinner"></div>

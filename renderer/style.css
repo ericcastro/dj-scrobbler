@@ -1436,6 +1436,37 @@ webview {
 
 #loading-msg { color: var(--text2); font-size: 14px; }
 
+#loading-hung {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  animation: fadeInUp .3s ease both;
+}
+#loading-hung.hidden { display: none; }
+#loading-hung-msg { color: var(--text2); font-size: 13px; margin: 0; text-align: center; }
+.loading-hung-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.loading-hung-btn {
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text1);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.loading-hung-btn:hover { background: var(--bg3); border-color: var(--accent); }
+.loading-hung-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.loading-hung-btn-primary:hover { filter: brightness(1.15); }
+.loading-hung-btn-ghost { color: var(--text2); background: transparent; border-color: transparent; }
+.loading-hung-btn-ghost:hover { background: var(--bg2); border-color: var(--border); color: var(--text1); }
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 #player-status-overlay {
   position: absolute;
   left: 50%;

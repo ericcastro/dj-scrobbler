@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   setStats:     (data)  => ipcRenderer.invoke('stats-set', data),
   getSources:   ()      => ipcRenderer.invoke('get-sources'),
   getRecentLogs: ()     => ipcRenderer.invoke('get-recent-logs'),
+  appRestart:    ()     => ipcRenderer.invoke('app-restart'),
   isDeveloper:  ()      => ipcRenderer.invoke('is-developer'),
   setDisplayFullscreen: (enabled) => ipcRenderer.invoke('set-display-fullscreen', enabled),
   windowDragStart: (point) => ipcRenderer.invoke('window-drag-start', point),

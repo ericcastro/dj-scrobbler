@@ -56,6 +56,11 @@ const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
 const seekShield         = document.getElementById('seek-shield')
 const loadingMsg         = document.getElementById('loading-msg')
+const loadingHung        = document.getElementById('loading-hung')
+const loadingHungMsg     = document.getElementById('loading-hung-msg')
+const btnLoadingReport   = document.getElementById('btn-loading-report')
+const btnLoadingRestart  = document.getElementById('btn-loading-restart')
+const btnLoadingDismiss  = document.getElementById('btn-loading-dismiss')
 const playerStatusOverlay = document.getElementById('player-status-overlay')
 const playerStatusTitle  = document.getElementById('player-status-title')
 const playerStatusSub    = document.getElementById('player-status-sub')
@@ -532,6 +537,26 @@ function navigateTo(url, loadingLabel) {
 }
 
 async function init() {
+  // Register webview dom-ready listeners BEFORE any await — the about:blank src fires
+  // dom-ready almost instantly, and any IPC await between here and the old listener site
+  // was enough to miss the event, leaving playerWvContents unset and pendingSourceUrl
+  // stuck forever (Searching tracklist… spinner hangs on startup).
+  webview.addEventListener('dom-ready', () => {
+    webviewReady = true
+    window.api.registerWebviewRole(webview.getWebContentsId(), 'player')
+  })
+
+  browserWebview.addEventListener('dom-ready', () => {
+    console.log('[browser-wv] dom-ready pendingNav=' + pendingNav)
+    browserWebviewReady = true
+    window.api.registerWebviewRole(browserWebview.getWebContentsId(), 'browser')
+    if (pendingNav) {
+      console.log('[browser-wv] flushing pendingNav=' + pendingNav)
+      browserWebview.loadURL(pendingNav).catch(e => console.error('[browser-wv] pendingNav loadURL failed', e))
+      pendingNav = null
+    }
+  })
+
   state.store = await window.api.getStore()
   state.stats = await window.api.getStats()
   document.body.classList.add(`platform-${await window.api.getPlatform()}`)
@@ -574,22 +599,6 @@ async function init() {
   refreshScrobbleBadge()
   await loadSettings()
   syncResumeSettingUI()
-
-  webview.addEventListener('dom-ready', () => {
-    webviewReady = true
-    window.api.registerWebviewRole(webview.getWebContentsId(), 'player')
-  })
-
-  browserWebview.addEventListener('dom-ready', () => {
-    console.log('[browser-wv] dom-ready pendingNav=' + pendingNav)
-    browserWebviewReady = true
-    window.api.registerWebviewRole(browserWebview.getWebContentsId(), 'browser')
-    if (pendingNav) {
-      console.log('[browser-wv] flushing pendingNav=' + pendingNav)
-      browserWebview.loadURL(pendingNav).catch(e => console.error('[browser-wv] pendingNav loadURL failed', e))
-      pendingNav = null
-    }
-  })
 
   // did-finish-load fires when the main frame HTML is done — reliable on Windows even when
   // did-stop-loading never fires (YouTube background requests keep isLoading() true forever).
@@ -713,6 +722,8 @@ let playerVolume = 80
 let previousPlayerVolume = 80
 let volumeHideTimer = null
 let playerStatusTimer = null
+let loadingWatchdogTimer = null
+const LOADING_WATCHDOG_MS = 15_000
 let pendingKeyboardSeekTarget = null
 let pendingKeyboardVolumeTarget = null
 
@@ -1195,6 +1206,7 @@ function wireMainEvents() {
     if (isResumeDialogOpen()) return
     document.body.classList.add('has-active-set')
     document.body.classList.remove('is-browsing')
+    hasEverPlayed = true
     updateViewTabs()
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
@@ -2304,6 +2316,12 @@ function resetNowPlaying() {
 
 let pendingPlayUrl = null
 
+function clearLoadingWatchdog() {
+  clearTimeout(loadingWatchdogTimer)
+  loadingWatchdogTimer = null
+  loadingHung.classList.add('hidden')
+}
+
 function showLoading(msg = 'Loading…') {
   hidePlayerStatus()
   loadingMsg.textContent = msg
@@ -2315,6 +2333,16 @@ function showLoading(msg = 'Loading…') {
   state.currentTracks = []
   clearTracklist()
   refreshScrobbleBadge()
+
+  // Start watchdog: if we're still spinning after 30 s, prompt the user
+  clearLoadingWatchdog()
+  loadingWatchdogTimer = setTimeout(() => {
+    loadingWatchdogTimer = null
+    if (loadingOverlay.classList.contains('hidden')) return
+    console.warn('[watchdog] loading spinner stuck after', LOADING_WATCHDOG_MS / 1000, 's — showing hung UI')
+    loadingHungMsg.textContent = `Still searching after ${LOADING_WATCHDOG_MS / 1000} seconds — something may have stalled.`
+    loadingHung.classList.remove('hidden')
+  }, LOADING_WATCHDOG_MS)
 }
 
 function showNoTracklist() {
@@ -2371,6 +2399,7 @@ function hidePlayerStatus() {
 }
 
 function hideOverlays() {
+  clearLoadingWatchdog()
   loadingOverlay.classList.add('hidden')
   noTracklistMsg.classList.add('hidden')
   noTracklistPrompt.classList.add('hidden')
@@ -2536,6 +2565,20 @@ function wireEvents() {
       setTrackPlaying(false)
       refreshScrobbleBadge()
     }
+  })
+
+  // Loading hung watchdog buttons
+  btnLoadingReport.addEventListener('click', () => {
+    clearLoadingWatchdog()
+    loadingHung.classList.add('hidden')
+    openSupportDialog('bug')
+  })
+  btnLoadingRestart.addEventListener('click', () => {
+    window.api.appRestart()
+  })
+  btnLoadingDismiss.addEventListener('click', () => {
+    clearLoadingWatchdog()
+    loadingHung.classList.add('hidden')
   })
 
   btnPlayAnyway.addEventListener('click', () => {

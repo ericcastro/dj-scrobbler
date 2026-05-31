@@ -34,7 +34,7 @@ function formatLogArg(arg) {
 function appendLog(args) {
   const line = `[${new Date().toISOString()}] ${args.map(formatLogArg).join(' ')}`
   recentLogs.push(line)
-  if (recentLogs.length > 80) recentLogs.shift()
+  if (recentLogs.length > 200) recentLogs.shift()
   if (DEBUG_LOG_PATH) {
     try { fs.appendFileSync(DEBUG_LOG_PATH, `${line}\n`) } catch {}
   }
@@ -754,12 +754,16 @@ function tracklistLookupErrorPayload(err, tlPlugin) {
 
 async function handleSourceUrl(source, url, wvContents) {
   const tlPlugin = plugins.tracklistForSource(source.id)
-  if (!tlPlugin) return
+  if (!tlPlugin) {
+    log(`[lookup] no tracklist plugin for source=${source.id}`)
+    return
+  }
 
   const lookupToken = ++currentLookupToken
-  log(`[lookup] source=${source.id} url=${url}`)
+  log(`[lookup] START source=${source.id} url=${url} token=${lookupToken}`)
 
   const videoId = extractVideoId(url)
+  log(`[lookup] videoId=${videoId || '(none)'}`)
   currentTracks = []
   currentTracklistUrl = null
   currentTracklistProvider = null
@@ -768,16 +772,22 @@ async function handleSourceUrl(source, url, wvContents) {
   isTracklistLookupPending = false
   mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Preparing player…' })
 
+  log(`[lookup] calling source.getMeta url=${url}`)
   const meta = await source.getMeta(url)
-  if (lookupToken !== currentLookupToken) return
+  log(`[lookup] getMeta done title="${meta.title}" url="${meta.url}"`)
+  if (lookupToken !== currentLookupToken) {
+    log(`[lookup] token mismatch after getMeta (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
+    return
+  }
 
   currentSourceUrl = meta.url || url
   currentSetTitle = meta.title || currentSourceUrl
   currentThumbnailUrl = thumbnailForSourceUrl(currentSourceUrl) || currentThumbnailUrl
-  log(`[lookup] meta title="${meta.title}"`)
+  log(`[lookup] meta resolved title="${currentSetTitle}" sourceUrl="${currentSourceUrl}"`)
 
   if (source.id === 'youtube' && videoId) {
     const playbackContents = playerWvContents || currentWvContents || wvContents
+    log(`[lookup] youtube mode — playerWvContents=${!!playerWvContents} currentWvContents=${!!currentWvContents} wvContents=${!!wvContents} → using playbackContents=${!!playbackContents}`)
     isYouTubePlayerMode = true
     isTracklistLookupPending = true
     currentWvContents = playbackContents
@@ -790,13 +800,17 @@ async function handleSourceUrl(source, url, wvContents) {
       tracklistUrl: null,
       isFallback: false,
     })
+    const playerUrl = youtubePlayerUrl(videoId)
+    log(`[lookup] loading player webview → ${playerUrl}`)
     mainWindow.webContents.send('wv-status', { type: 'player-loading' })
-    playbackContents.loadURL(youtubePlayerUrl(videoId))
+    playbackContents.loadURL(playerUrl)
   } else {
+    log(`[lookup] no youtube videoId or non-youtube source — showing no-tracklist-prompt`)
     mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })
     return
   }
 
+  log(`[lookup] checking tracklist cache for provider=${tlPlugin.id} source=${currentSourceUrl}`)
   const cached = getCachedTracklist(tlPlugin.id, currentSourceUrl)
   if (cached) {
     log(`[cache] hit provider=${cached.providerId} source=${currentSourceUrl} tracks=${cached.tracks.length}`)
@@ -826,12 +840,17 @@ async function handleSourceUrl(source, url, wvContents) {
     return
   }
 
+  log(`[lookup] cache miss — starting network search via ${tlPlugin.id} for "${currentSetTitle}"`)
   mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
 
   let best
+  const searchStart = Date.now()
   try {
+    log(`[lookup] findBestTracklist start provider=${tlPlugin.id}`)
     best = await findBestTracklist(tlPlugin, meta)
+    log(`[lookup] findBestTracklist done in ${Date.now() - searchStart}ms result=${best ? best.url : '(none)'}`)
   } catch (err) {
+    log(`[lookup] findBestTracklist threw after ${Date.now() - searchStart}ms: ${err?.message || err}`)
     const lookupError = tracklistLookupErrorPayload(err, tlPlugin)
     log(`[lookup] provider failed code=${lookupError.code} provider=${lookupError.providerId}: ${lookupError.message}`)
     isTracklistLookupPending = false
@@ -857,10 +876,13 @@ async function handleSourceUrl(source, url, wvContents) {
     }
     return
   }
-  if (lookupToken !== currentLookupToken) return
+  if (lookupToken !== currentLookupToken) {
+    log(`[lookup] token mismatch after findBestTracklist (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
+    return
+  }
 
   if (!best) {
-    log('[lookup] → no tracklist found')
+    log('[lookup] → no tracklist found — sending fallback')
     isTracklistLookupPending = false
     const contributeInfo = tlPlugin.contributeInfo
     mainWindow.webContents.send('tracklist-loaded', {
@@ -879,17 +901,24 @@ async function handleSourceUrl(source, url, wvContents) {
     return
   }
 
-  log(`[lookup] → extracting tracklist metadata: ${best.url}`)
+  log(`[lookup] → best match: "${best.title}" url=${best.url}`)
+  log(`[lookup] → extracting tracklist from ${best.url}`)
   mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Loading tracklist…' })
   currentTracklistUrl = best.url
   currentTracklistProvider = tlPlugin.id
+  const extractStart = Date.now()
   const extracted = await extractTracklistInBackground(tlPlugin, best.url)
-  if (lookupToken !== currentLookupToken) return
+  log(`[lookup] extractTracklistInBackground done in ${Date.now() - extractStart}ms tracks=${extracted.tracks.length}`)
+  if (lookupToken !== currentLookupToken) {
+    log(`[lookup] token mismatch after extract (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
+    return
+  }
 
   isTracklistLookupPending = false
   const title = currentSetTitle || extracted.title || best.title || currentSourceUrl
   currentSetTitle = title
   currentTracks = normalizeTracks(extracted.tracks, tlPlugin.id)
+  log(`[lookup] writing cache: provider=${tlPlugin.id} tracks=${currentTracks.length} title="${title}"`)
   writeCachedTracklist({
     sourceUrl: currentSourceUrl,
     providerId: tlPlugin.id,
@@ -908,6 +937,7 @@ async function handleSourceUrl(source, url, wvContents) {
     tracklistUrl: best.url,
     isFallback: currentTracks.length === 0,
   })
+  log(`[lookup] DONE sent tracklist-loaded tracks=${currentTracks.length} isFallback=${currentTracks.length === 0}`)
 
   if (currentTracks.length) {
     mainWindow.webContents.send('tracklist-data', {
@@ -952,9 +982,15 @@ function wireWebview(wvContents) {
     for (const source of plugins.SOURCES) {
       const interceptedUrl = source.parseIntercept(message)
       if (!interceptedUrl) continue
-      if (pendingLookup) return
+      log(`[wv:browser] console-message intercept source=${source.id} url=${interceptedUrl} pendingLookup=${pendingLookup}`)
+      if (pendingLookup) {
+        log(`[wv:browser] skipping intercept — pendingLookup already true`)
+        return
+      }
       pendingLookup = true
+      log(`[wv:browser] → handleSourceUrl source=${source.id}`)
       await handleSourceUrl(source, interceptedUrl, wvContents)
+      log(`[wv:browser] ← handleSourceUrl returned source=${source.id}`)
       pendingLookup = false
       return
     }
@@ -964,11 +1000,17 @@ function wireWebview(wvContents) {
   wvContents.on('will-navigate', async (event, url) => {
     if (role() === 'player') return
     const source = plugins.sourceForUrl(url)
+    log(`[wv:${role() || 'unknown'}] will-navigate url=${url} source=${source?.id || '(none)'} hasIntercept=${!!source?.interceptScript} pendingLookup=${pendingLookup}`)
     if (!source || source.interceptScript) return
-    if (pendingLookup) return
+    if (pendingLookup) {
+      log(`[wv:${role()}] skipping will-navigate — pendingLookup already true`)
+      return
+    }
     pendingLookup = true
     event.preventDefault()
+    log(`[wv:${role()}] → handleSourceUrl via will-navigate source=${source.id}`)
     await handleSourceUrl(source, url, wvContents)
+    log(`[wv:${role()}] ← handleSourceUrl returned via will-navigate source=${source.id}`)
     pendingLookup = false
   })
 
@@ -977,36 +1019,48 @@ function wireWebview(wvContents) {
     if (role() === 'player') return
     if (!isMainFrame) return
     const source = plugins.sourceForUrl(url)
+    log(`[wv:${role() || 'unknown'}] did-navigate-in-page url=${url} source=${source?.id || '(none)'} pendingLookup=${pendingLookup}`)
     if (!source || source.interceptScript) return
-    if (pendingLookup) return
+    if (pendingLookup) {
+      log(`[wv:${role()}] skipping did-navigate-in-page — pendingLookup already true`)
+      return
+    }
     pendingLookup = true
+    log(`[wv:${role()}] → handleSourceUrl via did-navigate-in-page source=${source.id}`)
     await handleSourceUrl(source, url, wvContents)
+    log(`[wv:${role()}] ← handleSourceUrl returned via did-navigate-in-page source=${source.id}`)
     pendingLookup = false
   })
 
   wvContents.on('did-finish-load', async () => {
     const url = wvContents.getURL()
+    const r = role()
+    log(`[wv:${r || 'unknown'}] did-finish-load url=${url} isYTPlayerMode=${isYouTubePlayerMode}`)
 
     wvContents.executeJavaScript(CONSENT_SCRIPT).catch(() => {})
 
     // Inject intercept scripts for matching source plugins
     for (const source of plugins.SOURCES) {
       if (source.interceptScript && source.shouldInjectOn(url)) {
+        log(`[wv:${r || 'unknown'}] injecting intercept script for source=${source.id}`)
         wvContents.executeJavaScript(source.interceptScript).catch(() => {})
       }
     }
 
-    if (role() === 'browser') {
+    if (r === 'browser') {
+      log(`[wv:browser] did-finish-load → hide-overlay`)
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       return
     }
 
-    if (role() === 'player' && isYouTubePlayerMode && isYouTubePlayerUrl(url)) {
+    if (r === 'player' && isYouTubePlayerMode && isYouTubePlayerUrl(url)) {
+      log(`[wv:player] did-finish-load — YT player URL confirmed → hide-overlay + startMonitoring`)
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       startYouTubePlayerMonitoring(wvContents)
       return
     }
 
+    log(`[wv:${r || 'unknown'}] did-finish-load — unexpected URL or mode, resetting state`)
     mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
     isTracklistLookupPending = false
     currentLookupToken++
@@ -1014,9 +1068,12 @@ function wireWebview(wvContents) {
     stopMonitoring()
   })
 
-  wvContents.on('did-fail-load', (_e, _code, _desc, _failedUrl, isMainFrame) => {
-    if (role() === 'browser') return
+  wvContents.on('did-fail-load', (_e, code, desc, failedUrl, isMainFrame) => {
+    const r = role()
+    log(`[wv:${r || 'unknown'}] did-fail-load code=${code} desc="${desc}" url=${failedUrl} isMainFrame=${isMainFrame}`)
+    if (r === 'browser') return
     if (isMainFrame) {
+      log(`[wv:${r || 'unknown'}] did-fail-load mainFrame → resetting state`)
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       isTracklistLookupPending = false
       currentLookupToken++
@@ -1540,20 +1597,27 @@ ipcMain.handle('store-set', (_event, data) => {
 })
 
 ipcMain.handle('register-webview-role', (_event, id, role) => {
+  log(`[wv] register-webview-role id=${id} role=${role} known=${attachedWebviews.has(id)} pendingSourceUrl=${pendingSourceUrl || '(none)'}`)
   const wvContents = attachedWebviews.get(id)
-  if (!wvContents) return false
+  if (!wvContents) {
+    log(`[wv] register-webview-role FAILED — id=${id} not in attachedWebviews (size=${attachedWebviews.size})`)
+    return false
+  }
   if (role === 'player') {
     playerWvContents = wvContents
     currentWvContents = wvContents
+    log(`[wv] player webview registered id=${id}`)
     if (pendingSourceUrl) {
       const url = pendingSourceUrl
       pendingSourceUrl = null
+      log(`[wv] flushing pendingSourceUrl=${url}`)
       setImmediate(() => loadSourceUrl(url, wvContents).catch(err => log('[lookup] queued source failed', err?.message || err)))
     }
     return true
   }
   if (role === 'browser') {
     browserWvContents = wvContents
+    log(`[wv] browser webview registered id=${id}`)
     return true
   }
   return false
@@ -1627,7 +1691,12 @@ ipcMain.handle('updates-install', () => {
   return false
 })
 ipcMain.handle('updates-notifications-disabled-set', (_event, disabled) => setUpdateNotificationsDisabled(disabled))
-ipcMain.handle('get-recent-logs', () => recentLogs.slice(-30).join('\n'))
+ipcMain.handle('get-recent-logs', () => recentLogs.join('\n'))
+ipcMain.handle('app-restart', () => {
+  log('[app] restart requested by renderer')
+  app.relaunch()
+  app.exit(0)
+})
 ipcMain.handle('is-developer', () => DEVELOPER_MODE)
 ipcMain.handle('set-display-fullscreen', (_event, enabled) => setDisplayFullscreen(!!enabled))
 ipcMain.handle('window-drag-start', (_event, point) => {
@@ -1662,23 +1731,26 @@ ipcMain.handle('fallback-seek', (_event, seconds) => playerSeek(seconds))
 ipcMain.handle('tl-seek', (_event, seconds) => playerSeek(seconds))
 
 async function loadSourceUrl(url, playbackContents = playerWvContents || currentWvContents) {
-  log(`[lookup] loadSourceUrl url=${url} hasPlayback=${!!playbackContents}`)
+  log(`[lookup] loadSourceUrl url=${url} hasPlayback=${!!playbackContents} playerWvContents=${!!playerWvContents} currentWvContents=${!!currentWvContents}`)
   const source = plugins.sourceForUrl(url)
   if (!source) {
     log(`[lookup] no source plugin for ${url}`)
     return false
   }
+  log(`[lookup] matched source plugin id=${source.id}`)
   if (!playbackContents) {
     pendingSourceUrl = url
     log(`[lookup] queued source until player webview is ready: ${url}`)
     return true
   }
+  log(`[lookup] calling handleSourceUrl source=${source.id}`)
   try {
     await handleSourceUrl(source, url, playbackContents)
   } catch (err) {
     log('[lookup] loadSourceUrl failed', err?.stack || err?.message || err)
     throw err
   }
+  log(`[lookup] handleSourceUrl returned cleanly for url=${url}`)
   return true
 }
 
