@@ -1,5 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const path = require('node:path')
 
 const {
   INSTALL_SCRIPT,
@@ -49,11 +50,14 @@ test('mac update asset picking falls back across architectures safely', () => {
 })
 
 test('app bundle path is derived from the executable path', () => {
-  assert.equal(
-    appBundleFromExecPath('/Applications/DJ Scrobbler.app/Contents/MacOS/DJ Scrobbler'),
-    '/Applications/DJ Scrobbler.app'
-  )
-  assert.equal(appBundleFromExecPath('/usr/local/bin/node'), null)
+  // appBundleFromExecPath only ever runs on macOS at runtime (gated by
+  // MAC_SELF_UPDATE), but this test runs in CI on every OS, and it calls
+  // path.resolve() internally, which uses the host's native separator —
+  // so build the expectation with path.join() rather than hardcoding "/".
+  const bundle = path.resolve(path.sep, 'Applications', 'DJ Scrobbler.app')
+  const execPath = path.join(bundle, 'Contents', 'MacOS', 'DJ Scrobbler')
+  assert.equal(appBundleFromExecPath(execPath), bundle)
+  assert.equal(appBundleFromExecPath(path.resolve(path.sep, 'usr', 'local', 'bin', 'node')), null)
   assert.equal(appBundleFromExecPath(''), null)
 })
 
