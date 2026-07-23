@@ -39,6 +39,19 @@ DJ Scrobbler is built for:
 - Windows
 - Linux
 
+### macOS
+
+DJ Scrobbler isn't notarized with Apple yet, so a copy downloaded through the browser is
+blocked by Gatekeeper. Install it with one command instead — no Gatekeeper dialog, no
+workarounds:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ericcastro/dj-scrobbler/main/install.sh | bash
+```
+
+After that the app keeps itself up to date: when a new release is available it downloads
+and installs it in place with one click.
+
 ## How It Works
 
 DJ Scrobbler has two plugin layers:

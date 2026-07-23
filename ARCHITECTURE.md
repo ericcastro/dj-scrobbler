@@ -287,9 +287,26 @@ On Windows, the overlay colours update in real time when the user switches theme
 
 ## Updates
 
-Auto-update is handled by `electron-updater` on macOS and Windows. Linux uses a manual
-GitHub Releases check via the GitHub API. The `lib/update-utils.js` module normalises both
-update sources into a shared `UpdateStatus` shape consumed by the renderer's update dialog.
+All platforms check GitHub Releases via the API first; `lib/update-utils.js` normalises
+release data into a shared `UpdateStatus` shape consumed by the renderer's update dialog.
+Installation then diverges per platform:
+
+- **Windows / Linux** — `electron-updater` downloads and installs.
+- **macOS** — builds are ad-hoc signed (no Apple Developer ID), and Squirrel.Mac refuses
+  to install updates for apps without a valid Apple signature, so `lib/mac-updater.js`
+  implements the install itself: it picks the `-mac.zip` release asset matching the CPU
+  architecture, downloads and extracts it with `ditto -xk`, verifies the bundle version,
+  then hands off to a detached shell script that waits for the app to quit, swaps the
+  bundle in place (keeping a backup for rollback), and relaunches. Because the app —
+  not a browser — downloads the zip, the new bundle never receives the
+  `com.apple.quarantine` attribute, so Gatekeeper never re-prompts and no `xattr`
+  workaround is needed for updates. First-time installs get the same treatment via
+  `install.sh` (curl doesn't quarantine either).
+
+`scripts/install-test-build.sh` tests the macOS path end-to-end: it builds the app with a
+deliberately low version, installs it into `/Applications`, launches it with
+`--auto-update-test` (check on launch, then download and install with no clicks), and
+watches `/Applications` until the bundle reports the latest released version.
 
 ---
 

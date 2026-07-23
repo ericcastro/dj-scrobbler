@@ -54,6 +54,15 @@ test('update-utils is loaded from lib subdirectory', () => {
   assert.match(mainJs, /require\(['"]\.\/lib\/update-utils['"]\)/)
 })
 
+test('macOS self-updates via lib/mac-updater instead of Squirrel.Mac', () => {
+  assert.match(mainJs, /require\(['"]\.\/lib\/mac-updater['"]\)/)
+  // Squirrel.Mac rejects ad-hoc signed builds, so the electron-updater path
+  // must never run on darwin.
+  assert.match(mainJs, /MAC_SELF_UPDATE\s*=\s*process\.platform\s*===\s*'darwin'/)
+  assert.match(mainJs, /if\s*\(MAC_SELF_UPDATE\)\s*return downloadMacUpdate\(\)/)
+  assert.match(mainJs, /if\s*\(MAC_SELF_UPDATE\)\s*return macQuitAndInstall\(\)/)
+})
+
 // ── IPC channel completeness ───────────────────────────────────────────────────
 
 test('all documented IPC channels are present in main.js', () => {

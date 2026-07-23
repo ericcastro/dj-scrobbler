@@ -13,6 +13,7 @@ const {
   releaseFromUpdateInfo: releaseFromUpdateInfoPayload,
   mergeUpdateStatus,
 } = require('./lib/update-utils')
+const macUpdater = require('./lib/mac-updater')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -22,10 +23,14 @@ if (process.platform === 'win32' && app.isPackaged) app.setAppUserModelId('com.d
 // respect prefers-color-scheme: dark and render in their native dark mode.
 nativeTheme.themeSource = 'dark'
 
+// Hands-free update run for scripts/install-test-build.sh: check on launch,
+// then download and install the update without any clicks.
+const AUTO_UPDATE_TEST = process.argv.includes('--auto-update-test')
+
 // ── Verbose logging ───────────────────────────────────────────────────────────
 // Enable with:  DJ_VERBOSE=1 npm start
-const VERBOSE = !!process.env.DJ_VERBOSE || !app.isPackaged
-const DEBUG_LOG_PATH = process.env.DJ_VERBOSE ? path.join(os.tmpdir(), 'djscrobbler-debug.log') : null
+const VERBOSE = !!process.env.DJ_VERBOSE || AUTO_UPDATE_TEST || !app.isPackaged
+const DEBUG_LOG_PATH = (process.env.DJ_VERBOSE || AUTO_UPDATE_TEST) ? path.join(os.tmpdir(), 'djscrobbler-debug.log') : null
 const recentLogs = []
 function formatLogArg(arg) {
   if (typeof arg === 'string') return arg
@@ -57,6 +62,9 @@ const UPDATE_OWNER = 'ericcastro'
 const UPDATE_REPO = 'dj-scrobbler'
 const UPDATE_RELEASES_URL = `https://github.com/${UPDATE_OWNER}/${UPDATE_REPO}/releases`
 const UPDATE_RELEASES_API_URL = `https://api.github.com/repos/${UPDATE_OWNER}/${UPDATE_REPO}/releases?per_page=10`
+// macOS builds are ad-hoc signed, and Squirrel.Mac refuses to install updates
+// without a valid Apple signature — so macOS self-updates via lib/mac-updater.
+const MAC_SELF_UPDATE = process.platform === 'darwin'
 
 let mainWindow
 let currentWvContents = null
@@ -80,6 +88,7 @@ let updateState = {
 }
 let updateCheckWasManual = false
 let installAfterDownload = false
+let macStagedAppPath = null
 
 autoUpdater.autoDownload = false
 autoUpdater.autoInstallOnAppQuit = false
@@ -1225,6 +1234,20 @@ async function checkForUpdates({ manual = false } = {}) {
       return sendUpdateStatus('not-available', { ...ghRelease, manual })
     }
 
+    if (MAC_SELF_UPDATE) {
+      const asset = macUpdater.pickMacZipAsset(latestPublishedRelease.assets)
+      macStagedAppPath = null
+      sendUpdateStatus('available', {
+        ...ghRelease,
+        manual,
+        downloadUrl: asset?.browser_download_url || null,
+        assetName: asset?.name || null,
+        canInstall: !!(asset && app.isPackaged && macUpdater.runningAppBundlePath()),
+      })
+      if (AUTO_UPDATE_TEST && updateState.canInstall) downloadUpdate().catch(() => {})
+      return updateState
+    }
+
     sendUpdateStatus('available', { ...ghRelease, manual })
 
     if (app.isPackaged) {
@@ -1255,6 +1278,7 @@ async function downloadUpdate() {
     shell.openExternal(updateState.releaseUrl || UPDATE_RELEASES_URL)
     return sendUpdateStatus('external-download', { canInstall: false })
   }
+  if (MAC_SELF_UPDATE) return downloadMacUpdate()
   installAfterDownload = true
   sendUpdateStatus('downloading')
   try {
@@ -1264,6 +1288,48 @@ async function downloadUpdate() {
     installAfterDownload = false
     return sendUpdateStatus('error', { error: e.message || 'Could not download the update.' })
   }
+}
+
+function macUpdatesDir() {
+  return path.join(app.getPath('userData'), 'updates')
+}
+
+async function downloadMacUpdate() {
+  if (!updateState.downloadUrl || !macUpdater.runningAppBundlePath()) {
+    shell.openExternal(updateState.releaseUrl || UPDATE_RELEASES_URL)
+    return sendUpdateStatus('external-download', { canInstall: false })
+  }
+  installAfterDownload = true
+  sendUpdateStatus('downloading', { progress: 0 })
+  try {
+    macStagedAppPath = await macUpdater.stageUpdate({
+      url: updateState.downloadUrl,
+      version: updateState.latestVersion,
+      dir: macUpdatesDir(),
+      log,
+      onProgress: pct => sendUpdateStatus('downloading', { progress: pct, manual: updateCheckWasManual }),
+    })
+    sendUpdateStatus('downloaded', { canInstall: true, progress: 100, manual: updateCheckWasManual })
+    if (installAfterDownload) setTimeout(() => macQuitAndInstall(), 750)
+    return updateState
+  } catch (e) {
+    installAfterDownload = false
+    log('[update] mac update staging failed:', e.message)
+    return sendUpdateStatus('error', { error: e.message || 'Could not download the update.' })
+  }
+}
+
+function macQuitAndInstall() {
+  const targetAppPath = macUpdater.runningAppBundlePath()
+  if (!macStagedAppPath || !targetAppPath) return false
+  macUpdater.installAndRelaunch({
+    stagedAppPath: macStagedAppPath,
+    targetAppPath,
+    dir: macUpdatesDir(),
+    log,
+  })
+  app.quit()
+  return true
 }
 
 async function enrichUpdateChangelog(update) {
@@ -1534,7 +1600,10 @@ function createWindow() {
   }
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.once('did-finish-load', () => {
-    if (!updateSettings().updateNotificationsDisabled) {
+    if (AUTO_UPDATE_TEST) {
+      // manual:true bypasses the "update notifications disabled" setting
+      setTimeout(() => checkForUpdates({ manual: true }), 1500)
+    } else if (!updateSettings().updateNotificationsDisabled) {
       setTimeout(() => checkForUpdates({ manual: false }), 2500)
     }
   })
@@ -1684,6 +1753,7 @@ ipcMain.handle('updates-check', () => checkForUpdates({ manual: true }))
 ipcMain.handle('updates-download', () => downloadUpdate())
 ipcMain.handle('updates-install', () => {
   if (app.isPackaged && updateState.status === 'downloaded') {
+    if (MAC_SELF_UPDATE) return macQuitAndInstall()
     autoUpdater.quitAndInstall(false, true)
     return true
   }
