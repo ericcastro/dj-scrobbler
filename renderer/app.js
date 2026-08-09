@@ -2288,6 +2288,7 @@ function showScrobblerTarget(target) {
 
 function showLbConnected(name) {
   lbServerName.textContent = name
+  lbServerName.title = name   // full URL on hover when ellipsised
   lbConnected.classList.remove('hidden')
   lbDisconnected.classList.add('hidden')
 }

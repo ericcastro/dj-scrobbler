@@ -842,6 +842,13 @@ body.video-mode-mini #sidebar-mini-player-slot {
   font-weight: 600;
 }
 
+.lfm-user-row span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lfm-dot { color: var(--red); font-size: 18px; }
 
 #lfm-connect-status {
