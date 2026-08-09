@@ -241,116 +241,68 @@ const CONSENT_SCRIPT = `
 })()
 `
 
-// ── Last.fm ───────────────────────────────────────────────────────────────────
+// ── Scrobble Targets ─────────────────────────────────────────────────────────
+//
+// Scrobbling goes through a small target interface (see CONTEXT.md and
+// docs/adr/0003): connect / disconnect / nowPlaying / scrobble. Last.fm is
+// the default target; 'listenbrainz' speaks the ListenBrainz submit-listens
+// protocol, intended for a self-hosted Multi-Scrobbler instance.
 
-const LFM_KEY    = 'f3f24407f4bd2142b31d27fb47461e05'
-const LFM_SECRET = '5c9447b7b09a1514c64aab54002645db'
+const { createLastfmScrobbler }      = require('./lib/scrobblers/lastfm')
+const { createListenBrainzScrobbler } = require('./lib/scrobblers/listenbrainz')
 
-let lfmSession = null   // { key, name } once authenticated
-let lfmStatus  = 'unconfigured'  // 'unconfigured' | 'ok' | 'error'
+let scrobblerStatus = 'unconfigured'  // 'unconfigured' | 'ok' | 'error'
 
-function setLfmStatus(status) {
-  lfmStatus = status
-  if (mainWindow) mainWindow.webContents.send('lfm-status', status)
+function setScrobblerStatus(status) {
+  scrobblerStatus = status
+  if (mainWindow) mainWindow.webContents.send('scrobbler-status', status)
 }
 
-function lfmSign(params) {
-  const str = Object.keys(params)
-    .filter(k => k !== 'format')
-    .sort()
-    .map(k => k + params[k])
-    .join('') + LFM_SECRET
-  return crypto.createHash('md5').update(str, 'utf8').digest('hex')
+const scrobblers = {
+  lastfm:       createLastfmScrobbler({ openExternal: (url) => shell.openExternal(url), onStatus: setScrobblerStatus }),
+  listenbrainz: createListenBrainzScrobbler({ onStatus: setScrobblerStatus }),
 }
 
-function lfmPost(params) {
-  return new Promise((resolve, reject) => {
-    const p = { ...params, api_key: LFM_KEY, format: 'json' }
-    p.api_sig = lfmSign(p)
-    const body = new URLSearchParams(p).toString()
-    const req = https.request({
-      hostname: 'ws.audioscrobbler.com',
-      path: '/2.0/',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': Buffer.byteLength(body),
-        'User-Agent': 'dj-scrobbler/0.1',
-      },
-    }, res => {
-      const chunks = []
-      res.on('data', c => chunks.push(c))
-      res.on('end', () => {
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString())) }
-        catch (e) { reject(e) }
-      })
-    })
-    req.on('error', reject)
-    req.write(body)
-    req.end()
-  })
-}
+let activeScrobblerId = 'lastfm'
 
-async function lfmConnect() {
-  const tokenRes = await lfmPost({ method: 'auth.getToken' })
-  if (!tokenRes.token) throw new Error('Could not get auth token from Last.fm')
-  const token = tokenRes.token
+function activeScrobbler() { return scrobblers[activeScrobblerId] }
 
-  shell.openExternal(`https://www.last.fm/api/auth/?api_key=${LFM_KEY}&token=${token}`)
-
-  return new Promise((resolve, reject) => {
-    let attempts = 0
-    const iv = setInterval(async () => {
-      attempts++
-      if (attempts > 45) {
-        clearInterval(iv)
-        reject(new Error('Timed out waiting for Last.fm authorisation'))
-        return
-      }
-      try {
-        const res = await lfmPost({ method: 'auth.getSession', token })
-        if (res.session) {
-          clearInterval(iv)
-          lfmSession = { key: res.session.key, name: res.session.name }
-          const store = readStore()
-          store.settings.lfmSession = lfmSession
-          writeStore(store)
-          setLfmStatus('ok')
-          resolve(lfmSession)
-        }
-      } catch {}
-    }, 2000)
-  })
-}
-
-function lfmDisconnect() {
-  lfmSession = null
-  setLfmStatus('unconfigured')
+function persistScrobblerSettings() {
   const store = readStore()
-  delete store.settings.lfmSession
+  if (!store.settings) store.settings = {}
+  store.settings.scrobbleTarget = activeScrobblerId
+  if (scrobblers.lastfm.session) store.settings.lfmSession = scrobblers.lastfm.session
+  else delete store.settings.lfmSession
+  if (scrobblers.listenbrainz.config) store.settings.lbConfig = scrobblers.listenbrainz.config
+  else delete store.settings.lbConfig
   writeStore(store)
 }
 
-function lfmUpdateNowPlaying(artist, title) {
-  if (!lfmSession?.key) return
-  lfmPost({ method: 'track.updateNowPlaying', artist, track: title, sk: lfmSession.key })
-    .then(res => setLfmStatus(res.error ? 'error' : 'ok'))
-    .catch(() => setLfmStatus('error'))
+async function scrobblerConnectLastfm() {
+  const session = await scrobblers.lastfm.connect()
+  persistScrobblerSettings()
+  return session
 }
 
-function lfmScrobble(artist, title, startedAt, album) {
-  if (!lfmSession?.key || !artist || !title) return
-  const params = {
-    method: 'track.scrobble',
-    'artist[0]': artist,
-    'track[0]': title,
-    'timestamp[0]': String(Math.floor(startedAt / 1000)),
-    sk: lfmSession.key,
-  }
-  if (album) params['album[0]'] = album
-  lfmPost(params)
-    .then(res => setLfmStatus(res.error ? 'error' : 'ok'))
-    .catch(() => setLfmStatus('error'))
+function scrobblerDisconnect() {
+  activeScrobbler().disconnect()
+  persistScrobblerSettings()
+}
+
+async function scrobblerConnectListenbrainz(config) {
+  const session = await scrobblers.listenbrainz.connect(config)
+  persistScrobblerSettings()
+  return session
+}
+
+function scrobblerSetTarget(id) {
+  if (!scrobblers[id]) throw new Error(`Unknown scrobble target: ${id}`)
+  activeScrobblerId = id
+  persistScrobblerSettings()
+  const t = activeScrobbler()
+  const configured = t.id === 'lastfm' ? !!t.session : !!t.config
+  setScrobblerStatus(configured ? 'ok' : 'unconfigured')
+  return activeScrobblerId
 }
 
 // ── App-owned playback + timeline tracking ───────────────────────────────────
@@ -359,7 +311,7 @@ let monitorInterval      = null
 let lastNowPlaying       = null
 let lastTrackData        = null
 let trackStartedAt       = null
-let currentSetTitle      = null   // DJ set title used as album in Last.fm scrobbles
+let currentSetTitle      = null   // DJ set title scrobbled as the album
 let currentThumbnailUrl  = null   // YouTube thumbnail for history/favorites
 let currentSourceUrl     = null   // Canonical source URL for history/favorites
 let currentTracklistUrl  = null
@@ -422,7 +374,7 @@ function resetTimelineState() {
 function scrobbleLastTrackIfReady() {
   if (!lastTrackData || lastTrackData.isId || !trackStartedAt) return
   if (currentTrackPlayedMs < 30000) return
-  lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt, currentSetTitle)
+  activeScrobbler().scrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt, currentSetTitle)
 }
 
 function stopMonitoring({ finalize = true } = {}) {
@@ -525,7 +477,7 @@ function emitTimelineTrack(track, poll) {
     lastTrackData  = data
     trackStartedAt = Date.now()
     currentTrackPlayedMs = 0
-    if (!data.isId) lfmUpdateNowPlaying(data.artist, data.title)
+    if (!data.isId) activeScrobbler().nowPlaying(data.artist, data.title, currentSetTitle)
   } else if (lastTrackData) {
     lastTrackData = { ...lastTrackData, isPlaying: poll.isPlaying, currentTime: poll.currentTime, duration: poll.duration }
   }
@@ -1527,7 +1479,6 @@ function persistBounds() {
     const store = readStore()
     if (!store.settings) store.settings = {}
     store.settings.windowBounds = mainWindow.getBounds()
-    if (lfmSession) store.settings.lfmSession = lfmSession
     writeStore(store)
   }, 400)
 }
@@ -1623,10 +1574,11 @@ function createWindow() {
 
 app.whenReady().then(() => {
   const store = readStore()
-  if (store.settings?.lfmSession) {
-    lfmSession = store.settings.lfmSession
-    lfmStatus  = 'ok'
-  }
+  activeScrobblerId = scrobblers[store.settings?.scrobbleTarget] ? store.settings.scrobbleTarget : 'lastfm'
+  scrobblers.lastfm.restore(store.settings?.lfmSession)
+  scrobblers.listenbrainz.restore(store.settings?.lbConfig)
+  const active = activeScrobbler()
+  scrobblerStatus = (active.id === 'lastfm' ? !!active.session : !!active.config) ? 'ok' : 'unconfigured'
 
   const theme = store.settings?.theme || 'neon-night'
   setDockIcon(theme)
@@ -1657,9 +1609,13 @@ ipcMain.handle('stats-set',  (_event, data) => writeStats(data))
 ipcMain.handle('store-set', (_event, data) => {
   const existing = readStore()
   const next = { ...data }
-  if (lfmSession) {
+  if (scrobblers.lastfm.session) {
     if (!next.settings) next.settings = {}
-    next.settings.lfmSession = lfmSession
+    next.settings.lfmSession = scrobblers.lastfm.session
+  }
+  if (scrobblers.listenbrainz.config) {
+    if (!next.settings) next.settings = {}
+    next.settings.lbConfig = scrobblers.listenbrainz.config
   }
   if (existing.tracklistCache) next.tracklistCache = existing.tracklistCache
   writeStore(next)
@@ -1728,10 +1684,22 @@ ipcMain.handle('player-volume-set', async (_event, value) => {
   `).catch(() => null)
 })
 
-ipcMain.handle('lfm-connect',    async () => lfmConnect())
-ipcMain.handle('lfm-disconnect', ()      => lfmDisconnect())
-ipcMain.handle('lfm-session',    ()      => lfmSession)
-ipcMain.handle('lfm-status-get', ()      => lfmStatus)
+ipcMain.handle('lfm-connect',    async () => scrobblerConnectLastfm())
+ipcMain.handle('lfm-disconnect', ()      => scrobblerDisconnect())
+ipcMain.handle('lfm-session',    ()      => scrobblers.lastfm.session)
+ipcMain.handle('lfm-status-get', ()      => scrobblerStatus)
+
+ipcMain.handle('scrobbler-target-get', ()            => activeScrobblerId)
+ipcMain.handle('scrobbler-target-set', (_e, id)      => scrobblerSetTarget(id))
+ipcMain.handle('lb-config-get', () => ({
+  url: scrobblers.listenbrainz.config?.url || '',
+  connected: !!scrobblers.listenbrainz.config,
+}))
+ipcMain.handle('lb-connect',    async (_e, config) => scrobblerConnectListenbrainz(config))
+ipcMain.handle('lb-disconnect', () => {
+  scrobblers.listenbrainz.disconnect()
+  persistScrobblerSettings()
+})
 
 // Send source plugin metadata to renderer (for search placeholder etc.)
 ipcMain.handle('get-sources', () =>
@@ -1839,6 +1807,5 @@ ipcMain.handle('set-theme', (_event, theme) => {
   const store = readStore()
   if (!store.settings) store.settings = {}
   store.settings.theme = theme
-  if (lfmSession) store.settings.lfmSession = lfmSession
   writeStore(store)
 })

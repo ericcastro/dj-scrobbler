@@ -30,6 +30,12 @@ contextBridge.exposeInMainWorld('api', {
   lfmSession:    ()     => ipcRenderer.invoke('lfm-session'),
   lfmStatusGet:  ()     => ipcRenderer.invoke('lfm-status-get'),
 
+  scrobblerTargetGet: ()     => ipcRenderer.invoke('scrobbler-target-get'),
+  scrobblerTargetSet: (id)   => ipcRenderer.invoke('scrobbler-target-set', id),
+  lbConfigGet:        ()     => ipcRenderer.invoke('lb-config-get'),
+  lbConnect:    (config)     => ipcRenderer.invoke('lb-connect', config),
+  lbDisconnect: ()           => ipcRenderer.invoke('lb-disconnect'),
+
   setTheme:     (theme) => ipcRenderer.invoke('set-theme', theme),
   getVersion:   ()      => ipcRenderer.invoke('get-version'),
   getPlatform:  ()      => ipcRenderer.invoke('get-platform'),
@@ -42,7 +48,7 @@ contextBridge.exposeInMainWorld('api', {
 
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data',
-                     'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
+                     'lfm-status', 'scrobbler-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
                      'fallback-progress', 'tl-progress', 'update-status']
     if (!allowed.includes(channel)) return
     ipcRenderer.on(channel, (_event, ...args) => callback(...args))
