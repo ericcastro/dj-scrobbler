@@ -13,7 +13,10 @@ The external service the app scrobbles to. One is active at a time; the user pic
 _Avoid_: backend, provider (the codebase already uses "source" and "tracklist plugin" for other concepts; don't add a third word for this)
 
 **Multi-Scrobbler**:
-The user's self-hosted scrobble relay (multi-scrobbler instance). Receives scrobbles from the app and forwards them to their local ListenBrainz. The app talks to Multi-Scrobbler, never to ListenBrainz directly.
+The user's self-hosted scrobble relay (multi-scrobbler instance). Receives scrobbles from the app and forwards them to their local ListenBrainz.
+
+**ListenBrainz-compatible server**:
+Any server accepting the ListenBrainz submit-listens API with token auth — Multi-Scrobbler's endpointlz source, Koito (`/apis/listenbrainz/1`), Maloja, or ListenBrainz itself. The app's listenbrainz Scrobble Target works against all of them; known server quirks (MS's untrustworthy validate-token, Koito's 400-on-empty-payload) are handled in the target implementation.
 
 **Now Playing**:
 A live "currently playing" signal sent to the Scrobble Target when a track starts; distinct from a Scrobble, which is only sent after the track has played long enough.
