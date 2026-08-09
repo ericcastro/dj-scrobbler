@@ -40,6 +40,14 @@ test('normaliseBaseUrl accepts full http(s) URLs and strips trailing slashes', (
   assert.equal(normaliseBaseUrl('http://localhost:9078/api/listenbrainz/'), 'http://localhost:9078/api/listenbrainz')
 })
 
+test('normaliseBaseUrl forgives pasted endpoint/API-root URLs', () => {
+  // Koito documents {host}/apis/listenbrainz/1 as the base URL
+  assert.equal(normaliseBaseUrl('http://koito:4110/apis/listenbrainz/1'), 'http://koito:4110/apis/listenbrainz')
+  // a user pasting the full endpoint path
+  assert.equal(normaliseBaseUrl('http://koito:4110/apis/listenbrainz/1/submit-listens'), 'http://koito:4110/apis/listenbrainz')
+  assert.equal(normaliseBaseUrl('https://api.listenbrainz.org/1/submit-listens/'), 'https://api.listenbrainz.org')
+})
+
 test('normaliseBaseUrl rejects garbage and non-http schemes', () => {
   assert.throws(() => normaliseBaseUrl('localhost:9078'), /full URL|http/)
   assert.throws(() => normaliseBaseUrl('ftp://localhost'), /http/)
@@ -60,6 +68,16 @@ test('connect validates via an empty playing_now probe and stores the config', a
   assert.equal(ms.requests[0].headers.authorization, 'Token secret-token')
   assert.deepEqual(JSON.parse(ms.requests[0].body), { listen_type: 'playing_now', payload: [] })
   ms.close()
+})
+
+test('connect treats Koito\'s 400 "payload is nil" as proof of a valid token', async () => {
+  // Koito's auth middleware rejects bad tokens with 401 before the handler;
+  // a 400 payload complaint means auth already passed.
+  const koito = await mockServer((_req, res) => { res.writeHead(400); res.end('payload is nil') })
+  const s = makeScrobbler()
+  await s.connect({ url: `${koito.url}/apis/listenbrainz/1`, token: 'koito-api-key' })
+  assert.equal(koito.requests[0].url, '/apis/listenbrainz/1/submit-listens')
+  koito.close()
 })
 
 test('connect rejects bad tokens (401 like ListenBrainz, 409 like Multi-Scrobbler) and unreachable servers', async () => {
