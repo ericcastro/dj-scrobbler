@@ -46,8 +46,9 @@ test('set-theme IPC handler delegates to setTitleBarTheme which calls setTitleBa
 
 // ── Store structure ────────────────────────────────────────────────────────────
 
-test('store-set handler always re-injects lfmSession to prevent renderer from wiping it', () => {
-  assert.match(mainJs, /lfmSession.*store\.settings/)
+test('store-set handler always re-injects scrobbler sessions to prevent renderer from wiping them', () => {
+  assert.match(mainJs, /scrobblers\.lastfm\.session[\s\S]*?next\.settings/)
+  assert.match(mainJs, /scrobblers\.listenbrainz\.config[\s\S]*?next\.settings/)
 })
 
 test('update-utils is loaded from lib subdirectory', () => {
@@ -76,7 +77,12 @@ test('all documented IPC channels are present in main.js', () => {
     'now-playing',
     'tracklist-loaded',
     'wv-status',
-    'lfm-status',
+    'scrobbler-status',
+    'scrobbler-target-get',
+    'scrobbler-target-set',
+    'lb-config-get',
+    'lb-connect',
+    'lb-disconnect',
     'set-theme',
   ]
   for (const ch of channels) {

@@ -166,6 +166,17 @@ const lfmConnected       = document.getElementById('lfm-connected')
 const lfmDisconnected    = document.getElementById('lfm-disconnected')
 const lfmUsername        = document.getElementById('lfm-username')
 const lfmConnectStatus   = document.getElementById('lfm-connect-status')
+const scrobblerTargetSel = document.getElementById('scrobbler-target')
+const scrobblerLastfm    = document.getElementById('scrobbler-lastfm')
+const scrobblerLb        = document.getElementById('scrobbler-listenbrainz')
+const lbUrl              = document.getElementById('lb-url')
+const lbToken            = document.getElementById('lb-token')
+const btnLbConnect       = document.getElementById('btn-lb-connect')
+const btnLbDisconnect    = document.getElementById('btn-lb-disconnect')
+const lbConnected        = document.getElementById('lb-connected')
+const lbDisconnected     = document.getElementById('lb-disconnected')
+const lbConnectStatus    = document.getElementById('lb-connect-status')
+const lbServerName       = document.getElementById('lb-server-name')
 const footerAppName      = document.getElementById('footer-app-name')
 const sepListenTime      = document.getElementById('sep-listen-time')
 const sepSetsCount       = document.getElementById('sep-sets-count')
@@ -1302,7 +1313,7 @@ function wireMainEvents() {
     refreshScrobbleBadge()
   })
 
-  window.api.on('lfm-status', (status) => {
+  window.api.on('scrobbler-status', (status) => {
     state.lfmStatus = status
     refreshScrobbleBadge()
   })
@@ -2269,10 +2280,40 @@ function showLfmDisconnected() {
   btnLfmConnect.textContent = 'Connect Last.fm'
 }
 
+function showScrobblerTarget(target) {
+  const isLb = target === 'listenbrainz'
+  scrobblerLastfm.classList.toggle('hidden', isLb)
+  scrobblerLb.classList.toggle('hidden', !isLb)
+}
+
+function showLbConnected(name) {
+  lbServerName.textContent = name
+  lbServerName.title = name   // full URL on hover when ellipsised
+  lbConnected.classList.remove('hidden')
+  lbDisconnected.classList.add('hidden')
+}
+
+function showLbDisconnected() {
+  lbConnected.classList.add('hidden')
+  lbDisconnected.classList.remove('hidden')
+  lbConnectStatus.textContent = ''
+  btnLbConnect.disabled = false
+  btnLbConnect.textContent = 'Connect'
+}
+
 async function loadSettings() {
+  const target = await window.api.scrobblerTargetGet()
+  scrobblerTargetSel.value = target
+  showScrobblerTarget(target)
+
   const session = await window.api.lfmSession()
   if (session?.name) showLfmConnected(session.name)
   else showLfmDisconnected()
+
+  const lb = await window.api.lbConfigGet()
+  if (lb.url) lbUrl.value = lb.url
+  if (lb.connected) showLbConnected(lb.url)
+  else showLbDisconnected()
 }
 
 // ── Persist ───────────────────────────────────────────────────────────────────
@@ -2550,6 +2591,38 @@ function wireEvents() {
   btnLfmDisconnect.addEventListener('click', async () => {
     await window.api.lfmDisconnect()
     showLfmDisconnected()
+    state.lfmStatus = 'unconfigured'
+    setTrackPlaying(false)
+    refreshScrobbleBadge()
+  })
+
+  scrobblerTargetSel.addEventListener('change', async () => {
+    const target = await window.api.scrobblerTargetSet(scrobblerTargetSel.value)
+    showScrobblerTarget(target)
+    state.lfmStatus = await window.api.lfmStatusGet()
+    refreshScrobbleBadge()
+  })
+
+  btnLbConnect.addEventListener('click', async () => {
+    btnLbConnect.disabled = true
+    btnLbConnect.textContent = 'Connecting…'
+    lbConnectStatus.textContent = ''
+    try {
+      const session = await window.api.lbConnect({ url: lbUrl.value, token: lbToken.value })
+      lbToken.value = ''
+      showLbConnected(session.name)
+      state.lfmStatus = 'ok'
+      refreshScrobbleBadge()
+    } catch (e) {
+      btnLbConnect.disabled = false
+      btnLbConnect.textContent = 'Connect'
+      lbConnectStatus.textContent = e.message || 'Connection failed.'
+    }
+  })
+
+  btnLbDisconnect.addEventListener('click', async () => {
+    await window.api.lbDisconnect()
+    showLbDisconnected()
     state.lfmStatus = 'unconfigured'
     setTrackPlaying(false)
     refreshScrobbleBadge()
