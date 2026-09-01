@@ -83,3 +83,93 @@ test('all documented IPC channels are present in main.js', () => {
     assert.equal(mainJs.includes(`'${ch}'`), true, `IPC channel '${ch}' missing from main.js`)
   }
 })
+
+// ── Alternate tracklist providers ──────────────────────────────────────────────
+
+test('the lookup pipeline is shared by the automatic lookup and the manual retry', () => {
+  // Both entry points must run the same search → extract → cache → broadcast
+  // path, so a provider only has to be correct once.
+  assert.match(mainJs, /async function runTracklistLookup\(tlPlugin, meta, lookupToken/)
+  assert.match(mainJs, /await runTracklistLookup\(tlPlugin, meta, lookupToken\)/)
+  assert.match(mainJs, /await runTracklistLookup\(tlPlugin, currentSourceMeta, lookupToken, \{ manual: true \}\)/)
+})
+
+test('manual provider retries are reachable over IPC and keyed to the live set', () => {
+  assert.match(mainJs, /ipcMain\.handle\('tracklist-try-provider'/)
+  assert.match(mainJs, /async function tryTracklistProvider\(providerId\)/)
+  // Replaying the lookup needs the meta from the original source navigation
+  assert.match(mainJs, /currentSourceMeta = meta/)
+  assert.match(mainJs, /if \(!currentSourceMeta \|\| !currentSourceUrl\)/)
+})
+
+test('a manual retry scrobbles and clears the outgoing provider before searching', () => {
+  const fn = mainJs.slice(mainJs.indexOf('async function tryTracklistProvider'))
+  assert.match(fn, /scrobbleLastTrackIfReady\(\)/)
+  assert.match(fn, /resetTimelineState\(\)/)
+  assert.match(fn, /currentTracks = \[\]/)
+})
+
+test('a manual retry leaves the running player alone', () => {
+  // The loading overlay covers the video, so manual runs skip it — the
+  // fallback panel below the player carries the progress instead.
+  const fn = mainJs.slice(mainJs.indexOf('async function runTracklistLookup'))
+  assert.match(fn, /if \(!manual\) \{\s*mainWindow\.webContents\.send\('wv-status', \{ type: 'loading'/)
+})
+
+test('providers already tried are not offered again for the same set', () => {
+  assert.match(mainJs, /triedProviders\.add\(tlPlugin\.id\)/)
+  assert.match(mainJs, /triedProviders = new Set\(\)/)
+  assert.match(mainJs, /alternateTracklistsForSource\(currentSourceId, \{ exclude: \[\.\.\.triedProviders\] \}\)/)
+})
+
+test('every no-tracklist outcome offers the same contribute and alternate choices', () => {
+  // Search miss, provider error and empty extract must all reach the same panel.
+  const fallbackSends = mainJs.match(/isFallback: true,\n\s*(lookupError,\n\s*)?\.\.\.tracklistFallbackExtras\(\),/g)
+  assert.equal(fallbackSends.length, 3, 'expected 3 fallback tracklist-loaded payloads')
+})
+
+test('an empty extract counts as a miss, not as a loaded tracklist', () => {
+  // Otherwise the set would be pinned to a provider holding no tracks and the
+  // remaining alternates would never be offered.
+  assert.match(mainJs, /if \(extracted\.tracks\.length === 0\)/)
+  const fn = mainJs.slice(mainJs.indexOf('if (extracted.tracks.length === 0)'))
+  assert.match(fn.slice(0, 400), /currentTracklistProvider = null/)
+})
+
+test('weak-signal providers can raise the minimum match score', () => {
+  assert.match(mainJs, /const minScore = tlPlugin\.minMatchScore \|\| 1/)
+  assert.match(mainJs, /if \(!top \|\| top\.score < minScore\)/)
+})
+
+test('tracklist-loaded names the provider so the renderer stops hardcoding it', () => {
+  assert.match(mainJs, /providerName: tlPlugin\?\.name \|\| null/)
+  assert.match(mainJs, /providerFooterLabel: tlPlugin\?\.footerLabel \|\| null/)
+})
+
+test('a tracklist fetched by hand from an alternate is restored on reopen', () => {
+  // The primary still retries first — a set79 result must not pin the set
+  // forever if 1001Tracklists later gains a tracklist for it.
+  assert.match(mainJs, /async function restoreCachedAlternate\(meta, lookupToken\)/)
+  assert.match(mainJs, /\.find\(p => getCachedTracklist\(p\.id, currentSourceUrl\)\)/)
+  // Every dead end tries the restore before painting the fallback panel
+  const restores = mainJs.match(/if \(await restoreCachedAlternate\(meta, lookupToken\)\) return/g)
+  assert.equal(restores.length, 3, 'expected the restore on all 3 no-tracklist paths')
+})
+
+test('the external-link allowlist is derived from the tracklist registry', () => {
+  // Regression: set79 links were silently dropped because the allowlist named
+  // 1001tracklists.com by hand. A new provider must not have to remember this.
+  assert.match(mainJs, /function allowedExternalHosts/)
+  assert.match(mainJs, /plugins\.TRACKLISTS\.map\(p => p\.externalHost\)\.filter\(Boolean\)/)
+  assert.equal(/const allowed = \['djscrobbler\.com'/.test(mainJs), false,
+    'open-external still hardcodes provider hosts')
+  // A rejected URL has to say so — silence is what hid this for a whole session
+  assert.match(mainJs, /\[external\] blocked/)
+})
+
+test('every tracklist provider declares the host its links point at', () => {
+  const plugins = require('../plugins')
+  for (const p of plugins.TRACKLISTS) {
+    assert.ok(p.externalHost, `${p.id} is missing externalHost`)
+  }
+})

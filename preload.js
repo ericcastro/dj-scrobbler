@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('api', {
   updatesNotificationsDisabledSet: (disabled) => ipcRenderer.invoke('updates-notifications-disabled-set', disabled),
   openExternal: (url)   => ipcRenderer.invoke('open-external', url),
   tracklistCacheClear: () => ipcRenderer.invoke('tracklist-cache-clear'),
+  tryTracklistProvider: (providerId) => ipcRenderer.invoke('tracklist-try-provider', providerId),
 
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data',

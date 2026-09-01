@@ -2195,6 +2195,17 @@ body.compact-layout #scrobble-badge.dim::after {
 }
 #tl-contribute-actions.hidden { display: none; }
 
+/* Alternate tracklist provider — the panel's main action while one is on offer */
+#btn-alt-provider {
+  color: var(--text);
+  border-color: var(--accent);
+}
+#btn-alt-provider:disabled {
+  opacity: .55;
+  cursor: default;
+  border-color: var(--border);
+}
+
 .tl-contribute-note {
   font-size: 11px;
   color: var(--text2);

@@ -324,6 +324,11 @@ module.exports = {
       `https://www.1001tracklists.com/action/tracklist_add.php?medialink=${encodeURIComponent(sourceUrl)}`,
   },
 
+  footerLabel: 'edit on 1001Tracklists ↗',
+
+  // Registrable domain the app is allowed to open in the user's browser
+  externalHost: '1001tracklists.com',
+
   _test: {
     assertProviderResponse,
     extractVideoIdFromHtml,

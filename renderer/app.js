@@ -14,7 +14,10 @@ const state = {
   currentSource: '',
   currentTracklistUrl: null,
   currentTracklistProvider: null,
+  currentTracklistProviderName: null,
+  currentTracklistProviderFooter: null,
   currentContributeUrl: null,
+  currentAltProvider: null,   // { id, name, label, prompt, note } offered in the fallback panel
   currentThumbnailUrl: null,
   nowPlaying: null,
   playbackCurrentTime: 0,
@@ -84,6 +87,7 @@ const tracklistUnavailableEl      = document.getElementById('tracklist-unavailab
 const tracklistUnavailableTitle   = document.getElementById('tracklist-unavailable-title')
 const tracklistUnavailableSub     = document.getElementById('tracklist-unavailable-sub')
 const tlContributeActions         = document.getElementById('tl-contribute-actions')
+const btnAltProvider              = document.getElementById('btn-alt-provider')
 const btnContributeTracklist      = document.getElementById('btn-contribute-tracklist')
 const tlContributeNote            = document.getElementById('tl-contribute-note')
 const tracklistCompactList  = document.getElementById('tracklist-compact-list')
@@ -301,33 +305,40 @@ async function supportEmailUrl(type) {
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
 
-const ID_COMMUNITY_NOTE = 'Tracklist metadata is obtained from 1001Tracklists, where anyone with an account can contribute :-)'
-
 const ID_SUB = "You can help out and complete what's missing!"
+
+// The contribute prompts assume 1001Tracklists' community model. Other
+// providers (set79) have no public edit flow, so they only get an attribution.
+function tracklistProviderName() {
+  return state.currentTracklistProviderName || '1001Tracklists'
+}
+
+function tracklistProviderNote() {
+  const name = tracklistProviderName()
+  return name === '1001Tracklists'
+    ? 'Tracklist metadata is obtained from 1001Tracklists, where anyone with an account can contribute :-)'
+    : `Tracklist metadata for this set came from ${name}.`
+}
 
 const CONTRIBUTE_CONFIGS = {
   'no-timestamp': {
     title: 'No timestamp for this track yet',
     sub:   "...so we can't seek to it. You can help adding it!",
-    note:  ID_COMMUNITY_NOTE,
   },
   'id': {
     btnLabel: 'do you know this track?',
     title:    'Do you know this track?',
     sub:      ID_SUB,
-    note:     ID_COMMUNITY_NOTE,
   },
   'id-title': {
     btnLabel: 'do you know the title?',
     title:    'Do you know the title for this track?',
     sub:      ID_SUB,
-    note:     ID_COMMUNITY_NOTE,
   },
   'id-artist': {
     btnLabel: 'do you know the artist?',
     title:    'Do you know the artist for this track?',
     sub:      ID_SUB,
-    note:     ID_COMMUNITY_NOTE,
   },
 }
 
@@ -335,8 +346,9 @@ function openContributeDialog(type) {
   const cfg = CONTRIBUTE_CONFIGS[type] || CONTRIBUTE_CONFIGS['no-timestamp']
   contributeDialogTitle.textContent = cfg.title
   contributeDialogSub.textContent   = cfg.sub
-  contributeDialogNote.textContent  = cfg.note
-  contributeDialogNote.classList.toggle('hidden', !cfg.note)
+  contributeDialogNote.textContent  = tracklistProviderNote()
+  contributeDialogNote.classList.remove('hidden')
+  btnContributeOpen.textContent = `Open on ${tracklistProviderName()}`
   // noAction types have no link to open — hide action buttons
   btnContributeOpen.classList.toggle('hidden', !!cfg.noAction)
   btnContributeDismiss.classList.toggle('hidden', !!cfg.noAction)
@@ -1201,7 +1213,7 @@ function wireMainEvents() {
     }
   })
 
-  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, tracklistUrl, lookupError, contributeLabel, contributeNote, contributeUrl }) => {
+  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, providerName, providerFooterLabel, tracklistUrl, lookupError, contributeLabel, contributeNote, contributeUrl, alternateProviders }) => {
     // Don't update set state or history while the user is deciding in the dialog.
     if (isResumeDialogOpen()) return
     document.body.classList.add('has-active-set')
@@ -1214,6 +1226,8 @@ function wireMainEvents() {
     state.currentThumbnailUrl  = thumbnailUrl || null
     state.currentTracklistUrl  = tracklistUrl || null
     state.currentTracklistProvider = providerId || null
+    state.currentTracklistProviderName   = providerName || null
+    state.currentTracklistProviderFooter = providerFooterLabel || null
 
     if (isFallback) {
       state.currentTracks  = []   // prevent stale count leaking into bookmark
@@ -1222,16 +1236,31 @@ function wireMainEvents() {
       npSet.textContent     = title
       setNpSource('no tracklist yet')
       tracklistUnavailableTitle.textContent = lookupError ? 'Tracklist lookup paused' : 'Tracklist not yet available'
-      tracklistUnavailableSub.innerHTML = lookupError?.message ||
-        'It will retry automatically next time.<br /><br /> … or maybe create one yourself?'
-      // Show contribute prompt only for genuine "not found" (no lookupError) with a known URL
-      const showContribute = !lookupError && contributeUrl && contributeLabel
-      tlContributeActions.classList.toggle('hidden', !showContribute)
-      if (showContribute) {
-        btnContributeTracklist.textContent = contributeLabel
-        tlContributeNote.textContent = contributeNote || ''
-        tlContributeNote.classList.toggle('hidden', !contributeNote)
+
+      // An untried alternate provider is the better offer, so it takes the
+      // panel's single action slot; contributing is what's left once every
+      // alternate has been tried and come up empty too.
+      const alt = (alternateProviders || [])[0] || null
+      const showContribute = !alt && !lookupError && contributeUrl && contributeLabel
+      state.currentAltProvider = alt
+
+      const subLines = [escHtml(lookupError?.message || 'It will retry automatically next time.')]
+      if (alt?.prompt) subLines.push(escHtml(alt.prompt))
+      else if (showContribute) subLines.push(' … or maybe create one yourself?')
+      tracklistUnavailableSub.innerHTML = subLines.join('<br /><br />')
+
+      btnAltProvider.classList.toggle('hidden', !alt)
+      if (alt) {
+        btnAltProvider.textContent = alt.label
+        btnAltProvider.disabled = false
       }
+      btnContributeTracklist.classList.toggle('hidden', !showContribute)
+      if (showContribute) btnContributeTracklist.textContent = contributeLabel
+
+      const note = alt ? alt.note : (showContribute ? contributeNote : null)
+      tlContributeNote.textContent = note || ''
+      tlContributeNote.classList.toggle('hidden', !note)
+      tlContributeActions.classList.toggle('hidden', !alt && !showContribute)
       // Show the below-video area with the unavailable message
       tracklistUnavailableEl.classList.remove('hidden')
       tracklistList.innerHTML = ''
@@ -1248,8 +1277,8 @@ function wireMainEvents() {
     } else {
       state.currentSource  = 'youtube'
       npSet.textContent    = title
-      if (providerId === '1001tracklists') {
-        setNpSource('tracklist obtained from 1001Tracklists', tracklistUrl || null)
+      if (providerName) {
+        setNpSource(`tracklist obtained from ${providerName}`, tracklistUrl || null)
       } else {
         setNpSource('youtube')
       }
@@ -1258,6 +1287,7 @@ function wireMainEvents() {
       tracklistUnavailableEl.classList.add('hidden')
       tlContributeActions.classList.add('hidden')
       state.currentContributeUrl = null
+      state.currentAltProvider = null
     }
 
     state.isIdTrack = false
@@ -2139,11 +2169,12 @@ function renderTracklist(tracks) {
     tracklistCompactList.appendChild(createTrackItem(track, false))
   })
 
-  // Tracklist footer — "found an error? edit on 1001Tracklists"
+  // Tracklist footer — "found an error? edit on <provider>"
   const footerUrl = state.currentTracklistUrl
+  const footerLabel = state.currentTracklistProviderFooter || 'edit on 1001Tracklists ↗'
   for (const footer of [tlListFooter, tlCompactFooter]) {
     if (footerUrl && tracks.length > 0) {
-      footer.innerHTML = `found an error in this tracklist? <a class="tl-footer-link">edit on 1001Tracklists ↗</a>`
+      footer.innerHTML = `found an error in this tracklist? <a class="tl-footer-link">${escHtml(footerLabel)}</a>`
       footer.querySelector('.tl-footer-link').addEventListener('click', () => {
         window.api.openExternal(footerUrl)
       })
@@ -2295,6 +2326,9 @@ function resetNowPlaying() {
   state.currentSource      = ''
   state.currentTracklistUrl = null
   state.currentTracklistProvider = null
+  state.currentTracklistProviderName = null
+  state.currentTracklistProviderFooter = null
+  state.currentAltProvider  = null
   state.currentThumbnailUrl = null
   state.currentTracks       = []
   state.playbackCurrentTime = 0
@@ -2625,6 +2659,22 @@ function wireEvents() {
 
   btnContributeTracklist.addEventListener('click', () => {
     if (state.currentContributeUrl) window.api.openExternal(state.currentContributeUrl)
+  })
+
+  // Ask main to re-run the lookup against an alternate provider. The reply
+  // arrives as a fresh tracklist-loaded, which repaints this whole panel — the
+  // button only has to stay busy until then.
+  btnAltProvider.addEventListener('click', async () => {
+    const alt = state.currentAltProvider
+    if (!alt || btnAltProvider.disabled) return
+    btnAltProvider.disabled = true
+    btnAltProvider.textContent = `Searching ${alt.name}…`
+    try {
+      await window.api.tryTracklistProvider(alt.id)
+    } finally {
+      btnAltProvider.disabled = false
+      if (state.currentAltProvider === alt) btnAltProvider.textContent = alt.label
+    }
   })
 
   btnContributeClose.addEventListener('click', closeContributeDialog)

@@ -365,6 +365,9 @@ let currentSourceUrl     = null   // Canonical source URL for history/favorites
 let currentTracklistUrl  = null
 let currentTracklistProvider = null
 let currentTracks        = []
+let currentSourceId      = null   // Source plugin ID the current set came from
+let currentSourceMeta    = null   // getMeta() result, replayed by manual retries
+let triedProviders       = new Set()   // Providers already searched for this set
 let isYouTubePlayerMode  = false
 let isTracklistLookupPending = false
 let lastPlayerPlaying    = null
@@ -747,7 +750,15 @@ async function findBestTracklist(tlPlugin, meta) {
   log(`[${tlPlugin.id}] ${scored.length} results for: "${meta.title}"`)
   scored.forEach((r, i) => log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
 
-  return scored[0]?.score > 0 ? scored[0] : null
+  // Providers that match on weak signals (title search rather than an exact
+  // media-ID match) raise the bar via minMatchScore.
+  const minScore = tlPlugin.minMatchScore || 1
+  const top = scored[0]
+  if (!top || top.score < minScore) {
+    if (top) log(`[${tlPlugin.id}] best score ${top.score}% below minimum ${minScore}% — treating as no match`)
+    return null
+  }
+  return top
 }
 
 function tracklistLookupErrorPayload(err, tlPlugin) {
@@ -757,6 +768,250 @@ function tracklistLookupErrorPayload(err, tlPlugin) {
     message: err.message || 'Tracklist lookup failed.',
     providerId: err.providerId || tlPlugin?.id || null,
   }
+}
+
+// Fields every tracklist-loaded payload carries, whatever the outcome.
+function tracklistLoadedBase(tlPlugin) {
+  return {
+    url: currentSourceUrl,
+    sourceUrl: currentSourceUrl,
+    title: currentSetTitle,
+    thumbnailUrl: currentThumbnailUrl,
+    providerId: tlPlugin?.id || null,
+    providerName: tlPlugin?.name || null,
+    providerFooterLabel: tlPlugin?.footerLabel || null,
+  }
+}
+
+// Extra fields for the "nothing found" panel: how to contribute a tracklist to
+// the source's primary provider, plus any alternate provider not yet tried.
+function tracklistFallbackExtras() {
+  const primary = plugins.tracklistForSource(currentSourceId)
+  const contributeInfo = primary?.contributeInfo
+  const alternates = plugins
+    .alternateTracklistsForSource(currentSourceId, { exclude: [...triedProviders] })
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      prompt: p.alternateInfo?.prompt || null,
+      label: p.alternateInfo?.label || `Try ${p.name} instead`,
+      note: p.alternateInfo?.note || null,
+    }))
+
+  return {
+    contributeLabel: contributeInfo?.label || null,
+    contributeNote:  contributeInfo?.note  || null,
+    contributeUrl:   contributeInfo?.url?.(currentSourceUrl) || null,
+    alternateProviders: alternates,
+  }
+}
+
+/**
+ * When a provider comes up empty, fall back to a tracklist the user already
+ * fetched by hand from an alternate provider for this same set — their choice
+ * outlives the session, and re-pressing the button every time would be silly.
+ *
+ * Only a *cached* alternate qualifies: this never searches an alternate on its
+ * own, so the button stays the only way to reach one for the first time.
+ */
+async function restoreCachedAlternate(meta, lookupToken) {
+  const restored = plugins
+    .alternateTracklistsForSource(currentSourceId, { exclude: [...triedProviders] })
+    .find(p => getCachedTracklist(p.id, currentSourceUrl))
+  if (!restored) return false
+
+  log(`[lookup] restoring cached ${restored.id} tracklist previously chosen for this set`)
+  await runTracklistLookup(restored, meta, lookupToken)
+  return true
+}
+
+/**
+ * Search a tracklist provider for the current set, then extract, cache and
+ * broadcast whatever it finds. Shared by the automatic lookup that follows a
+ * source navigation and by the manual "try another provider" button, which
+ * replays it against the same meta with a different plugin.
+ *
+ * `manual` runs keep the player untouched: no loading overlay, and a miss
+ * leaves the video playing under an updated "not available" panel.
+ */
+async function runTracklistLookup(tlPlugin, meta, lookupToken, { manual = false } = {}) {
+  triedProviders.add(tlPlugin.id)
+
+  log(`[lookup] checking tracklist cache for provider=${tlPlugin.id} source=${currentSourceUrl}`)
+  const cached = getCachedTracklist(tlPlugin.id, currentSourceUrl)
+  if (cached) {
+    log(`[cache] hit provider=${cached.providerId} source=${currentSourceUrl} tracks=${cached.tracks.length}`)
+    isTracklistLookupPending = false
+    currentTracklistUrl = cached.tracklistUrl
+    currentTracklistProvider = cached.providerId
+    currentSetTitle = cached.title || currentSetTitle
+    currentTracks = normalizeTracks(cached.tracks, cached.providerId)
+
+    mainWindow.webContents.send('tracklist-loaded', {
+      ...tracklistLoadedBase(tlPlugin),
+      title: currentSetTitle,
+      tracklistUrl: cached.tracklistUrl,
+      isFallback: false,
+      fromCache: true,
+    })
+    mainWindow.webContents.send('tracklist-data', {
+      providerId: cached.providerId,
+      url: cached.tracklistUrl,
+      tracks: currentTracks,
+      fromCache: true,
+    })
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    return
+  }
+
+  log(`[lookup] cache miss — starting network search via ${tlPlugin.id} for "${currentSetTitle}"`)
+  if (!manual) {
+    mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
+  }
+
+  let best
+  const searchStart = Date.now()
+  try {
+    log(`[lookup] findBestTracklist start provider=${tlPlugin.id}`)
+    best = await findBestTracklist(tlPlugin, meta)
+    log(`[lookup] findBestTracklist done in ${Date.now() - searchStart}ms result=${best ? best.url : '(none)'}`)
+  } catch (err) {
+    log(`[lookup] findBestTracklist threw after ${Date.now() - searchStart}ms: ${err?.message || err}`)
+    const lookupError = tracklistLookupErrorPayload(err, tlPlugin)
+    log(`[lookup] provider failed code=${lookupError.code} provider=${lookupError.providerId}: ${lookupError.message}`)
+    if (await restoreCachedAlternate(meta, lookupToken)) return
+    isTracklistLookupPending = false
+    currentLookupToken++
+    mainWindow.webContents.send('tracklist-loaded', {
+      ...tracklistLoadedBase(tlPlugin),
+      tracklistUrl: null,
+      isFallback: true,
+      lookupError,
+      ...tracklistFallbackExtras(),
+    })
+    if (lookupError.code === 'network_unavailable') {
+      mainWindow.webContents.send('wv-status', {
+        type: 'network-error',
+        url: currentSourceUrl,
+        message: lookupError.message,
+      })
+    } else {
+      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    }
+    return
+  }
+  if (lookupToken !== currentLookupToken) {
+    log(`[lookup] token mismatch after findBestTracklist (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
+    return
+  }
+
+  if (!best) {
+    log('[lookup] → no tracklist found — sending fallback')
+    if (await restoreCachedAlternate(meta, lookupToken)) return
+    isTracklistLookupPending = false
+    mainWindow.webContents.send('tracklist-loaded', {
+      ...tracklistLoadedBase(tlPlugin),
+      tracklistUrl: null,
+      isFallback: true,
+      ...tracklistFallbackExtras(),
+    })
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    return
+  }
+
+  log(`[lookup] → best match: "${best.title}" url=${best.url}`)
+  log(`[lookup] → extracting tracklist from ${best.url}`)
+  if (!manual) {
+    mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Loading tracklist…' })
+  }
+  currentTracklistUrl = best.url
+  currentTracklistProvider = tlPlugin.id
+  const extractStart = Date.now()
+  const extracted = await extractTracklistInBackground(tlPlugin, best.url)
+  log(`[lookup] extractTracklistInBackground done in ${Date.now() - extractStart}ms tracks=${extracted.tracks.length}`)
+  if (lookupToken !== currentLookupToken) {
+    log(`[lookup] token mismatch after extract (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
+    return
+  }
+
+  // An empty extract is a miss, not a result — keep the fallback panel (and its
+  // remaining alternates) rather than pinning the set to a provider with no data.
+  if (extracted.tracks.length === 0) {
+    log(`[lookup] extract came back empty for ${best.url} — treating as no tracklist`)
+    currentTracklistUrl = null
+    currentTracklistProvider = null
+    if (await restoreCachedAlternate(meta, lookupToken)) return
+    isTracklistLookupPending = false
+    mainWindow.webContents.send('tracklist-loaded', {
+      ...tracklistLoadedBase(tlPlugin),
+      tracklistUrl: null,
+      isFallback: true,
+      ...tracklistFallbackExtras(),
+    })
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    return
+  }
+
+  isTracklistLookupPending = false
+  const title = currentSetTitle || extracted.title || best.title || currentSourceUrl
+  currentSetTitle = title
+  currentTracks = normalizeTracks(extracted.tracks, tlPlugin.id)
+  log(`[lookup] writing cache: provider=${tlPlugin.id} tracks=${currentTracks.length} title="${title}"`)
+  writeCachedTracklist({
+    sourceUrl: currentSourceUrl,
+    providerId: tlPlugin.id,
+    tracklistUrl: best.url,
+    title,
+    thumbnailUrl: currentThumbnailUrl,
+    tracks: currentTracks,
+  })
+
+  mainWindow.webContents.send('tracklist-loaded', {
+    ...tracklistLoadedBase(tlPlugin),
+    title,
+    tracklistUrl: best.url,
+    isFallback: false,
+  })
+  log(`[lookup] DONE sent tracklist-loaded tracks=${currentTracks.length}`)
+
+  mainWindow.webContents.send('tracklist-data', {
+    providerId: tlPlugin.id,
+    url: best.url,
+    tracks: currentTracks,
+  })
+  mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+}
+
+/**
+ * Re-run the lookup for the set already on screen using a different provider.
+ * Playback keeps running throughout — only the tracklist half of the state is
+ * torn down and rebuilt.
+ */
+async function tryTracklistProvider(providerId) {
+  const tlPlugin = plugins.tracklistById(providerId)
+  if (!tlPlugin) {
+    log(`[lookup] manual retry rejected — unknown provider=${providerId}`)
+    return false
+  }
+  if (!currentSourceMeta || !currentSourceUrl) {
+    log(`[lookup] manual retry rejected — no current set`)
+    return false
+  }
+
+  const lookupToken = ++currentLookupToken
+  log(`[lookup] MANUAL START provider=${providerId} source=${currentSourceUrl} token=${lookupToken}`)
+
+  // Drop the previous provider's tracks so the timeline re-emits against the
+  // new ones; scrobble whatever was playing before it disappears.
+  scrobbleLastTrackIfReady()
+  resetTimelineState()
+  currentTracks = []
+  currentTracklistUrl = null
+  currentTracklistProvider = null
+  isTracklistLookupPending = true
+
+  await runTracklistLookup(tlPlugin, currentSourceMeta, lookupToken, { manual: true })
+  return true
 }
 
 // ── Source → tracklist routing ────────────────────────────────────────────────
@@ -776,6 +1031,9 @@ async function handleSourceUrl(source, url, wvContents) {
   currentTracks = []
   currentTracklistUrl = null
   currentTracklistProvider = null
+  currentSourceId = source.id
+  currentSourceMeta = null
+  triedProviders = new Set()
   currentThumbnailUrl = thumbnailForSourceUrl(url)
   isYouTubePlayerMode = false
   isTracklistLookupPending = false
@@ -790,6 +1048,7 @@ async function handleSourceUrl(source, url, wvContents) {
   }
 
   currentSourceUrl = meta.url || url
+  currentSourceMeta = meta
   currentSetTitle = meta.title || currentSourceUrl
   currentThumbnailUrl = thumbnailForSourceUrl(currentSourceUrl) || currentThumbnailUrl
   log(`[lookup] meta resolved title="${currentSetTitle}" sourceUrl="${currentSourceUrl}"`)
@@ -819,143 +1078,7 @@ async function handleSourceUrl(source, url, wvContents) {
     return
   }
 
-  log(`[lookup] checking tracklist cache for provider=${tlPlugin.id} source=${currentSourceUrl}`)
-  const cached = getCachedTracklist(tlPlugin.id, currentSourceUrl)
-  if (cached) {
-    log(`[cache] hit provider=${cached.providerId} source=${currentSourceUrl} tracks=${cached.tracks.length}`)
-    isTracklistLookupPending = false
-    currentTracklistUrl = cached.tracklistUrl
-    currentTracklistProvider = cached.providerId
-    currentSetTitle = cached.title || currentSetTitle
-    currentTracks = normalizeTracks(cached.tracks, cached.providerId)
-
-    mainWindow.webContents.send('tracklist-loaded', {
-      url: currentSourceUrl,
-      sourceUrl: currentSourceUrl,
-      title: currentSetTitle,
-      thumbnailUrl: currentThumbnailUrl,
-      providerId: cached.providerId,
-      tracklistUrl: cached.tracklistUrl,
-      isFallback: false,
-      fromCache: true,
-    })
-    mainWindow.webContents.send('tracklist-data', {
-      providerId: cached.providerId,
-      url: cached.tracklistUrl,
-      tracks: currentTracks,
-      fromCache: true,
-    })
-    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-    return
-  }
-
-  log(`[lookup] cache miss — starting network search via ${tlPlugin.id} for "${currentSetTitle}"`)
-  mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
-
-  let best
-  const searchStart = Date.now()
-  try {
-    log(`[lookup] findBestTracklist start provider=${tlPlugin.id}`)
-    best = await findBestTracklist(tlPlugin, meta)
-    log(`[lookup] findBestTracklist done in ${Date.now() - searchStart}ms result=${best ? best.url : '(none)'}`)
-  } catch (err) {
-    log(`[lookup] findBestTracklist threw after ${Date.now() - searchStart}ms: ${err?.message || err}`)
-    const lookupError = tracklistLookupErrorPayload(err, tlPlugin)
-    log(`[lookup] provider failed code=${lookupError.code} provider=${lookupError.providerId}: ${lookupError.message}`)
-    isTracklistLookupPending = false
-    currentLookupToken++
-    mainWindow.webContents.send('tracklist-loaded', {
-      url: currentSourceUrl,
-      sourceUrl: currentSourceUrl,
-      title: currentSetTitle,
-      thumbnailUrl: currentThumbnailUrl,
-      providerId: tlPlugin.id,
-      tracklistUrl: null,
-      isFallback: true,
-      lookupError,
-    })
-    if (lookupError.code === 'network_unavailable') {
-      mainWindow.webContents.send('wv-status', {
-        type: 'network-error',
-        url: currentSourceUrl,
-        message: lookupError.message,
-      })
-    } else {
-      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-    }
-    return
-  }
-  if (lookupToken !== currentLookupToken) {
-    log(`[lookup] token mismatch after findBestTracklist (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
-    return
-  }
-
-  if (!best) {
-    log('[lookup] → no tracklist found — sending fallback')
-    isTracklistLookupPending = false
-    const contributeInfo = tlPlugin.contributeInfo
-    mainWindow.webContents.send('tracklist-loaded', {
-      url: currentSourceUrl,
-      sourceUrl: currentSourceUrl,
-      title: currentSetTitle,
-      thumbnailUrl: currentThumbnailUrl,
-      providerId: tlPlugin.id,
-      tracklistUrl: null,
-      isFallback: true,
-      contributeLabel: contributeInfo?.label || null,
-      contributeNote:  contributeInfo?.note  || null,
-      contributeUrl:   contributeInfo?.url?.(currentSourceUrl) || null,
-    })
-    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-    return
-  }
-
-  log(`[lookup] → best match: "${best.title}" url=${best.url}`)
-  log(`[lookup] → extracting tracklist from ${best.url}`)
-  mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Loading tracklist…' })
-  currentTracklistUrl = best.url
-  currentTracklistProvider = tlPlugin.id
-  const extractStart = Date.now()
-  const extracted = await extractTracklistInBackground(tlPlugin, best.url)
-  log(`[lookup] extractTracklistInBackground done in ${Date.now() - extractStart}ms tracks=${extracted.tracks.length}`)
-  if (lookupToken !== currentLookupToken) {
-    log(`[lookup] token mismatch after extract (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
-    return
-  }
-
-  isTracklistLookupPending = false
-  const title = currentSetTitle || extracted.title || best.title || currentSourceUrl
-  currentSetTitle = title
-  currentTracks = normalizeTracks(extracted.tracks, tlPlugin.id)
-  log(`[lookup] writing cache: provider=${tlPlugin.id} tracks=${currentTracks.length} title="${title}"`)
-  writeCachedTracklist({
-    sourceUrl: currentSourceUrl,
-    providerId: tlPlugin.id,
-    tracklistUrl: best.url,
-    title,
-    thumbnailUrl: currentThumbnailUrl,
-    tracks: currentTracks,
-  })
-
-  mainWindow.webContents.send('tracklist-loaded', {
-    url: currentSourceUrl,
-    sourceUrl: currentSourceUrl,
-    title,
-    thumbnailUrl: currentThumbnailUrl,
-    providerId: tlPlugin.id,
-    tracklistUrl: best.url,
-    isFallback: currentTracks.length === 0,
-  })
-  log(`[lookup] DONE sent tracklist-loaded tracks=${currentTracks.length} isFallback=${currentTracks.length === 0}`)
-
-  if (currentTracks.length) {
-    mainWindow.webContents.send('tracklist-data', {
-      providerId: tlPlugin.id,
-      url: best.url,
-      tracks: currentTracks,
-    })
-  }
-  mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+  await runTracklistLookup(tlPlugin, meta, lookupToken)
 }
 
 // ── WebView wiring ────────────────────────────────────────────────────────────
@@ -1749,6 +1872,7 @@ ipcMain.handle('tracklist-cache-clear', () => {
   log(`[cache] cleared ${count} tracklist entries`)
   return count
 })
+ipcMain.handle('tracklist-try-provider', (_event, providerId) => tryTracklistProvider(providerId))
 ipcMain.handle('updates-check', () => checkForUpdates({ manual: true }))
 ipcMain.handle('updates-download', () => downloadUpdate())
 ipcMain.handle('updates-install', () => {
@@ -1786,13 +1910,29 @@ ipcMain.handle('window-drag-end', () => {
   return true
 })
 
+// Hosts the app itself links to. Tracklist providers add their own — every
+// provider sends the user to its site (the tracklist page, a contribute form),
+// so deriving the list from the registry keeps a new provider's links from
+// being silently dropped here.
+const APP_EXTERNAL_HOSTS = ['djscrobbler.com', 'github.com', 'cast.ro']
+
+function allowedExternalHosts() {
+  return [...new Set([
+    ...APP_EXTERNAL_HOSTS,
+    ...plugins.TRACKLISTS.map(p => p.externalHost).filter(Boolean),
+  ])]
+}
+
 ipcMain.handle('open-external', (_event, url) => {
-  const allowed = ['djscrobbler.com', 'github.com', '1001tracklists.com', 'cast.ro']
   try {
     const { hostname, protocol } = new URL(url)
-    if (protocol === 'mailto:') shell.openExternal(url)
-    else if (allowed.some(d => hostname === d || hostname.endsWith('.' + d))) shell.openExternal(url)
-  } catch {}
+    if (protocol === 'mailto:') return shell.openExternal(url)
+    const allowed = allowedExternalHosts()
+    if (allowed.some(d => hostname === d || hostname.endsWith('.' + d))) return shell.openExternal(url)
+    log(`[external] blocked ${hostname} — not in [${allowed.join(', ')}]`)
+  } catch {
+    log(`[external] blocked unparseable url: ${url}`)
+  }
 })
 
 ipcMain.handle('player-seek', (_event, seconds) => playerSeek(seconds))

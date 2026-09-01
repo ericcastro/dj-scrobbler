@@ -15,18 +15,17 @@
 const youtube          = require('./sources/youtube')
 const soundcloudDormant = require('./sources/soundcloud')
 const tl1001           = require('./tracklists/1001tracklists')
-const set79Dormant     = require('./tracklists/set79')
+const set79            = require('./tracklists/set79')
 
 const SOURCES    = [youtube]
-const TRACKLISTS = [tl1001]
+const TRACKLISTS = [tl1001, set79]
 
-// Parked for the v0.5 player refactor. SoundCloud/set79 is still valuable
-// reference code for the upcoming YouTube -> SoundCloud -> set79 bridge, but
-// it should not participate in the active playback architecture while the
-// app-owned YouTube player work lands.
+// Parked for the v0.5 player refactor: the SoundCloud *source* still needs the
+// app-owned player work before it can participate in playback. Its tracklist
+// provider is already live — set79 serves YouTube as an opt-in alternate, and
+// handles a SoundCloud permalink without a search when that source wakes up.
 const DORMANT_INTEGRATIONS = {
   sources: [soundcloudDormant],
-  tracklists: [set79Dormant],
   routing: {
     soundcloud: 'set79',
   },
@@ -36,6 +35,13 @@ const DORMANT_INTEGRATIONS = {
 // Future: make this user-configurable per source.
 const ROUTING = {
   youtube: '1001tracklists',
+}
+
+// Providers a user can try by hand when the routed provider comes up empty.
+// Never searched automatically — each one costs a round trip and matches on
+// weaker signals than the primary, so it stays behind a button press.
+const ALTERNATE_ROUTING = {
+  youtube: ['set79'],
 }
 
 function sourceForUrl(url) {
@@ -49,6 +55,19 @@ function tracklistForUrl(url) {
 function tracklistForSource(sourceId) {
   const id = ROUTING[sourceId]
   return TRACKLISTS.find(p => p.id === id) || null
+}
+
+function tracklistById(providerId) {
+  return TRACKLISTS.find(p => p.id === providerId) || null
+}
+
+// Alternate providers for a source, in offer order, minus any already tried.
+function alternateTracklistsForSource(sourceId, { exclude = [] } = {}) {
+  const excluded = new Set(exclude)
+  return (ALTERNATE_ROUTING[sourceId] || [])
+    .filter(id => !excluded.has(id))
+    .map(tracklistById)
+    .filter(Boolean)
 }
 
 // Words that carry no identifying weight in DJ set titles
@@ -113,9 +132,12 @@ module.exports = {
   SOURCES,
   TRACKLISTS,
   ROUTING,
+  ALTERNATE_ROUTING,
   DORMANT_INTEGRATIONS,
   sourceForUrl,
   tracklistForUrl,
   tracklistForSource,
+  tracklistById,
+  alternateTracklistsForSource,
   titleSimilarity,
 }

@@ -116,3 +116,35 @@ test('intro hover effect uses CSS :has() to fade unrelated elements', () => {
   assert.match(styleCss, /#intro-search.*opacity.*0/s)
   assert.match(styleCss, /#intro-resume-label.*opacity.*1/s)
 })
+
+// ── Alternate tracklist provider ───────────────────────────────────────────────
+
+test('the alternate-provider button has matching markup, styles and wiring', () => {
+  assert.equal(indexHtml.includes('id="btn-alt-provider"'), true)
+  assert.equal(styleCss.includes('#btn-alt-provider'), true)
+  assert.match(appJs, /btnAltProvider\.addEventListener\('click'/)
+  assert.match(appJs, /window\.api\.tryTracklistProvider\(alt\.id\)/)
+})
+
+test('an untried alternate replaces the contribute prompt, and yields to it once tried', () => {
+  // The panel has one action slot: try another provider while one is left,
+  // then fall back to contributing a tracklist to the primary provider.
+  assert.match(appJs, /const alt = \(alternateProviders \|\| \[\]\)\[0\] \|\| null/)
+  assert.match(appJs, /const showContribute = !alt && !lookupError && contributeUrl && contributeLabel/)
+  assert.match(appJs, /btnAltProvider\.classList\.toggle\('hidden', !alt\)/)
+  assert.match(appJs, /btnContributeTracklist\.classList\.toggle\('hidden', !showContribute\)/)
+})
+
+test('the alternate button stays busy until the reply repaints the panel', () => {
+  assert.match(appJs, /btnAltProvider\.disabled = true/)
+  assert.match(appJs, /btnAltProvider\.textContent = `Searching \$\{alt\.name\}…`/)
+})
+
+test('provider attribution comes from the payload, not a hardcoded name', () => {
+  assert.match(appJs, /setNpSource\(`tracklist obtained from \$\{providerName\}`/)
+  assert.match(appJs, /state\.currentTracklistProviderFooter \|\| 'edit on 1001Tracklists ↗'/)
+  assert.match(appJs, /function tracklistProviderName/)
+  assert.match(appJs, /function tracklistProviderNote/)
+  // The old hardcoded contribute copy must not survive
+  assert.equal(appJs.includes('const ID_COMMUNITY_NOTE'), false)
+})

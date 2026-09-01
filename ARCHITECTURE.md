@@ -109,7 +109,7 @@ plugins/
 │   └── soundcloud.js      ← SoundCloud source plugin (dormant)
 └── tracklists/
     ├── 1001tracklists.js  ← 1001Tracklists provider plugin (active)
-    └── set79.js           ← set79 provider plugin (dormant)
+    └── set79.js           ← set79 provider plugin (active, opt-in)
 ```
 
 ### Routing
@@ -117,9 +117,19 @@ plugins/
 Source and tracklist plugins are decoupled. The registry maps source → tracklist:
 
 ```
-youtube    ──► 1001tracklists
-soundcloud ──► set79  (dormant)
+ROUTING            youtube ──► 1001tracklists       searched automatically
+ALTERNATE_ROUTING  youtube ──► [set79]              searched only on request
 ```
+
+`ROUTING` is the provider searched when a set is opened. `ALTERNATE_ROUTING`
+lists providers the user can reach with a button press from the "no tracklist"
+panel — they match on weaker signals (set79 matches by title, not by media ID),
+so they never run unprompted.
+
+Once an alternate has produced a tracklist for a set, its cache entry is
+restored automatically on reopen — but only *after* the primary provider has
+been retried and missed again, so a set is never permanently pinned to the
+alternate.
 
 Adding a new source (e.g. Mixcloud) requires:
 1. `plugins/sources/mixcloud.js` implementing the source interface
@@ -145,14 +155,26 @@ Adding a new source (e.g. Mixcloud) requires:
 ```js
 {
   id: string,                         // e.g. '1001tracklists'
-  name: string,
+  name: string,                       // display name, shown as the attribution
   matchUrl(url): boolean,             // is this URL a tracklist page?
   findTracklists(meta): [{ url, title }], // search for matching tracklists
+  tracklistExtractScript: string,     // JS evaluated on the tracklist page
   nowPlayingScript: string,           // JS evaluated in webview every 500ms
   autoplayScript: string|null,        // JS run once after tracklist loads
   autoplayDelay: number,              // ms to wait before running autoplayScript
+  minMatchScore?: number,             // min titleSimilarity to accept (default 1)
+  footerLabel?: string,               // "found an error? <label>" under the list
+  contributeInfo?: { label, note, url(sourceUrl) },  // submit-a-tracklist offer
+  alternateInfo?: { prompt, label, note },           // copy for the opt-in button
 }
 ```
+
+`tracklistExtractScript` returns one object per track. The fields the app-owned
+timeline needs are `trackNum`, `artist`, `title`, `raw`, `cueSeconds` (seconds
+from the start of the set) and `hasTimestamp`; rows are expected in cue order.
+Note that providers disagree on name order — 1001Tracklists renders
+"Artist - Title", set79 renders "Title - Artist" — so each plugin splits its
+own.
 
 ---
 
@@ -189,6 +211,37 @@ User clicks a video link on youtube.com
    └── startMonitoring(wvContents, 1001tlPlugin)
    └── setTimeout → autoplayScript (ytPlayer.playVideo)
 ```
+
+### No tracklist → set79 (opt-in)
+
+When the routed provider finds nothing, the panel below the player offers the
+source's alternates instead of the "create one yourself" link. Only one offer
+is on screen at a time, and the contribute link is what is left once every
+alternate has been tried:
+
+```
+1001tracklists search returns nothing
+        │
+        ▼
+ send 'tracklist-loaded' { isFallback: true, alternateProviders: [set79] }
+ renderer: "You can also try fetching a tracklist from set79.com"
+           [ Try set79.com instead (experimental) ]
+        │
+        ▼ user presses the button
+ renderer: window.api.tryTracklistProvider('set79')
+ main: tryTracklistProvider → runTracklistLookup(set79, currentSourceMeta, …)
+        │
+        ▼
+ set79 /search { query: <YouTube title> }  → url_identity (SoundCloud path)
+ https://set79.com/tracklist/<identity>    → tracklistExtractScript
+        │
+        ▼
+ send 'tracklist-data' → renderer renders the set79 tracklist
+ (playback never stops — only the tracklist half of the state is rebuilt)
+```
+
+A miss re-sends the fallback with `alternateProviders: []`, which brings the
+1001Tracklists contribute button back.
 
 ---
 
@@ -358,7 +411,7 @@ dj-scrobbler/
 │   │   └── soundcloud.js   ← SoundCloud source plugin (dormant)
 │   └── tracklists/
 │       ├── 1001tracklists.js ← 1001Tracklists plugin (search + monitor)
-│       └── set79.js          ← set79 plugin (dormant)
+│       └── set79.js          ← set79 plugin (opt-in alternate for YouTube)
 ├── renderer/
 │   ├── index.html          ← App shell HTML
 │   ├── app.js              ← All UI logic (state, events, IPC listeners)
