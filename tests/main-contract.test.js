@@ -4,7 +4,12 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const root = path.resolve(__dirname, '..')
-const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8')
+// Source is matched with regexes that span lines. Windows checks the repo out
+// with CRLF, so normalise first — otherwise every multi-line pattern silently
+// stops matching in CI.
+const readSource = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n')
+
+const mainJs = readSource('main.js')
 
 // ── Windows titlebar overlay ───────────────────────────────────────────────────
 

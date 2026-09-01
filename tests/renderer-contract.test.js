@@ -4,9 +4,13 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const root = path.resolve(__dirname, '..')
-const appJs = fs.readFileSync(path.join(root, 'renderer/app.js'), 'utf8')
-const indexHtml = fs.readFileSync(path.join(root, 'renderer/index.html'), 'utf8')
-const styleCss = fs.readFileSync(path.join(root, 'renderer/style.css'), 'utf8')
+// Normalise CRLF: Windows checks the repo out with it and multi-line regexes
+// below would silently stop matching in CI.
+const readSource = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n')
+
+const appJs = readSource('renderer/app.js')
+const indexHtml = readSource('renderer/index.html')
+const styleCss = readSource('renderer/style.css')
 
 test('renderer app references only DOM IDs that exist in index.html', () => {
   const ids = [...appJs.matchAll(/document\.getElementById\('([^']+)'\)/g)]

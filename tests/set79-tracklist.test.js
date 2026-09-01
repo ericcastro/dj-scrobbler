@@ -120,7 +120,7 @@ test('every query rung is searched, so one bad rung cannot hide the match', () =
   // findTracklists must not stop at the first non-empty rung: the raw title can
   // return a single wrong set while the flattened rung holds the right one.
   const src = require('node:fs').readFileSync(
-    require('node:path').join(__dirname, '../plugins/tracklists/set79.js'), 'utf8')
+    require('node:path').join(__dirname, '../plugins/tracklists/set79.js'), 'utf8').replace(/\r\n/g, '\n')
   const fn = src.slice(src.indexOf('async findTracklists'))
   assert.equal(/break/.test(fn.slice(0, 600)), false, 'findTracklists still breaks out of the query ladder')
 })
