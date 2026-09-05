@@ -14,6 +14,7 @@ const {
   mergeUpdateStatus,
 } = require('./lib/update-utils')
 const macUpdater = require('./lib/mac-updater')
+const { wireYouTubePlayerUi, isYouTubePlayerUrl } = require('./lib/youtube-player-ui')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -387,17 +388,6 @@ function extractVideoId(url) {
 
 function youtubePlayerUrl(videoId) {
   return `https://www.djscrobbler.com/embed/youtube?id=${encodeURIComponent(videoId)}`
-}
-
-function isYouTubePlayerUrl(url) {
-  try {
-    const u = new URL(url)
-    const hostOk = u.hostname === 'djscrobbler.com' || u.hostname === 'www.djscrobbler.com'
-    const pathOk = u.pathname.replace(/\/$/, '') === '/embed/youtube'
-    return hostOk && pathOk
-  } catch {
-    return false
-  }
 }
 
 function thumbnailForSourceUrl(sourceUrl) {
@@ -1107,6 +1097,10 @@ function wireWebview(wvContents) {
     if (wvContents === browserWvContents) return 'browser'
     return null
   }
+
+  wireYouTubePlayerUi(wvContents, () => role() === 'player', error => {
+    log('[player-ui] frame styling failed:', error.message)
+  })
 
   // Catch intercept signals from source plugins that use click interception
   wvContents.on('console-message', async ({ message }) => {
