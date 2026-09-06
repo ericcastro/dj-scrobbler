@@ -57,11 +57,15 @@
   <div id="layout">
     <!-- Left sidebar — DJ set navigation only -->
     <aside id="sidebar">
-      <!-- View tabs: Home / Now Playing / Search Results -->
+      <!-- Full-workspace views -->
       <div id="sidebar-view-tabs">
         <button id="btn-view-home" class="view-tab active">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           Home
+        </button>
+        <button id="btn-view-library" class="view-tab">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Library
         </button>
         <button id="btn-view-nowplaying" class="view-tab tab-disabled">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
@@ -221,8 +225,8 @@
           <p class="setting-desc" id="history-clear-status">Remove all played sets from history.</p>
           <button id="btn-clear-history" class="btn-secondary">Clear history</button>
           <div class="panel-title">Tracklists</div>
-          <p class="setting-desc" id="tracklist-cache-status">Tracklists are cached for 7 days.</p>
-          <button id="btn-clear-tracklist-cache" class="btn-secondary">Clear tracklist cache</button>
+          <p class="setting-desc" id="tracklist-cache-status">Tracklists are cached for 7 days; Deezer artwork matches are cached longer.</p>
+          <button id="btn-clear-tracklist-cache" class="btn-secondary">Clear tracklist &amp; artwork cache</button>
         </div>
       </div>
       </div><!-- #sidebar-panels -->
@@ -306,6 +310,46 @@
           </div>
         </div>
       </div>
+
+      <section id="library-screen" class="hidden" aria-label="Library">
+        <div id="library-content">
+          <div id="library-heading">
+            <h1>Library</h1>
+            <p>DJs from your saved sets</p>
+            <div id="library-controls">
+              <div id="library-search">
+                <input id="library-search-input" type="text" placeholder="filter DJs…" autocomplete="off" spellcheck="false" aria-label="Filter saved DJs" />
+                <span aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m16.5 16.5 4 4"/></svg></span>
+              </div>
+              <div id="library-view-switch" role="group" aria-label="Library layout">
+                <button class="library-view-option active" type="button" data-library-view="grid" aria-pressed="true" title="Grid view">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                  Grid
+                </button>
+                <button class="library-view-option" type="button" data-library-view="list" aria-pressed="false" title="List view">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                  List
+                </button>
+              </div>
+            </div>
+          </div>
+          <div id="library-overview">
+            <ul id="dj-library-grid" class="dj-library-grid" aria-label="Saved DJs"></ul>
+            <div class="empty-msg" id="library-empty">DJs from your saved sets will appear here.</div>
+          </div>
+          <section id="library-dj-detail" class="hidden" aria-labelledby="library-dj-name">
+            <button id="btn-library-back" type="button">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+              All DJs
+            </button>
+            <div id="library-dj-heading">
+              <h2 id="library-dj-name"></h2>
+              <p id="library-dj-count"></p>
+            </div>
+            <div id="library-dj-sets" aria-label="Saved DJ sets"></div>
+          </section>
+        </div>
+      </section>
 
       <div id="browse-area">
         <div id="browse-loading" class="hidden">
@@ -455,9 +499,6 @@
               <span>refresh</span>
             </button>
           </div>
-          <div class="set-metadata-bottom-row">
-            <div id="set-availability" class="set-availability" aria-label="Sources"></div>
-          </div>
         </section>
         <div id="tracklist-provider-choice" class="tracklist-provider-choice hidden" aria-live="polite"></div>
         <div id="tracklist-unavailable" class="hidden">
@@ -521,6 +562,9 @@
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
       </button>
     </div>
+    <div id="np-artwork" class="hidden" aria-hidden="true">
+      <img id="np-artwork-image" alt="" />
+    </div>
     <div id="np-info">
       <div id="np-title-row">
         <span id="np-tracknum"></span>
@@ -530,7 +574,7 @@
     </div>
     <div id="np-right">
       <div id="np-set"></div>
-      <div id="np-source"></div>
+      <div id="np-source" class="set-availability np-set-availability" aria-label="Set sources"></div>
     </div>
     <button class="icon-btn" id="btn-bookmark" title="Add to favorites">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>

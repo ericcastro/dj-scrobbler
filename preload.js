@@ -44,7 +44,7 @@ contextBridge.exposeInMainWorld('api', {
   refreshTracklists: () => ipcRenderer.invoke('tracklist-refresh'),
 
   on: (channel, callback) => {
-    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'tracklist-options', 'set-metadata', 'set-availability',
+    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'set-availability',
                      'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
                      'fallback-progress', 'tl-progress', 'update-status']
     if (!allowed.includes(channel)) return

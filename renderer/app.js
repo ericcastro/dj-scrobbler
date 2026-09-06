@@ -58,6 +58,7 @@ const sidebarMiniPlayerSlot = document.getElementById('sidebar-mini-player-slot'
 const browseLoading      = document.getElementById('browse-loading')
 const browseLoadingMsg   = document.getElementById('browse-loading-msg')
 const introScreen        = document.getElementById('intro-screen')
+const libraryScreen      = document.getElementById('library-screen')
 const introGreeting      = document.getElementById('intro-greeting')
 const loadingOverlay     = document.getElementById('loading-overlay')
 const seekShield         = document.getElementById('seek-shield')
@@ -79,6 +80,16 @@ const btnRetryLoad       = document.getElementById('btn-retry-load')
 const videoControls      = document.getElementById('video-controls')
 const navBtns            = document.querySelectorAll('.nav-btn')
 const panels             = document.querySelectorAll('.sidebar-panel')
+const librarySearchInput = document.getElementById('library-search-input')
+const libraryViewOptions = document.querySelectorAll('.library-view-option')
+const libraryOverview    = document.getElementById('library-overview')
+const djLibraryGrid      = document.getElementById('dj-library-grid')
+const libraryEmpty       = document.getElementById('library-empty')
+const libraryDjDetail    = document.getElementById('library-dj-detail')
+const libraryDjName      = document.getElementById('library-dj-name')
+const libraryDjCount     = document.getElementById('library-dj-count')
+const libraryDjSets      = document.getElementById('library-dj-sets')
+const btnLibraryBack     = document.getElementById('btn-library-back')
 const favoritesList      = document.getElementById('favorites-list')
 const historyList        = document.getElementById('history-list')
 const favEmpty           = document.getElementById('fav-empty')
@@ -87,7 +98,6 @@ const mainContent              = document.getElementById('main-content')
 const tracklistBelowVideo      = document.getElementById('tracklist-below-video')
 const setMetadataHeader        = document.getElementById('set-metadata-header')
 const setMetadataTags          = document.getElementById('set-metadata-tags')
-const setAvailability          = document.getElementById('set-availability')
 const btnSetMetadataRefresh    = document.getElementById('btn-set-metadata-refresh')
 const tracklistProviderChoice  = document.getElementById('tracklist-provider-choice')
 const tracklistList            = document.getElementById('tracklist-list')
@@ -121,6 +131,8 @@ const npTracknum         = document.getElementById('np-tracknum')
 const npTrack            = document.getElementById('np-track')
 const npTrackText        = document.getElementById('np-track-text')
 const npArtist           = document.getElementById('np-artist')
+const npArtwork          = document.getElementById('np-artwork')
+const npArtworkImage     = document.getElementById('np-artwork-image')
 const npSet              = document.getElementById('np-set')
 const npSource           = document.getElementById('np-source')
 const resumeDialog        = document.getElementById('resume-dialog')
@@ -130,6 +142,7 @@ const btnResumeDismiss    = document.getElementById('btn-resume-dismiss')
 const btnResumeStart      = document.getElementById('btn-resume-start')
 const btnResumeResume     = document.getElementById('btn-resume-resume')
 const btnViewHome         = document.getElementById('btn-view-home')
+const btnViewLibrary      = document.getElementById('btn-view-library')
 const btnViewNowplaying   = document.getElementById('btn-view-nowplaying')
 const btnViewSearch       = document.getElementById('btn-view-search')
 const btnClearHistory     = document.getElementById('btn-clear-history')
@@ -367,17 +380,20 @@ function closeContributeDialog() {
   contributeDialog.classList.add('hidden')
 }
 
-// Set #np-source text, optionally as a clickable link (when url is provided).
-function setNpSource(text, url) {
+function setNpArtwork(artUrl, artworkStatus = 'missing') {
+  const url = String(artUrl || '').trim()
+  const loading = !url && artworkStatus === 'loading'
+  npArtwork.classList.toggle('hidden', !url && !loading)
+  npArtwork.classList.toggle('is-loading', loading)
+  npArtworkImage.hidden = !url
   if (url) {
-    npSource.innerHTML = `<a class="tl-source-link">${text}</a>`
-    npSource.querySelector('.tl-source-link').addEventListener('click', () => {
-      window.api.openExternal(url)
-    })
+    if (npArtworkImage.src !== url) npArtworkImage.src = url
   } else {
-    npSource.textContent = text
+    npArtworkImage.removeAttribute('src')
   }
 }
+
+npArtworkImage.addEventListener('error', () => setNpArtwork())
 
 const SET_SERVICE_ORDER = [
   { id: '1001tracklists', label: '1001Tracklists' },
@@ -420,9 +436,17 @@ function renderSetMetadataHeader() {
     setMetadataTags.innerHTML = `<span class="set-metadata-empty">${waiting ? 'Checking set79 for details…' : 'No structured set metadata found'}</span>`
   }
 
-  setAvailability.innerHTML = [
-    '<span class="set-availability-label">sources</span>',
-    ...SET_SERVICE_ORDER.map(({ id, label }, index) => {
+  setMetadataHeader.classList.remove('hidden')
+}
+
+function renderSetSources() {
+  if (!state.currentSetUrl) {
+    npSource.innerHTML = ''
+    return
+  }
+
+  const services = state.currentSetAvailability?.services || {}
+  npSource.innerHTML = SET_SERVICE_ORDER.map(({ id, label }, index) => {
       const status = services[id]?.status || 'checking'
       const statusLabel = SET_AVAILABILITY_LABELS[status] || status
       const url = status === 'available' ? services[id]?.url : null
@@ -430,17 +454,14 @@ function renderSetMetadataHeader() {
       const attrs = url ? ` type="button" data-service-index="${index}"` : ''
       const external = url ? '<span aria-hidden="true">↗</span>' : ''
       return `<${tag} class="set-availability-pill status-${escHtml(status)}${url ? ' is-clickable' : ''}" title="${escHtml(label)}: ${escHtml(statusLabel)}" aria-label="${escHtml(label)}: ${escHtml(statusLabel)}"${attrs}><span class="set-availability-dot" aria-hidden="true"></span>${escHtml(label)}${external}</${tag}>`
-    }),
-  ].join('')
-  setAvailability.querySelectorAll('.set-availability-pill.is-clickable').forEach(button => {
+    }).join('')
+  npSource.querySelectorAll('.set-availability-pill.is-clickable').forEach(button => {
     button.addEventListener('click', () => {
       const service = SET_SERVICE_ORDER[Number(button.dataset.serviceIndex)]
       const url = service && services[service.id]?.url
       if (url) window.api.openExternal(url)
     })
   })
-
-  setMetadataHeader.classList.remove('hidden')
 }
 
 function renderTracklistProviderChoice() {
@@ -634,9 +655,11 @@ let browseLoadingTimer = null
 function updateViewTabs() {
   const browsing = document.body.classList.contains('is-browsing')
   const introVisible = !introScreen.classList.contains('hidden')
+  const libraryVisible = !libraryScreen.classList.contains('hidden')
   btnViewHome.classList.toggle('active', introVisible)
-  btnViewNowplaying.classList.toggle('active', !introVisible && !browsing)
-  btnViewSearch.classList.toggle('active', !introVisible && browsing)
+  btnViewLibrary.classList.toggle('active', libraryVisible)
+  btnViewNowplaying.classList.toggle('active', !introVisible && !libraryVisible && !browsing)
+  btnViewSearch.classList.toggle('active', !introVisible && !libraryVisible && browsing)
   btnViewNowplaying.classList.toggle('tab-disabled', !hasEverPlayed)
   btnViewSearch.classList.toggle('tab-disabled', !browserHasContent)
 }
@@ -703,6 +726,7 @@ async function init() {
 
   state.store = await window.api.getStore()
   state.stats = await window.api.getStats()
+  setLibraryViewMode(state.store.settings?.libraryViewMode || 'grid', false)
   document.body.classList.add(`platform-${await window.api.getPlatform()}`)
   if (await window.api.isDeveloper()) btnDevtools.classList.remove('hidden')
 
@@ -780,12 +804,20 @@ async function init() {
 
 function hideIntro() {
   introScreen.classList.add('hidden')
+  libraryScreen.classList.add('hidden')
 }
 
 function showIntro() {
+  libraryScreen.classList.add('hidden')
   introScreen.classList.remove('hidden')
   // Re-render after layout so we can measure the actual available width
   requestAnimationFrame(renderIntroResume)
+}
+
+function showLibrary() {
+  introScreen.classList.add('hidden')
+  libraryScreen.classList.remove('hidden')
+  requestAnimationFrame(renderDjLibrary)
 }
 
 // Must match the CSS --item width and gap for the resume grid
@@ -1369,6 +1401,7 @@ function wireMainEvents() {
     // Keep them visible while provider results are still arriving.
     mainContent.classList.add('has-tracklist')
     renderSetMetadataHeader()
+    renderSetSources()
     renderTracklistProviderChoice()
 
     if (isFallback) {
@@ -1376,7 +1409,6 @@ function wireMainEvents() {
       state.currentSource  = 'youtube'
       state.currentContributeUrl = contributeUrl || null
       npSet.textContent     = title
-      setNpSource('no tracklist yet')
       tracklistUnavailableTitle.textContent = lookupError ? 'Tracklist lookup paused' : 'Tracklist not yet available'
 
       // An untried alternate provider is the better offer, so it takes the
@@ -1414,16 +1446,12 @@ function wireMainEvents() {
       npTrackText.textContent = ''
       npArtist.textContent   = ''
       npTracknum.textContent = ''
+      setNpArtwork()
       ppIcon.innerHTML      = icon(ICON.play, 16)
       btnPlayPause.classList.remove('playing')
     } else {
       state.currentSource  = 'youtube'
       npSet.textContent    = title
-      if (providerName) {
-        setNpSource(`tracklist obtained from ${providerName}`, tracklistUrl || null)
-      } else {
-        setNpSource('youtube')
-      }
       tracklistUnavailableTitle.textContent = 'Tracklist not yet available'
       tracklistUnavailableSub.textContent = 'No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.'
       tracklistUnavailableEl.classList.add('hidden')
@@ -1435,6 +1463,7 @@ function wireMainEvents() {
     state.isIdTrack = false
     updateBookmarkBtn()
     refreshScrobbleBadge()
+    const djNames = normalizedDjNames(state.currentSetMetadata?.djNames)
     addToHistory({
       title,
       url,
@@ -1442,6 +1471,7 @@ function wireMainEvents() {
       thumbnailUrl: state.currentThumbnailUrl,
       tracklistUrl: state.currentTracklistUrl,
       tracklistProvider: state.currentTracklistProvider,
+      ...(djNames.length ? { djNames } : {}),
     })
   })
 
@@ -1457,6 +1487,7 @@ function wireMainEvents() {
       npTrackText.textContent = data.isId ? 'ID' : (data.title || data.raw || '—')
       npArtist.textContent   = data.isId ? '—' : (data.artist || '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
+      setNpArtwork(data.isId ? null : data.artUrl, data.isId ? 'missing' : data.artworkStatus)
       if (data.trackNum) highlightTracklistByNum(data.trackNum)
     }
     // Save playback progress so history/favorites items can show a progress bar
@@ -1547,6 +1578,54 @@ function wireMainEvents() {
     renderFavorites()
   })
 
+  window.api.on('track-artwork', (payload) => {
+    if (
+      isResumeDialogOpen() ||
+      payload?.sourceUrl !== state.currentSetUrl ||
+      payload?.providerId !== state.currentTracklistProvider ||
+      payload?.tracklistUrl !== state.currentTracklistUrl
+    ) return
+
+    const ids = new Set(payload.providerTrackIds || [])
+    if (!ids.size) return
+    state.currentTracks = state.currentTracks.map(track => ids.has(track.providerTrackId)
+      ? { ...track, artUrl: payload.artUrl || '', artworkStatus: payload.artworkStatus }
+      : track
+    )
+    if (ids.has(state.nowPlaying?.providerTrackId)) {
+      state.nowPlaying = {
+        ...state.nowPlaying,
+        artUrl: payload.artUrl || '',
+        artworkStatus: payload.artworkStatus,
+      }
+      setNpArtwork(payload.artUrl, payload.artworkStatus)
+    }
+
+    for (const list of [tracklistList, tracklistCompactList]) {
+      list.querySelectorAll('.track-item').forEach(item => {
+        if (!ids.has(item.dataset.providerTrackId)) return
+        const existing = item.querySelector('.track-art')
+        if (!existing) return
+        if (payload.artUrl) {
+          const img = document.createElement('img')
+          img.className = 'track-art'
+          img.src = payload.artUrl
+          img.loading = 'lazy'
+          img.alt = ''
+          img.addEventListener('error', () => {
+            const empty = document.createElement('div')
+            empty.className = 'track-art track-art-empty'
+            img.replaceWith(empty)
+          }, { once: true })
+          existing.replaceWith(img)
+        } else {
+          existing.classList.remove('track-art-loading')
+        }
+      })
+    }
+    renderPlaybackSegments(true)
+  })
+
   window.api.on('tracklist-options', (payload) => {
     if (isResumeDialogOpen() || payload?.sourceUrl !== state.currentSetUrl) return
     state.currentTracklistOptions = Array.isArray(payload.options) ? payload.options : []
@@ -1556,6 +1635,7 @@ function wireMainEvents() {
   window.api.on('set-metadata', (metadata) => {
     if (isResumeDialogOpen() || metadata?.sourceUrl !== state.currentSetUrl) return
     state.currentSetMetadata = metadata
+    tagSavedSetDjNames(metadata.sourceUrl, metadata.djNames)
     renderSetMetadataHeader()
   })
 
@@ -1569,6 +1649,7 @@ function wireMainEvents() {
       },
     }
     renderSetMetadataHeader()
+    renderSetSources()
   })
 
   window.api.on('menu-open-about', () => openAboutDialog())
@@ -1836,6 +1917,206 @@ function wireSidebarResize() {
 
 // ── Favorites ────────────────────────────────────────────────────────────────
 
+let activeLibraryDjKey = null
+let libraryViewMode = 'grid'
+const djLibraryCoverChoices = new Map()
+
+function normalizedDjNames(djNames) {
+  if (!Array.isArray(djNames)) return []
+  const seen = new Set()
+  return djNames
+    .map(name => typeof name === 'string' ? name.trim() : '')
+    .filter(name => {
+      const key = name.toLocaleLowerCase()
+      if (!name || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+}
+
+function tagSavedSetDjNames(url, djNames) {
+  const names = normalizedDjNames(djNames)
+  if (!url || !names.length) return
+  let changed = false
+  ;['history', 'favorites'].forEach(key => {
+    state.store[key] = state.store[key].map(item => {
+      if (item.url !== url || JSON.stringify(item.djNames || []) === JSON.stringify(names)) return item
+      changed = true
+      return { ...item, djNames: names }
+    })
+  })
+  if (!changed) return
+  persist()
+  renderFavorites()
+}
+
+function favoriteDjLibrary() {
+  const djs = new Map()
+  state.store.favorites.forEach(set => {
+    const setDjNames = normalizedDjNames(set.djNames)
+    setDjNames.forEach(name => {
+      const key = name.toLocaleLowerCase()
+      if (!djs.has(key)) djs.set(key, { key, name, sets: [], soloSets: [] })
+      const dj = djs.get(key)
+      if (!dj.sets.some(item => item.url === set.url)) dj.sets.push(set)
+      if (setDjNames.length === 1 && !dj.soloSets.some(item => item.url === set.url)) dj.soloSets.push(set)
+    })
+  })
+  return [...djs.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+}
+
+function randomDjCover(dj) {
+  const preferredSets = dj.soloSets.some(set => set.thumbnailUrl) ? dj.soloSets : dj.sets
+  const candidates = [...new Set(preferredSets.map(set => set.thumbnailUrl).filter(Boolean))]
+  if (!candidates.length) return null
+
+  const existing = djLibraryCoverChoices.get(dj.key)
+  if (candidates.includes(existing)) return existing
+  const selected = candidates[Math.floor(Math.random() * candidates.length)]
+  djLibraryCoverChoices.set(dj.key, selected)
+  return selected
+}
+
+function librarySearchKey(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .trim()
+}
+
+function libraryInitial(name) {
+  const initial = librarySearchKey(name).charAt(0).toLocaleUpperCase()
+  return /[A-Z]/.test(initial) ? initial : '#'
+}
+
+function setLibraryViewMode(mode, persistSetting = true) {
+  libraryViewMode = mode === 'list' ? 'list' : 'grid'
+  libraryViewOptions.forEach(option => {
+    const active = option.dataset.libraryView === libraryViewMode
+    option.classList.toggle('active', active)
+    option.setAttribute('aria-pressed', String(active))
+  })
+  if (persistSetting) {
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.libraryViewMode = libraryViewMode
+    persist()
+  }
+  renderDjLibrary()
+}
+
+function openStoredSet(item) {
+  const hasProgress = !!(item.progressTrackNum > 1 && item.lastTrackCueSeconds != null)
+                   || !!(item.progressTimePct > 5 && item.progressTime)
+  const resumeSetting = state.store.settings?.resumeBehavior || 'ask'
+  if (hasProgress) {
+    if      (resumeSetting === 'always') loadSet(item, true)
+    else if (resumeSetting === 'never')  loadSet(item, false)
+    else                                 showResumeDialog(item)
+  } else {
+    loadSet(item, false)
+  }
+}
+
+function renderLibrarySetCard(item) {
+  const pct = getProgressPct(item)
+  const card = document.createElement('button')
+  card.type = 'button'
+  card.className = 'library-set-card'
+  card.title = item.title || item.url
+  card.innerHTML = `
+    ${item.thumbnailUrl
+      ? `<img class="library-set-thumb" src="${escHtml(item.thumbnailUrl)}" alt="" loading="lazy" />`
+      : '<div class="library-set-thumb library-set-thumb-empty"></div>'}
+    <div class="library-set-title-row">
+      <span class="library-set-heart" aria-hidden="true"><svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></span>
+      <div class="library-set-title-wrap">
+        <span class="library-set-title-text">${escHtml(item.title || item.url)}</span>
+      </div>
+    </div>
+    <div class="library-set-progress"><div class="library-set-progress-fill" style="width:${pct}%"></div></div>
+  `
+  card.addEventListener('click', () => openStoredSet(item))
+  wireOverflowMarquee(card.querySelector('.library-set-title-text'), card)
+  return card
+}
+
+function showDjLibraryDetail(dj) {
+  activeLibraryDjKey = dj.key
+  libraryScreen.classList.add('is-detail')
+  libraryOverview.classList.add('hidden')
+  libraryDjDetail.classList.remove('hidden')
+  libraryDjName.textContent = dj.name
+  libraryDjCount.textContent = `${dj.sets.length} saved set${dj.sets.length === 1 ? '' : 's'}`
+  libraryDjSets.innerHTML = ''
+  dj.sets.forEach(set => libraryDjSets.appendChild(renderLibrarySetCard(set)))
+  libraryScreen.scrollTop = 0
+}
+
+function showDjLibraryOverview() {
+  activeLibraryDjKey = null
+  libraryScreen.classList.remove('is-detail')
+  libraryDjDetail.classList.add('hidden')
+  libraryOverview.classList.remove('hidden')
+  libraryScreen.scrollTop = 0
+}
+
+function renderDjLibrary() {
+  const allDjs = favoriteDjLibrary()
+  const query = librarySearchKey(librarySearchInput.value)
+  const djs = query
+    ? allDjs.filter(dj => librarySearchKey(dj.name).includes(query))
+    : allDjs
+  djLibraryGrid.className = `dj-library-grid is-${libraryViewMode}`
+  djLibraryGrid.innerHTML = ''
+  libraryEmpty.style.display = djs.length ? 'none' : ''
+  libraryEmpty.textContent = query
+    ? 'No saved DJs match that search.'
+    : 'DJs from your saved sets will appear here.'
+
+  let previousInitial = null
+  djs.forEach(dj => {
+    if (libraryViewMode === 'list') {
+      const initial = libraryInitial(dj.name)
+      if (initial !== previousInitial) {
+        previousInitial = initial
+        const heading = document.createElement('li')
+        heading.className = 'dj-library-letter'
+        heading.textContent = initial
+        djLibraryGrid.appendChild(heading)
+      }
+    }
+    const item = document.createElement('li')
+    const card = document.createElement('button')
+    card.type = 'button'
+    card.className = 'dj-library-card'
+    card.title = `View saved sets by ${dj.name}`
+    const thumbnail = randomDjCover(dj)
+    const coverKind = dj.soloSets.some(set => set.thumbnailUrl) ? 'solo set' : 'collaboration set'
+    card.setAttribute('aria-label', `${dj.name}, ${dj.sets.length} saved set${dj.sets.length === 1 ? '' : 's'}, ${coverKind} artwork`)
+    card.innerHTML = `
+      <div class="dj-library-thumb-frame">
+        ${thumbnail
+          ? `<img class="dj-library-thumb" src="${escHtml(thumbnail)}" alt="" loading="lazy" />`
+          : '<div class="dj-library-thumb dj-library-thumb-empty"></div>'}
+      </div>
+      <div class="dj-library-meta">
+        <div class="dj-library-name">${escHtml(dj.name)}</div>
+        <div class="dj-library-count">${dj.sets.length} saved set${dj.sets.length === 1 ? '' : 's'}</div>
+      </div>
+    `
+    card.addEventListener('click', () => showDjLibraryDetail(dj))
+    item.appendChild(card)
+    djLibraryGrid.appendChild(item)
+  })
+
+  if (activeLibraryDjKey) {
+    const activeDj = allDjs.find(dj => dj.key === activeLibraryDjKey)
+    if (activeDj) showDjLibraryDetail(activeDj)
+    else showDjLibraryOverview()
+  }
+}
+
 function addToFavorites(item) {
   if (state.store.favorites.find((f) => f.url === item.url)) return
   state.store.favorites.unshift(item)
@@ -1858,6 +2139,7 @@ function syncProgressToItem(url) {
   if (histEntry.progressTime     != null) patch.progressTime     = histEntry.progressTime
   if (histEntry.tracklistUrl     != null) patch.tracklistUrl     = histEntry.tracklistUrl
   if (histEntry.tracklistProvider != null) patch.tracklistProvider = histEntry.tracklistProvider
+  if (histEntry.djNames?.length) patch.djNames = histEntry.djNames
   if (!Object.keys(patch).length) return
   state.store.favorites = state.store.favorites.map(f =>
     f.url === url ? { ...patch, ...f } : f   // patch fills gaps; f's own values win
@@ -1884,6 +2166,7 @@ function renderFavorites() {
   favoritesList.innerHTML = ''
   favEmpty.style.display = favs.length ? 'none' : ''
   favs.forEach((item) => favoritesList.appendChild(makeSetListItem(item, () => removeFromFavorites(item.url))))
+  renderDjLibrary()
 }
 
 function isFavorited(url) {
@@ -1910,6 +2193,7 @@ function addToHistory(item) {
     progressTime:     existing.progressTime,
     tracklistUrl:     existing.tracklistUrl,
     tracklistProvider: existing.tracklistProvider,
+    djNames: existing.djNames,
   } : {}
   state.store.history = state.store.history.filter(h => h.url !== item.url)
   state.store.history.unshift({ ...preserved, ...item, playedAt: Date.now() })
@@ -2032,7 +2316,7 @@ function wireSetItemMarquee(li) {
 }
 
 function wireFooterMarquees() {
-  ;[npTrackText, npArtist, npSet, npSource, scrobbleLabel].forEach(el => wireOverflowMarquee(el))
+  ;[npTrackText, npArtist, npSet, scrobbleLabel].forEach(el => wireOverflowMarquee(el))
 }
 
 function isYouTubeSourceUrl(url) {
@@ -2135,6 +2419,7 @@ function loadSet(item, resume) {
     }
     mainContent.classList.add('has-tracklist')
     renderSetMetadataHeader()
+    renderSetSources()
     renderTracklistProviderChoice()
     window.api.loadSourceUrl(item.url)
     updateViewTabs()
@@ -2222,16 +2507,7 @@ function makeSetListItem(item, onRemove) {
   `
   li.addEventListener('click', (e) => {
     if (e.target.classList.contains('set-item-remove')) return
-    const hasProgress = !!(item.progressTrackNum > 1 && item.lastTrackCueSeconds != null)
-                     || !!(item.progressTimePct > 5 && item.progressTime)
-    const resumeSetting = state.store.settings?.resumeBehavior || 'ask'
-    if (hasProgress) {
-      if      (resumeSetting === 'always') loadSet(item, true)
-      else if (resumeSetting === 'never')  loadSet(item, false)
-      else                                 showResumeDialog(item)
-    } else {
-      loadSet(item, false)
-    }
+    openStoredSet(item)
   })
   if (onRemove) {
     li.querySelector('.set-item-remove').addEventListener('click', (e) => {
@@ -2253,6 +2529,7 @@ function createTrackItem(track, compact) {
     (track.isMashupComponent ? ' track-mashup'      : '') +
     (track.noTimestamp      ? ' track-no-timestamp' : '')
   li.dataset.trackNum = track.trackNum || ''
+  li.dataset.providerTrackId = track.providerTrackId || ''
 
   const numHtml = track.isWWith
     ? `<span class="track-num track-num-with">w/</span>`
@@ -2261,7 +2538,7 @@ function createTrackItem(track, compact) {
   const artHtml = compact ? '' : (
     track.artUrl
       ? `<img class="track-art" src="${escHtml(track.artUrl)}" loading="lazy" alt="" />`
-      : `<div class="track-art track-art-empty"></div>`
+      : `<div class="track-art track-art-empty${track.artworkStatus === 'loading' ? ' track-art-loading' : ''}"></div>`
   )
 
   const titleText  = track.isId ? 'ID — ID' : escHtml(track.title || track.raw || '?')
@@ -2533,8 +2810,9 @@ function resetNowPlaying() {
   npTrackText.textContent = ''
   npArtist.textContent   = ''
   npTracknum.textContent = ''
+  setNpArtwork()
   npSet.textContent      = ''
-  setNpSource('')
+  renderSetSources()
   ppIcon.innerHTML       = icon(ICON.play, 16)
   btnPlayPause.classList.remove('playing')
   updateBookmarkBtn()
@@ -2755,6 +3033,7 @@ function wireEvents() {
         thumbnailUrl:     state.currentThumbnailUrl,
         tracklistUrl:     state.currentTracklistUrl || histEntry?.tracklistUrl || undefined,
         tracklistProvider: state.currentTracklistProvider || histEntry?.tracklistProvider || undefined,
+        djNames:          normalizedDjNames(state.currentSetMetadata?.djNames || histEntry?.djNames),
         trackCount:       state.currentTracks.length || histEntry?.trackCount || undefined,
         progressTrackNum: histEntry?.progressTrackNum || undefined,
         lastTrackCueSeconds: histEntry?.lastTrackCueSeconds ?? undefined,
@@ -2904,7 +3183,7 @@ function wireEvents() {
     btnClearTracklistCache.disabled = true
     const count = await window.api.tracklistCacheClear()
     tracklistCacheStatus.textContent = count > 0
-      ? `Cleared ${count} cached tracklist${count === 1 ? '' : 's'}.`
+      ? `Cleared ${count} cached tracklist/artwork item${count === 1 ? '' : 's'}.`
       : 'Cache was already empty.'
     btnClearTracklistCache.disabled = false
   })
@@ -2943,11 +3222,24 @@ function wireEvents() {
     if (e.target === resumeDialog) closeResumeDialog()  // backdrop click = dismiss
   })
 
-  // View tabs — Home / Now Playing / Search Results
+  // Full-workspace views
   btnViewHome.addEventListener('click', () => {
     document.body.classList.remove('is-browsing')
     showIntro()
     updateViewTabs()
+  })
+  btnViewLibrary.addEventListener('click', () => {
+    document.body.classList.remove('is-browsing')
+    showLibrary()
+    updateViewTabs()
+  })
+  librarySearchInput.addEventListener('input', renderDjLibrary)
+  libraryViewOptions.forEach(option => {
+    option.addEventListener('click', () => setLibraryViewMode(option.dataset.libraryView))
+  })
+  btnLibraryBack.addEventListener('click', () => {
+    showDjLibraryOverview()
+    librarySearchInput.focus()
   })
   btnViewNowplaying.addEventListener('click', () => {
     hideIntro()

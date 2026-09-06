@@ -17,6 +17,11 @@ const macUpdater = require('./lib/mac-updater')
 const { wireYouTubePlayerUi, isYouTubePlayerUrl } = require('./lib/youtube-player-ui')
 const { startPrimaryWithFallback } = require('./lib/parallel-tracklist-lookup')
 const { hasSetMetadata, normalizeSetMetadata } = require('./lib/set-metadata')
+const {
+  artworkLookupKey,
+  isArtworkLookupCandidate,
+  lookupDeezerArtwork,
+} = require('./lib/deezer-artwork')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -53,6 +58,12 @@ function log(...args) {
 }
 const DEVELOPER_MODE = process.argv.includes('--developer')
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const ARTWORK_CACHE_VERSION = 1
+const ARTWORK_CACHE_HIT_TTL_MS = 365 * 24 * 60 * 60 * 1000
+const ARTWORK_CACHE_MISS_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const MAX_ARTWORK_CACHE_ENTRIES = 6000
+const ARTWORK_LOOKUP_CONCURRENCY = 2
+const ARTWORK_LOOKUP_GAP_MS = 250
 const TITLE_BAR_HEIGHT = 52
 const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = TITLE_BAR_HEIGHT - 1
 const THEME_TITLE_BAR = {
@@ -113,6 +124,38 @@ function readStore() {
 
 function writeStore(data) {
   fs.writeFileSync(getStorePath(), JSON.stringify(data, null, 2))
+}
+
+function backfillSavedDjNamesFromCache(store) {
+  const cachedNamesBySource = new Map()
+  Object.values(store.tracklistCache || {}).forEach(entry => {
+    if (!entry?.sourceUrl) return
+    const names = normalizeSetMetadata(entry.metadata).djNames
+    if (names.length) cachedNamesBySource.set(entry.sourceUrl, names)
+  })
+
+  let changed = false
+  ;['favorites', 'history'].forEach(key => {
+    if (!Array.isArray(store[key])) return
+    store[key] = store[key].map(item => {
+      if (Array.isArray(item.djNames) && item.djNames.length) return item
+      const djNames = cachedNamesBySource.get(item.url)
+      if (!djNames) return item
+      changed = true
+      return { ...item, djNames }
+    })
+  })
+  return changed
+}
+
+function readStoreForRenderer() {
+  const store = readStore()
+  if (backfillSavedDjNamesFromCache(store)) writeStore(store)
+  const rendererStore = { ...store }
+  delete rendererStore.tracklistCache
+  delete rendererStore.tracklistPreferences
+  delete rendererStore.artworkCache
+  return rendererStore
 }
 
 // ── Stats persistence (separate file — personal data, never seed/commit) ──────
@@ -212,6 +255,62 @@ function writeCachedTracklist({ sourceUrl, providerId, tracklistUrl, title, thum
   pruneTracklistCache(store.tracklistCache, now)
   writeStore(store)
   log(`[cache] stored tracklist tracks=${tracks.length} provider=${providerId} source=${sourceUrl}`)
+}
+
+function artworkCacheKey(track) {
+  return crypto.createHash('sha1').update(`deezer:${artworkLookupKey(track)}`).digest('hex')
+}
+
+function isUsableCachedArtwork(entry, now = Date.now()) {
+  return entry &&
+    entry.version === ARTWORK_CACHE_VERSION &&
+    entry.expiresAt > now &&
+    (entry.artUrl === null || typeof entry.artUrl === 'string')
+}
+
+function pruneArtworkCache(cache, now = Date.now()) {
+  for (const [key, entry] of Object.entries(cache)) {
+    if (!isUsableCachedArtwork(entry, now)) delete cache[key]
+  }
+
+  const entries = Object.entries(cache)
+  if (entries.length <= MAX_ARTWORK_CACHE_ENTRIES) return
+  entries
+    .sort(([, a], [, b]) => (b.checkedAt || 0) - (a.checkedAt || 0))
+    .slice(MAX_ARTWORK_CACHE_ENTRIES)
+    .forEach(([key]) => delete cache[key])
+}
+
+// Artwork cache entries are tiny JSON records containing only Deezer's 250px
+// URL (or a negative result). Chromium owns its normal HTTP image cache; the app
+// never downloads or stores full-size cover files itself.
+function prepareTracksForArtwork(tracks) {
+  const cache = readStore().artworkCache || {}
+  const now = Date.now()
+  return tracks.map(track => {
+    if (!isArtworkLookupCandidate(track)) return track
+    const cached = cache[artworkCacheKey(track)]
+    if (!isUsableCachedArtwork(cached, now)) {
+      return { ...track, artworkStatus: 'loading' }
+    }
+    return {
+      ...track,
+      artUrl: cached.artUrl || '',
+      artworkStatus: cached.artUrl ? 'ready' : 'missing',
+    }
+  })
+}
+
+function writeArtworkCacheUpdates(updates) {
+  if (!updates.size) return
+  const store = readStore()
+  const cache = store.artworkCache && typeof store.artworkCache === 'object'
+    ? store.artworkCache
+    : {}
+  for (const [key, entry] of updates) cache[key] = entry
+  pruneArtworkCache(cache)
+  store.artworkCache = cache
+  writeStore(store)
 }
 
 function getTracklistPreference(sourceUrl) {
@@ -398,6 +497,8 @@ let lastPlaybackTickAt   = null
 let currentTrackPlayedMs = 0
 let activeTrackKey       = null
 let currentLookupToken   = 0
+let currentArtworkToken  = 0
+let artworkCacheGeneration = 0
 
 function extractVideoId(url) {
   try {
@@ -470,6 +571,99 @@ function normalizeTracks(tracks, providerId) {
   return prepared.map((track, index) => normalizeTrack(track, index, providerId))
 }
 
+function isArtworkJobCurrent(job) {
+  return job.artworkToken === currentArtworkToken &&
+    job.lookupToken === currentLookupToken &&
+    job.sourceUrl === currentSourceUrl &&
+    job.providerId === currentTracklistProvider &&
+    job.tracklistUrl === currentTracklistUrl
+}
+
+function emitTrackArtwork(job, providerTrackIds, artUrl, artworkStatus) {
+  if (!isArtworkJobCurrent(job)) return
+  const ids = new Set(providerTrackIds)
+  currentTracks = currentTracks.map(track => ids.has(track.providerTrackId)
+    ? { ...track, artUrl: artUrl || '', artworkStatus }
+    : track
+  )
+  if (ids.has(lastTrackData?.providerTrackId)) {
+    lastTrackData = { ...lastTrackData, artUrl: artUrl || '', artworkStatus }
+  }
+  mainWindow.webContents.send('track-artwork', {
+    sourceUrl: job.sourceUrl,
+    providerId: job.providerId,
+    tracklistUrl: job.tracklistUrl,
+    providerTrackIds,
+    artUrl: artUrl || null,
+    artworkStatus,
+  })
+}
+
+async function enrichArtworkInBackground(tracks, job) {
+  const grouped = new Map()
+  tracks.filter(track => track.artworkStatus === 'loading').forEach(track => {
+    const key = artworkCacheKey(track)
+    if (!grouped.has(key)) grouped.set(key, { key, track, providerTrackIds: [] })
+    grouped.get(key).providerTrackIds.push(track.providerTrackId)
+  })
+  const groups = [...grouped.values()]
+  if (!groups.length) return
+
+  log(`[artwork] background start tracks=${tracks.length} uniqueLookups=${groups.length}`)
+  const updates = new Map()
+  const attempted = new Set()
+  let nextIndex = 0
+  let stop = false
+  let hits = 0
+  let misses = 0
+
+  async function worker() {
+    while (!stop && nextIndex < groups.length) {
+      if (!isArtworkJobCurrent(job)) return
+      const group = groups[nextIndex++]
+      attempted.add(group.key)
+      try {
+        const match = await lookupDeezerArtwork(group.track, {
+          userAgent: `DJ-Scrobbler/${app.getVersion()}`,
+        })
+        const checkedAt = Date.now()
+        const artUrl = match?.artUrl || null
+        updates.set(group.key, {
+          version: ARTWORK_CACHE_VERSION,
+          source: 'deezer',
+          artUrl,
+          deezerTrackId: match?.deezerTrackId || null,
+          checkedAt,
+          expiresAt: checkedAt + (artUrl ? ARTWORK_CACHE_HIT_TTL_MS : ARTWORK_CACHE_MISS_TTL_MS),
+        })
+        if (artUrl) hits++
+        else misses++
+        emitTrackArtwork(job, group.providerTrackIds, artUrl, artUrl ? 'ready' : 'missing')
+      } catch (error) {
+        // A provider/network failure is not a negative lookup and is never
+        // cached. Stop this set's queue so a temporary outage cannot cause a
+        // burst of doomed requests; the next load will try again.
+        stop = true
+        log(`[artwork] Deezer paused: ${error?.message || error}`)
+        emitTrackArtwork(job, group.providerTrackIds, null, 'error')
+      }
+      if (!stop) await delay(ARTWORK_LOOKUP_GAP_MS)
+    }
+  }
+
+  await Promise.all(Array.from({ length: ARTWORK_LOOKUP_CONCURRENCY }, () => worker()))
+
+  if (stop && isArtworkJobCurrent(job)) {
+    groups
+      .filter(group => !attempted.has(group.key))
+      .forEach(group => emitTrackArtwork(job, group.providerTrackIds, null, 'error'))
+  }
+  // One synchronous store write per completed set, rather than one write per
+  // cover, keeps the cache durable without needlessly churning the user's disk.
+  if (job.cacheGeneration === artworkCacheGeneration) writeArtworkCacheUpdates(updates)
+  log(`[artwork] background done hits=${hits} misses=${misses} cached=${updates.size}${stop ? ' paused=true' : ''}`)
+}
+
 function isTimelineTrack(track) {
   return track &&
     !track.isWWith &&
@@ -527,6 +721,9 @@ function emitTimelineTrack(track, poll) {
     isId: !!track.isId,
     source: currentTracklistProvider || 'timeline',
     providerId: currentTracklistProvider,
+    providerTrackId: track.providerTrackId || null,
+    artUrl: track.artUrl || '',
+    artworkStatus: track.artworkStatus || (track.artUrl ? 'ready' : 'missing'),
     cueSeconds: track.cueSeconds,
     currentTime: poll.currentTime,
     duration: poll.duration,
@@ -1040,7 +1237,8 @@ function applyTracklistResult(tlPlugin, result, { persistPreference = false } = 
   currentTracklistUrl = result.tracklistUrl
   currentTracklistProvider = tlPlugin.id
   currentSetTitle = result.title
-  currentTracks = result.tracks
+  const artworkToken = ++currentArtworkToken
+  currentTracks = prepareTracksForArtwork(result.tracks)
   registerTracklistOption(tlPlugin, result)
   if (persistPreference) writeTracklistPreference(currentSourceUrl, tlPlugin.id)
 
@@ -1061,6 +1259,20 @@ function applyTracklistResult(tlPlugin, result, { persistPreference = false } = 
   })
   emitTracklistOptions()
   mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+
+  // Artwork is deliberately outside the awaited tracklist path. Rows are
+  // already visible (with loading placeholders) before the first request starts.
+  const artworkJob = {
+    artworkToken,
+    cacheGeneration: artworkCacheGeneration,
+    lookupToken: currentLookupToken,
+    sourceUrl: currentSourceUrl,
+    providerId: tlPlugin.id,
+    tracklistUrl: result.tracklistUrl,
+  }
+  const artworkTracks = currentTracks.map(track => ({ ...track }))
+  setImmediate(() => enrichArtworkInBackground(artworkTracks, artworkJob)
+    .catch(error => log(`[artwork] background failed: ${error?.message || error}`)))
 }
 
 function sendTracklistFallback(tlPlugin, error = null) {
@@ -2052,7 +2264,7 @@ app.on('window-all-closed', () => {
 
 // ── IPC handlers ──────────────────────────────────────────────────────────────
 
-ipcMain.handle('store-get',  () => readStore())
+ipcMain.handle('store-get',  () => readStoreForRenderer())
 ipcMain.handle('stats-get',  () => readStats())
 ipcMain.handle('stats-set',  (_event, data) => writeStats(data))
 ipcMain.handle('store-set', (_event, data) => {
@@ -2064,6 +2276,7 @@ ipcMain.handle('store-set', (_event, data) => {
   }
   if (existing.tracklistCache) next.tracklistCache = existing.tracklistCache
   if (existing.tracklistPreferences) next.tracklistPreferences = existing.tracklistPreferences
+  if (existing.artworkCache) next.artworkCache = existing.artworkCache
   writeStore(next)
 })
 
@@ -2144,13 +2357,16 @@ ipcMain.handle('get-version', () => app.getVersion())
 ipcMain.handle('get-platform', () => process.platform)
 
 ipcMain.handle('tracklist-cache-clear', () => {
+  artworkCacheGeneration++
   const store = readStore()
-  const count = Object.keys(store.tracklistCache || {}).length
+  const tracklistCount = Object.keys(store.tracklistCache || {}).length
+  const artworkCount = Object.keys(store.artworkCache || {}).length
   store.tracklistCache = {}
   store.tracklistPreferences = {}
+  store.artworkCache = {}
   writeStore(store)
-  log(`[cache] cleared ${count} tracklist entries`)
-  return count
+  log(`[cache] cleared tracklists=${tracklistCount} artwork=${artworkCount}`)
+  return tracklistCount + artworkCount
 })
 ipcMain.handle('tracklist-try-provider', (_event, providerId) => tryTracklistProvider(providerId))
 ipcMain.handle('tracklist-select-provider', (_event, providerId) => selectTracklistProvider(providerId))

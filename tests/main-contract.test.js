@@ -197,6 +197,46 @@ test('tracklist cache remains backward compatible while carrying optional metada
   assert.match(mainJs, /metadata: normalizeSetMetadata\(cached\.metadata\)/)
 })
 
+test('missing identified artwork is enriched only after tracklist rows reach the renderer', () => {
+  const fn = mainJs.slice(mainJs.indexOf('function applyTracklistResult'), mainJs.indexOf('function sendTracklistFallback'))
+  assert.ok(fn.indexOf("send('tracklist-data'") < fn.indexOf('setImmediate(() => enrichArtworkInBackground'),
+    'artwork lookup must never block initial tracklist rendering')
+  assert.match(mainJs, /tracks\.filter\(track => track\.artworkStatus === 'loading'\)/)
+  assert.match(mainJs, /ARTWORK_LOOKUP_CONCURRENCY = 2/)
+})
+
+test('now-playing events carry artwork identity for the mini player', () => {
+  const fn = mainJs.slice(mainJs.indexOf('function emitTimelineTrack'), mainJs.indexOf('function handlePlaybackPoll'))
+  assert.match(fn, /providerTrackId: track\.providerTrackId \|\| null/)
+  assert.match(fn, /artUrl: track\.artUrl \|\| ''/)
+  assert.match(fn, /artworkStatus: track\.artworkStatus/)
+  assert.match(mainJs, /ids\.has\(lastTrackData\?\.providerTrackId\)/)
+})
+
+test('Deezer artwork cache is long-lived, bounded, negative-aware, and written once per set', () => {
+  assert.match(mainJs, /ARTWORK_CACHE_HIT_TTL_MS = 365 \* 24 \* 60 \* 60 \* 1000/)
+  assert.match(mainJs, /ARTWORK_CACHE_MISS_TTL_MS = 30 \* 24 \* 60 \* 60 \* 1000/)
+  assert.match(mainJs, /MAX_ARTWORK_CACHE_ENTRIES = 6000/)
+  assert.match(mainJs, /artUrl: cached\.artUrl \|\| ''/)
+  assert.match(mainJs, /writeArtworkCacheUpdates\(updates\)/)
+  assert.match(mainJs, /if \(existing\.artworkCache\) next\.artworkCache = existing\.artworkCache/)
+})
+
+test('private lookup caches never round-trip through ordinary renderer persistence', () => {
+  const fn = mainJs.slice(mainJs.indexOf('function readStoreForRenderer'), mainJs.indexOf('// ── Stats persistence'))
+  assert.match(fn, /delete rendererStore\.tracklistCache/)
+  assert.match(fn, /delete rendererStore\.tracklistPreferences/)
+  assert.match(fn, /delete rendererStore\.artworkCache/)
+})
+
+test('cached normalized DJ names backfill older saved sets for the Library', () => {
+  assert.match(mainJs, /function backfillSavedDjNamesFromCache\(store\)/)
+  assert.match(mainJs, /normalizeSetMetadata\(entry\.metadata\)\.djNames/)
+  assert.match(mainJs, /\['favorites', 'history'\]\.forEach/)
+  assert.match(mainJs, /return \{ \.\.\.item, djNames \}/)
+  assert.match(mainJs, /ipcMain\.handle\('store-get',\s*\(\) => readStoreForRenderer\(\)\)/)
+})
+
 test('the external-link allowlist is derived from the tracklist registry', () => {
   // Regression: set79 links were silently dropped because the allowlist named
   // 1001tracklists.com by hand. A new provider must not have to remember this.
