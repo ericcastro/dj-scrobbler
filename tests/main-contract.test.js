@@ -80,6 +80,9 @@ test('all documented IPC channels are present in main.js', () => {
     'lfm-disconnect',
     'now-playing',
     'tracklist-loaded',
+    'tracklist-options',
+    'set-metadata',
+    'set-availability',
     'wv-status',
     'lfm-status',
     'set-theme',
@@ -91,12 +94,22 @@ test('all documented IPC channels are present in main.js', () => {
 
 // ── Alternate tracklist providers ──────────────────────────────────────────────
 
-test('the lookup pipeline is shared by the automatic lookup and the manual retry', () => {
-  // Both entry points must run the same search → extract → cache → broadcast
-  // path, so a provider only has to be correct once.
+test('the provider probe pipeline is shared by automatic and manual lookups', () => {
+  // Both entry points share cache → search → extract without sharing UI state.
+  assert.match(mainJs, /async function probeTracklistProvider\(tlPlugin, meta, lookupToken,/)
   assert.match(mainJs, /async function runTracklistLookup\(tlPlugin, meta, lookupToken/)
-  assert.match(mainJs, /await runTracklistLookup\(tlPlugin, meta, lookupToken\)/)
+  assert.match(mainJs, /lookup: plugin => probeTracklistProvider\(plugin, meta, lookupToken, \{ bypassCache \}\)/)
+  assert.match(mainJs, /await probeTracklistProvider\(tlPlugin, meta, lookupToken\)/)
   assert.match(mainJs, /await runTracklistLookup\(tlPlugin, currentSourceMeta, lookupToken, \{ manual: true \}\)/)
+})
+
+test('YouTube playback starts before either automatic tracklist result is awaited', () => {
+  const fn = mainJs.slice(
+    mainJs.indexOf('async function handleSourceUrl'),
+    mainJs.indexOf('// ── WebView wiring')
+  )
+  assert.ok(fn.indexOf('playbackContents.loadURL(playerUrl)') < fn.indexOf('await runAutomaticTracklistLookups'),
+    'tracklist providers must not gate player navigation')
 })
 
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
@@ -118,7 +131,7 @@ test('a manual retry leaves the running player alone', () => {
   // The loading overlay covers the video, so manual runs skip it — the
   // fallback panel below the player carries the progress instead.
   const fn = mainJs.slice(mainJs.indexOf('async function runTracklistLookup'))
-  assert.match(fn, /if \(!manual\) \{\s*mainWindow\.webContents\.send\('wv-status', \{ type: 'loading'/)
+  assert.match(fn, /if \(!manual\) mainWindow\.webContents\.send\('wv-status', \{ type: 'loading'/)
 })
 
 test('providers already tried are not offered again for the same set', () => {
@@ -127,10 +140,11 @@ test('providers already tried are not offered again for the same set', () => {
   assert.match(mainJs, /alternateTracklistsForSource\(currentSourceId, \{ exclude: \[\.\.\.triedProviders\] \}\)/)
 })
 
-test('every no-tracklist outcome offers the same contribute and alternate choices', () => {
-  // Search miss, provider error and empty extract must all reach the same panel.
-  const fallbackSends = mainJs.match(/isFallback: true,\n\s*(lookupError,\n\s*)?\.\.\.tracklistFallbackExtras\(\),/g)
-  assert.equal(fallbackSends.length, 3, 'expected 3 fallback tracklist-loaded payloads')
+test('every no-tracklist outcome uses the same fallback payload builder', () => {
+  assert.match(mainJs, /function sendTracklistFallback\(tlPlugin, error = null\)/)
+  const fn = mainJs.slice(mainJs.indexOf('function sendTracklistFallback'), mainJs.indexOf('/** Manual retry path'))
+  assert.match(fn, /isFallback: true/)
+  assert.match(fn, /\.\.\.tracklistFallbackExtras\(\)/)
 })
 
 test('an empty extract counts as a miss, not as a loaded tracklist', () => {
@@ -138,7 +152,14 @@ test('an empty extract counts as a miss, not as a loaded tracklist', () => {
   // remaining alternates would never be offered.
   assert.match(mainJs, /if \(extracted\.tracks\.length === 0\)/)
   const fn = mainJs.slice(mainJs.indexOf('if (extracted.tracks.length === 0)'))
-  assert.match(fn.slice(0, 400), /currentTracklistProvider = null/)
+  assert.match(fn.slice(0, 450), /return \{ usable: false, sourceUrl, tracklistUrl: best\.url, metadata, sourceLinks \}/)
+})
+
+test('provider normalization is applied to fresh and cached tracklists', () => {
+  const fn = mainJs.slice(mainJs.indexOf('function normalizeTracks('), mainJs.indexOf('function isTimelineTrack('))
+  assert.match(fn, /provider\?\.normalizeTracklist/)
+  assert.match(mainJs, /normalizeTracks\(cached\.tracks, cached\.providerId\)/)
+  assert.match(mainJs, /normalizeTracks\(extracted\.tracks, tlPlugin\.id\)/)
 })
 
 test('weak-signal providers can raise the minimum match score', () => {
@@ -146,19 +167,34 @@ test('weak-signal providers can raise the minimum match score', () => {
   assert.match(mainJs, /if \(!top \|\| top\.score < minScore\)/)
 })
 
+test('set79 candidate duration is best-effort and sourced after playback starts', () => {
+  assert.match(mainJs, /currentSourceMeta\.durationSeconds = Number\(poll\.duration\)/)
+  assert.match(mainJs, /async function waitForSourceDuration/)
+  assert.match(mainJs, /function extractCandidateInfoInBackground/)
+  assert.match(mainJs, /extractCandidateInfoInBackground\(tlPlugin, result\.url\)\.catch\(\(\) => null\)/)
+  assert.match(mainJs, /plugins\.tracklistMatchScore\(meta, r\)/)
+})
+
 test('tracklist-loaded names the provider so the renderer stops hardcoding it', () => {
   assert.match(mainJs, /providerName: tlPlugin\?\.name \|\| null/)
   assert.match(mainJs, /providerFooterLabel: tlPlugin\?\.footerLabel \|\| null/)
 })
 
-test('a tracklist fetched by hand from an alternate is restored on reopen', () => {
-  // The primary still retries first — a set79 result must not pin the set
-  // forever if 1001Tracklists later gains a tracklist for it.
-  assert.match(mainJs, /async function restoreCachedAlternate\(meta, lookupToken\)/)
-  assert.match(mainJs, /\.find\(p => getCachedTracklist\(p\.id, currentSourceUrl\)\)/)
-  // Every dead end tries the restore before painting the fallback panel
-  const restores = mainJs.match(/if \(await restoreCachedAlternate\(meta, lookupToken\)\) return/g)
-  assert.equal(restores.length, 3, 'expected the restore on all 3 no-tracklist paths')
+test('cached alternate tracklists participate in automatic fallback without pinning the primary', () => {
+  assert.match(mainJs, /getCachedTracklist\(tlPlugin\.id, sourceUrl\)/)
+  assert.match(mainJs, /primaryProvider: primaryPlugin/)
+  assert.match(mainJs, /fallbackProvider: fallbackPlugin/)
+  assert.match(mainJs, /if \(choice\.selected\) \{\s*applyTracklistResult\(choice\.selected\.provider/)
+})
+
+test('tracklist cache remains backward compatible while carrying optional metadata', () => {
+  const validator = mainJs.slice(
+    mainJs.indexOf('function isUsableCachedTracklist'),
+    mainJs.indexOf('function pruneTracklistCache')
+  )
+  assert.equal(validator.includes('metadata'), false, 'older v2 entries must remain usable')
+  assert.match(mainJs, /metadata: metadata \|\| null/)
+  assert.match(mainJs, /metadata: normalizeSetMetadata\(cached\.metadata\)/)
 })
 
 test('the external-link allowlist is derived from the tracklist registry', () => {
@@ -170,6 +206,65 @@ test('the external-link allowlist is derived from the tracklist registry', () =>
     'open-external still hardcodes provider hosts')
   // A rejected URL has to say so — silence is what hid this for a whole session
   assert.match(mainJs, /\[external\] blocked/)
+})
+
+test('YouTube and SoundCloud source links are explicitly allowed externally', () => {
+  const declaration = mainJs.slice(
+    mainJs.indexOf('const APP_EXTERNAL_HOSTS'),
+    mainJs.indexOf('function allowedExternalHosts')
+  )
+  for (const host of ['youtube.com', 'youtu.be', 'soundcloud.com']) {
+    assert.match(declaration, new RegExp(`['"]${host.replace('.', '\\.') }['"]`), `${host} missing from allowlist`)
+  }
+})
+
+test('the initial availability payload covers both sources and both providers', () => {
+  const availability = mainJs.slice(
+    mainJs.indexOf("mainWindow.webContents.send('set-availability'", mainJs.indexOf('async function handleSourceUrl')),
+    mainJs.indexOf('const playerUrl', mainJs.indexOf('async function handleSourceUrl'))
+  )
+  assert.match(availability, /youtube:\s*\{ status: 'available', url: currentSourceUrl \}/)
+  assert.match(availability, /soundcloud:\s*\{ status: 'checking'/)
+  assert.match(availability, /'1001tracklists':\s*\{ status: 'checking' \}/)
+  assert.match(availability, /set79:\s*\{ status: 'checking' \}/)
+})
+
+test('manual provider retries continue to update availability state', () => {
+  const fn = mainJs.slice(mainJs.indexOf('async function runTracklistLookup'), mainJs.indexOf('// ── Source → tracklist routing'))
+  assert.match(fn, /emitSetAvailability/)
+  assert.match(fn, /\[tlPlugin\.id\]: \{ status: 'checking' \}/)
+  assert.match(fn, /tlPlugin\.id === 'set79'/)
+})
+
+test('explicit refresh bypasses every provider cache without showing a playback overlay', () => {
+  assert.match(mainJs, /ipcMain\.handle\('tracklist-refresh', \(\) => refreshTracklistLookups\(\)\)/)
+  const fn = mainJs.slice(mainJs.indexOf('async function refreshTracklistLookups'), mainJs.indexOf('// ── Source → tracklist routing'))
+  assert.match(fn, /bypassCache: true/)
+  assert.match(fn, /showLoading: false/)
+  assert.match(fn, /waitForFallback: true/)
+  assert.match(fn, /normalizeSetMetadata\(null\)/)
+  assert.match(mainJs, /if \(!bypassCache\) \{\s*log\(`\[lookup\] checking tracklist cache/)
+})
+
+test('available provider statuses carry their set-specific external URLs', () => {
+  assert.match(mainJs, /url: outcome\.result\?\.usable \? outcome\.result\.tracklistUrl : null/)
+  assert.match(mainJs, /url: outcome\.result\?\.usable \? outcome\.result\.tracklistUrl : null/)
+  assert.match(mainJs, /url: result\.usable \? result\.tracklistUrl : null/)
+})
+
+test('usable provider outcomes are retained as switchable options', () => {
+  assert.match(mainJs, /let currentTracklistOptions = new Map\(\)/)
+  assert.match(mainJs, /function registerTracklistOption\(/)
+  assert.match(mainJs, /mainWindow\.webContents\.send\('tracklist-options'/)
+  assert.match(mainJs, /ipcMain\.handle\('tracklist-select-provider'/)
+  assert.match(mainJs, /writeTracklistPreference\(currentSourceUrl, providerId\)/)
+})
+
+test('tracklist provider preferences are persisted separately from tracklist cache', () => {
+  assert.match(mainJs, /function getTracklistPreference\(sourceUrl\)/)
+  assert.match(mainJs, /preferredProviderId: getTracklistPreference\(/)
+  assert.match(mainJs, /existing\.tracklistPreferences\)/)
+  assert.match(mainJs, /store\.tracklistPreferences = \{\}/)
 })
 
 test('every tracklist provider declares the host its links point at', () => {

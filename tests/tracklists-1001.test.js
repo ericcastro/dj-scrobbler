@@ -47,3 +47,36 @@ test('1001Tracklists network errors are typed for renderer recovery', () => {
   assert.equal(err.providerId, '1001tracklists')
   assert.equal(err.message, 'No internet')
 })
+
+test('1001Tracklists defaults an untimed first real track to 0:00', () => {
+  const tracks = [
+    { trackNum: 1, raw: 'Artist - Opener', hasTimestamp: false, noTimestamp: true, cueSeconds: null, cueDisplay: '' },
+    { trackNum: 2, raw: 'Artist - Later', hasTimestamp: false, noTimestamp: true, cueSeconds: null, cueDisplay: '' },
+  ]
+
+  const normalized = tracklists1001.normalizeTracklist(tracks)
+  assert.deepEqual(normalized[0], {
+    ...tracks[0],
+    hasTimestamp: true,
+    noTimestamp: false,
+    cueSeconds: 0,
+    cueDisplay: '0:00',
+  })
+  assert.deepEqual(normalized[1], tracks[1], 'later untimed tracks must stay untimed')
+})
+
+test('1001Tracklists preserves an explicit first timestamp and empty placeholders', () => {
+  const explicit = [{ trackNum: 1, raw: 'Artist - Opener', hasTimestamp: true, noTimestamp: false, cueSeconds: 12, cueDisplay: '0:12' }]
+  const placeholder = [{ trackNum: 1, raw: '', title: '', artist: '', isId: false, hasTimestamp: false, noTimestamp: true }]
+  const unidentified = [{ trackNum: 1, raw: '', title: '', artist: '', isId: true, hasTimestamp: false, noTimestamp: true }]
+
+  assert.equal(tracklists1001.normalizeTracklist(explicit), explicit)
+  assert.equal(tracklists1001.normalizeTracklist(placeholder), placeholder)
+  assert.deepEqual(tracklists1001.normalizeTracklist(unidentified)[0], {
+    ...unidentified[0],
+    hasTimestamp: true,
+    noTimestamp: false,
+    cueSeconds: 0,
+    cueDisplay: '0:00',
+  })
+})

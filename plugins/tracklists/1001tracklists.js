@@ -36,6 +36,31 @@ function networkError(message) {
   )
 }
 
+// 1001Tracklists commonly omits the first cue rather than publishing an
+// explicit 0:00. For app-owned playback, a real numbered track 1 necessarily
+// owns the timeline from the beginning. Keep every later missing cue untouched.
+function normalizeTracklist(tracks) {
+  if (!Array.isArray(tracks)) return []
+  const firstIndex = tracks.findIndex(track =>
+    track?.trackNum === 1 && !track.isWWith && !track.isMashupComponent
+  )
+  if (firstIndex < 0) return tracks
+
+  const first = tracks[firstIndex]
+  const isRealTrack = !!(first.raw || first.title || first.artist || first.isId)
+  if (!isRealTrack || first.hasTimestamp || !first.noTimestamp) return tracks
+
+  const normalized = tracks.slice()
+  normalized[firstIndex] = {
+    ...first,
+    hasTimestamp: true,
+    noTimestamp: false,
+    cueSeconds: 0,
+    cueDisplay: '0:00',
+  }
+  return normalized
+}
+
 function assertProviderResponse(html) {
   if (/access has been limited due to overuse/i.test(html || '')) {
     throw providerError(
@@ -174,6 +199,7 @@ module.exports = {
   id: '1001tracklists',
   name: '1001Tracklists',
   supportedSources: ['youtube'],
+  normalizeTracklist,
 
   matchUrl(url) {
     return url.includes('1001tracklists.com/tracklist/')
@@ -333,6 +359,7 @@ module.exports = {
     assertProviderResponse,
     extractVideoIdFromHtml,
     networkError,
+    normalizeTracklist,
     providerError,
   },
 }

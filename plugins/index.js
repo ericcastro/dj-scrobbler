@@ -38,9 +38,13 @@ const ROUTING = {
 }
 
 // Providers a user can try by hand when the routed provider comes up empty.
-// Never searched automatically — each one costs a round trip and matches on
-// weaker signals than the primary, so it stays behind a button press.
 const ALTERNATE_ROUTING = {
+  youtube: ['set79'],
+}
+
+// Best-effort providers started beside the primary lookup. Primary results
+// always win; these are only eligible to supply a tracklist when it has none.
+const AUTOMATIC_FALLBACK_ROUTING = {
   youtube: ['set79'],
 }
 
@@ -66,6 +70,12 @@ function alternateTracklistsForSource(sourceId, { exclude = [] } = {}) {
   const excluded = new Set(exclude)
   return (ALTERNATE_ROUTING[sourceId] || [])
     .filter(id => !excluded.has(id))
+    .map(tracklistById)
+    .filter(Boolean)
+}
+
+function automaticFallbackTracklistsForSource(sourceId) {
+  return (AUTOMATIC_FALLBACK_ROUTING[sourceId] || [])
     .map(tracklistById)
     .filter(Boolean)
 }
@@ -128,16 +138,58 @@ function titleSimilarity(metaOrString, resultTitle) {
   return score
 }
 
+// Duration is unusually strong evidence for long-form DJ sets. Treat matches
+// within 1% (capped at one minute) as corroborating, but make a known duration
+// outside that small window actively count against the candidate.
+function durationSimilarity(sourceSeconds, candidateSeconds) {
+  const source = Number(sourceSeconds)
+  const candidate = Number(candidateSeconds)
+  if (!Number.isFinite(source) || source <= 0 || !Number.isFinite(candidate) || candidate <= 0) return null
+
+  const delta = Math.abs(source - candidate)
+  if (delta <= 2) return 100
+  const tolerance = Math.max(15, Math.min(60, source * 0.01))
+  if (delta > tolerance) return 0
+  return Math.round(100 - ((delta - 2) / (tolerance - 2)) * 25)
+}
+
+// Keep title resemblance as a safety gate: equal-duration uploads with wholly
+// different artist/title words must not match. Once that gate passes, duration
+// carries most of the score so harmless missing edition markers do not sink an
+// otherwise exact cross-platform match.
+function tracklistMatchScore(meta, candidate) {
+  const titleScore = titleSimilarity(meta, candidate?.title || '')
+  if (titleScore === 0) return { score: 0, titleScore, durationScore: null }
+
+  const durationScore = durationSimilarity(meta?.durationSeconds, candidate?.durationSeconds)
+  const weightedScore = durationScore === null
+    ? titleScore
+    : Math.round((titleScore * 0.35) + (durationScore * 0.65))
+
+  // An unmistakable normalized title (typically the same artists, event and
+  // year) is sufficient evidence by itself. Cross-platform uploads can include
+  // different intro/outro edits, so duration may boost this confidence but
+  // must not veto it. Partial titles still rely on the duration-heavy score.
+  const score = titleScore >= 85
+    ? Math.max(titleScore, weightedScore)
+    : weightedScore
+  return { score, titleScore, durationScore }
+}
+
 module.exports = {
   SOURCES,
   TRACKLISTS,
   ROUTING,
   ALTERNATE_ROUTING,
+  AUTOMATIC_FALLBACK_ROUTING,
   DORMANT_INTEGRATIONS,
   sourceForUrl,
   tracklistForUrl,
   tracklistForSource,
   tracklistById,
   alternateTracklistsForSource,
+  automaticFallbackTracklistsForSource,
+  durationSimilarity,
+  tracklistMatchScore,
   titleSimilarity,
 }

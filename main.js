@@ -15,6 +15,8 @@ const {
 } = require('./lib/update-utils')
 const macUpdater = require('./lib/mac-updater')
 const { wireYouTubePlayerUi, isYouTubePlayerUrl } = require('./lib/youtube-player-ui')
+const { startPrimaryWithFallback } = require('./lib/parallel-tracklist-lookup')
+const { hasSetMetadata, normalizeSetMetadata } = require('./lib/set-metadata')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -187,7 +189,7 @@ function getCachedTracklist(providerId, sourceUrl) {
   return null
 }
 
-function writeCachedTracklist({ sourceUrl, providerId, tracklistUrl, title, thumbnailUrl, tracks }) {
+function writeCachedTracklist({ sourceUrl, providerId, tracklistUrl, title, thumbnailUrl, tracks, metadata }) {
   if (!sourceUrl || !providerId || !tracklistUrl || !Array.isArray(tracks) || tracks.length === 0) return
 
   const store = readStore()
@@ -203,12 +205,31 @@ function writeCachedTracklist({ sourceUrl, providerId, tracklistUrl, title, thum
     title: title || null,
     thumbnailUrl: thumbnailUrl || null,
     tracks,
+    metadata: metadata || null,
     cachedAt: now,
     expiresAt: now + TRACKLIST_CACHE_TTL_MS,
   }
   pruneTracklistCache(store.tracklistCache, now)
   writeStore(store)
   log(`[cache] stored tracklist tracks=${tracks.length} provider=${providerId} source=${sourceUrl}`)
+}
+
+function getTracklistPreference(sourceUrl) {
+  if (!sourceUrl) return null
+  const providerId = readStore().tracklistPreferences?.[sourceUrl]
+  return plugins.tracklistById(providerId) ? providerId : null
+}
+
+function writeTracklistPreference(sourceUrl, providerId) {
+  if (!sourceUrl || !plugins.tracklistById(providerId)) return false
+  const store = readStore()
+  if (!store.tracklistPreferences || typeof store.tracklistPreferences !== 'object') {
+    store.tracklistPreferences = {}
+  }
+  store.tracklistPreferences[sourceUrl] = providerId
+  writeStore(store)
+  log(`[cache] preferred tracklist provider=${providerId} source=${sourceUrl}`)
+  return true
 }
 
 // ── Consent popup dismissal ───────────────────────────────────────────────────
@@ -365,6 +386,7 @@ let currentThumbnailUrl  = null   // YouTube thumbnail for history/favorites
 let currentSourceUrl     = null   // Canonical source URL for history/favorites
 let currentTracklistUrl  = null
 let currentTracklistProvider = null
+let currentTracklistOptions = new Map()
 let currentTracks        = []
 let currentSourceId      = null   // Source plugin ID the current set came from
 let currentSourceMeta    = null   // getMeta() result, replayed by manual retries
@@ -441,7 +463,11 @@ function normalizeTrack(track, index, providerId) {
 }
 
 function normalizeTracks(tracks, providerId) {
-  return tracks.map((track, index) => normalizeTrack(track, index, providerId))
+  const provider = plugins.tracklistById(providerId)
+  const prepared = provider?.normalizeTracklist
+    ? provider.normalizeTracklist(tracks)
+    : tracks
+  return prepared.map((track, index) => normalizeTrack(track, index, providerId))
 }
 
 function isTimelineTrack(track) {
@@ -532,6 +558,10 @@ function handlePlaybackPoll(poll) {
   updatePlayAccumulator(now)
 
   if (poll.duration > 0) {
+    // Keep the source duration on the lookup metadata as soon as the app-owned
+    // player exposes it. Best-effort providers can use it without ever gating
+    // playback startup.
+    if (currentSourceMeta) currentSourceMeta.durationSeconds = Number(poll.duration)
     mainWindow.webContents.send('playback-progress', {
       currentTime: poll.currentTime,
       duration: poll.duration,
@@ -651,6 +681,66 @@ async function executeTracklistExtraction(wc, script) {
   return []
 }
 
+async function executeCandidateInfoExtraction(wc, script) {
+  for (let i = 0; i < 24; i++) {
+    const info = await wc.executeJavaScript(script).catch(() => null)
+    if (info && typeof info === 'object') return info
+    await delay(250)
+  }
+  return null
+}
+
+// Candidate pages are loaded only for a small, title-plausible shortlist. A
+// failed page/widget is deliberately reduced to null so it cannot cancel the
+// provider search, the primary provider, or playback.
+function extractCandidateInfoInBackground(tlPlugin, url) {
+  return new Promise((resolve) => {
+    const win = new BrowserWindow({
+      show: false,
+      width: 960,
+      height: 700,
+      icon: appIcon(),
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        backgroundThrottling: false,
+      },
+    })
+    const wc = win.webContents
+    let settled = false
+
+    const finish = (value) => {
+      if (settled) return
+      settled = true
+      if (!win.isDestroyed()) win.destroy()
+      resolve(value)
+    }
+
+    const timeout = setTimeout(() => finish(null), 10_000)
+    wc.on('did-finish-load', async () => {
+      const info = await executeCandidateInfoExtraction(wc, tlPlugin.candidateInfoExtractScript)
+      clearTimeout(timeout)
+      finish(info)
+    })
+    wc.on('did-fail-load', (_event, _code, _desc, _failedUrl, isMainFrame) => {
+      if (!isMainFrame) return
+      clearTimeout(timeout)
+      finish(null)
+    })
+    wc.on('render-process-gone', () => {
+      clearTimeout(timeout)
+      finish(null)
+    })
+    win.loadURL(url)
+  })
+}
+
+async function waitForSourceDuration(meta, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs
+  while (!(Number(meta?.durationSeconds) > 0) && Date.now() < deadline) await delay(250)
+  return Number(meta?.durationSeconds) > 0 ? Number(meta.durationSeconds) : null
+}
+
 function extractTracklistInBackground(tlPlugin, url) {
   return new Promise((resolve) => {
     log(`[extract] background load ${url}`)
@@ -677,7 +767,7 @@ function extractTracklistInBackground(tlPlugin, url) {
 
     const timeout = setTimeout(() => {
       log('[extract] timed out')
-      finish({ title: null, tracks: [] })
+      finish({ title: null, tracks: [], metadata: null })
     }, 20000)
 
     wc.on('did-finish-load', async () => {
@@ -694,13 +784,16 @@ function extractTracklistInBackground(tlPlugin, url) {
         const tracks = tlPlugin.tracklistExtractScript
           ? await executeTracklistExtraction(wc, tlPlugin.tracklistExtractScript)
           : []
+        const metadata = tlPlugin.metadataExtractScript
+          ? await wc.executeJavaScript(tlPlugin.metadataExtractScript).catch(() => null)
+          : null
         log(`[extract] tracks=${tracks.length} title="${title || ''}"`)
         clearTimeout(timeout)
-        finish({ title, tracks })
+        finish({ title, tracks, metadata })
       } catch (err) {
         log('[extract] failed', err?.message || err)
         clearTimeout(timeout)
-        finish({ title: null, tracks: [] })
+        finish({ title: null, tracks: [], metadata: null })
       }
     })
 
@@ -708,14 +801,14 @@ function extractTracklistInBackground(tlPlugin, url) {
       if (isMainFrame) {
         log(`[extract] did-fail-load code=${code} desc="${desc}" url=${failedUrl}`)
         clearTimeout(timeout)
-        finish({ title: null, tracks: [] })
+        finish({ title: null, tracks: [], metadata: null })
       }
     })
 
     wc.on('render-process-gone', (_event, details) => {
       log(`[extract] render-process-gone reason=${details.reason}`)
       clearTimeout(timeout)
-      finish({ title: null, tracks: [] })
+      finish({ title: null, tracks: [], metadata: null })
     })
 
     win.loadURL(url)
@@ -733,12 +826,29 @@ async function findBestTracklist(tlPlugin, meta) {
     return results[0]
   }
 
-  const scored = results
-    .map(r => ({ ...r, score: plugins.titleSimilarity(meta, r.title) }))
+  let candidates = results
+  if (tlPlugin.candidateInfoExtractScript && await waitForSourceDuration(meta)) {
+    const limit = tlPlugin.durationCandidateLimit || 3
+    const minTitleScore = tlPlugin.minDurationCandidateTitleScore || 1
+    const shortlist = results
+      .map(r => ({ result: r, titleScore: plugins.titleSimilarity(meta, r.title) }))
+      .filter(entry => entry.titleScore >= minTitleScore)
+      .sort((a, b) => b.titleScore - a.titleScore)
+      .slice(0, limit)
+
+    const infoByUrl = new Map(await Promise.all(shortlist.map(async ({ result }) => {
+      const info = await extractCandidateInfoInBackground(tlPlugin, result.url).catch(() => null)
+      return [result.url, info]
+    })))
+    candidates = results.map(result => ({ ...result, ...(infoByUrl.get(result.url) || {}) }))
+  }
+
+  const scored = candidates
+    .map(r => ({ ...r, ...plugins.tracklistMatchScore(meta, r) }))
     .sort((a, b) => b.score - a.score)
 
   log(`[${tlPlugin.id}] ${scored.length} results for: "${meta.title}"`)
-  scored.forEach((r, i) => log(`  [${i + 1}] ${r.score}%  ${r.title}  →  ${r.url}`))
+  scored.forEach((r, i) => log(`  [${i + 1}] ${r.score}% title=${r.titleScore}% duration=${r.durationScore ?? 'n/a'}%  ${r.title}  →  ${r.url}`))
 
   // Providers that match on weak signals (title search rather than an exact
   // media-ID match) raise the bar via minMatchScore.
@@ -796,180 +906,278 @@ function tracklistFallbackExtras() {
   }
 }
 
-/**
- * When a provider comes up empty, fall back to a tracklist the user already
- * fetched by hand from an alternate provider for this same set — their choice
- * outlives the session, and re-pressing the button every time would be silly.
- *
- * Only a *cached* alternate qualifies: this never searches an alternate on its
- * own, so the button stays the only way to reach one for the first time.
- */
-async function restoreCachedAlternate(meta, lookupToken) {
-  const restored = plugins
-    .alternateTracklistsForSource(currentSourceId, { exclude: [...triedProviders] })
-    .find(p => getCachedTracklist(p.id, currentSourceUrl))
-  if (!restored) return false
-
-  log(`[lookup] restoring cached ${restored.id} tracklist previously chosen for this set`)
-  await runTracklistLookup(restored, meta, lookupToken)
-  return true
+function emitSetMetadata(tlPlugin, metadata, sourceUrl, lookupToken) {
+  if (lookupToken !== currentLookupToken || sourceUrl !== currentSourceUrl || !hasSetMetadata(metadata)) return
+  mainWindow.webContents.send('set-metadata', {
+    sourceUrl,
+    providerId: tlPlugin.id,
+    ...metadata,
+  })
 }
 
-/**
- * Search a tracklist provider for the current set, then extract, cache and
- * broadcast whatever it finds. Shared by the automatic lookup that follows a
- * source navigation and by the manual "try another provider" button, which
- * replays it against the same meta with a different plugin.
- *
- * `manual` runs keep the player untouched: no loading overlay, and a miss
- * leaves the video playing under an updated "not available" panel.
- */
-async function runTracklistLookup(tlPlugin, meta, lookupToken, { manual = false } = {}) {
+function sourceLinksForTracklist(tlPlugin, tracklistUrl) {
+  const soundcloud = tlPlugin.sourceUrlForTracklistUrl?.(tracklistUrl) || null
+  return soundcloud ? { soundcloud } : {}
+}
+
+function providerAvailability(outcome) {
+  if (!outcome) return 'unavailable'
+  if (outcome.error) return 'error'
+  return outcome.result?.usable ? 'available' : 'unavailable'
+}
+
+function emitSetAvailability(services, sourceUrl, lookupToken) {
+  if (lookupToken !== currentLookupToken || sourceUrl !== currentSourceUrl) return
+  mainWindow.webContents.send('set-availability', { sourceUrl, services })
+}
+
+/** Search and extract without changing the active tracklist or UI. */
+async function probeTracklistProvider(tlPlugin, meta, lookupToken, { bypassCache = false } = {}) {
   triedProviders.add(tlPlugin.id)
+  const sourceUrl = meta.url || currentSourceUrl
 
-  log(`[lookup] checking tracklist cache for provider=${tlPlugin.id} source=${currentSourceUrl}`)
-  const cached = getCachedTracklist(tlPlugin.id, currentSourceUrl)
-  if (cached) {
-    log(`[cache] hit provider=${cached.providerId} source=${currentSourceUrl} tracks=${cached.tracks.length}`)
-    isTracklistLookupPending = false
-    currentTracklistUrl = cached.tracklistUrl
-    currentTracklistProvider = cached.providerId
-    currentSetTitle = cached.title || currentSetTitle
-    currentTracks = normalizeTracks(cached.tracks, cached.providerId)
-
-    mainWindow.webContents.send('tracklist-loaded', {
-      ...tracklistLoadedBase(tlPlugin),
-      title: currentSetTitle,
-      tracklistUrl: cached.tracklistUrl,
-      isFallback: false,
-      fromCache: true,
-    })
-    mainWindow.webContents.send('tracklist-data', {
-      providerId: cached.providerId,
-      url: cached.tracklistUrl,
-      tracks: currentTracks,
-      fromCache: true,
-    })
-    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-    return
-  }
-
-  log(`[lookup] cache miss — starting network search via ${tlPlugin.id} for "${currentSetTitle}"`)
-  if (!manual) {
-    mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
-  }
-
-  let best
-  const searchStart = Date.now()
-  try {
-    log(`[lookup] findBestTracklist start provider=${tlPlugin.id}`)
-    best = await findBestTracklist(tlPlugin, meta)
-    log(`[lookup] findBestTracklist done in ${Date.now() - searchStart}ms result=${best ? best.url : '(none)'}`)
-  } catch (err) {
-    log(`[lookup] findBestTracklist threw after ${Date.now() - searchStart}ms: ${err?.message || err}`)
-    const lookupError = tracklistLookupErrorPayload(err, tlPlugin)
-    log(`[lookup] provider failed code=${lookupError.code} provider=${lookupError.providerId}: ${lookupError.message}`)
-    if (await restoreCachedAlternate(meta, lookupToken)) return
-    isTracklistLookupPending = false
-    currentLookupToken++
-    mainWindow.webContents.send('tracklist-loaded', {
-      ...tracklistLoadedBase(tlPlugin),
-      tracklistUrl: null,
-      isFallback: true,
-      lookupError,
-      ...tracklistFallbackExtras(),
-    })
-    if (lookupError.code === 'network_unavailable') {
-      mainWindow.webContents.send('wv-status', {
-        type: 'network-error',
-        url: currentSourceUrl,
-        message: lookupError.message,
-      })
-    } else {
-      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+  if (!bypassCache) {
+    log(`[lookup] checking tracklist cache for provider=${tlPlugin.id} source=${sourceUrl}`)
+    const cached = getCachedTracklist(tlPlugin.id, sourceUrl)
+    if (cached) {
+      log(`[cache] hit provider=${cached.providerId} source=${sourceUrl} tracks=${cached.tracks.length}`)
+      return {
+        usable: true,
+        sourceUrl,
+        title: cached.title || meta.title || sourceUrl,
+        tracklistUrl: cached.tracklistUrl,
+        tracks: normalizeTracks(cached.tracks, cached.providerId),
+        metadata: normalizeSetMetadata(cached.metadata),
+        sourceLinks: sourceLinksForTracklist(tlPlugin, cached.tracklistUrl),
+        fromCache: true,
+      }
     }
-    return
+  } else {
+    log(`[cache] bypassed provider=${tlPlugin.id} source=${sourceUrl}`)
   }
+
+  log(`[lookup] cache miss — starting network search via ${tlPlugin.id} for "${meta.title || ''}"`)
+  const searchStart = Date.now()
+  log(`[lookup] findBestTracklist start provider=${tlPlugin.id}`)
+  const best = await findBestTracklist(tlPlugin, meta)
+  log(`[lookup] findBestTracklist done in ${Date.now() - searchStart}ms result=${best ? best.url : '(none)'}`)
   if (lookupToken !== currentLookupToken) {
     log(`[lookup] token mismatch after findBestTracklist (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
-    return
+    return { usable: false, stale: true, sourceUrl }
   }
 
   if (!best) {
-    log('[lookup] → no tracklist found — sending fallback')
-    if (await restoreCachedAlternate(meta, lookupToken)) return
-    isTracklistLookupPending = false
-    mainWindow.webContents.send('tracklist-loaded', {
-      ...tracklistLoadedBase(tlPlugin),
-      tracklistUrl: null,
-      isFallback: true,
-      ...tracklistFallbackExtras(),
-    })
-    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-    return
+    log(`[lookup] → no tracklist found via ${tlPlugin.id}`)
+    return { usable: false, sourceUrl, metadata: normalizeSetMetadata(null), sourceLinks: {} }
   }
 
   log(`[lookup] → best match: "${best.title}" url=${best.url}`)
   log(`[lookup] → extracting tracklist from ${best.url}`)
-  if (!manual) {
-    mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Loading tracklist…' })
-  }
-  currentTracklistUrl = best.url
-  currentTracklistProvider = tlPlugin.id
   const extractStart = Date.now()
   const extracted = await extractTracklistInBackground(tlPlugin, best.url)
   log(`[lookup] extractTracklistInBackground done in ${Date.now() - extractStart}ms tracks=${extracted.tracks.length}`)
   if (lookupToken !== currentLookupToken) {
     log(`[lookup] token mismatch after extract (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
-    return
+    return { usable: false, stale: true, sourceUrl }
   }
 
-  // An empty extract is a miss, not a result — keep the fallback panel (and its
-  // remaining alternates) rather than pinning the set to a provider with no data.
+  const metadata = normalizeSetMetadata(extracted.metadata)
+  const sourceLinks = sourceLinksForTracklist(tlPlugin, best.url)
   if (extracted.tracks.length === 0) {
     log(`[lookup] extract came back empty for ${best.url} — treating as no tracklist`)
-    currentTracklistUrl = null
-    currentTracklistProvider = null
-    if (await restoreCachedAlternate(meta, lookupToken)) return
-    isTracklistLookupPending = false
-    mainWindow.webContents.send('tracklist-loaded', {
-      ...tracklistLoadedBase(tlPlugin),
-      tracklistUrl: null,
-      isFallback: true,
-      ...tracklistFallbackExtras(),
-    })
-    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-    return
+    return { usable: false, sourceUrl, tracklistUrl: best.url, metadata, sourceLinks }
   }
 
-  isTracklistLookupPending = false
-  const title = currentSetTitle || extracted.title || best.title || currentSourceUrl
-  currentSetTitle = title
-  currentTracks = normalizeTracks(extracted.tracks, tlPlugin.id)
-  log(`[lookup] writing cache: provider=${tlPlugin.id} tracks=${currentTracks.length} title="${title}"`)
+  const title = meta.title || extracted.title || best.title || sourceUrl
+  const tracks = normalizeTracks(extracted.tracks, tlPlugin.id)
+  log(`[lookup] writing cache: provider=${tlPlugin.id} tracks=${tracks.length} title="${title}"`)
   writeCachedTracklist({
-    sourceUrl: currentSourceUrl,
+    sourceUrl,
     providerId: tlPlugin.id,
     tracklistUrl: best.url,
     title,
     thumbnailUrl: currentThumbnailUrl,
-    tracks: currentTracks,
+    tracks,
+    metadata,
   })
+
+  return { usable: true, sourceUrl, title, tracklistUrl: best.url, tracks, metadata, sourceLinks, fromCache: false }
+}
+
+function tracklistOptionPayload() {
+  const providerOrder = new Map(plugins.TRACKLISTS.map((provider, index) => [provider.id, index]))
+  return [...currentTracklistOptions.values()]
+    .sort((a, b) => (providerOrder.get(a.provider.id) ?? 99) - (providerOrder.get(b.provider.id) ?? 99))
+    .map(({ provider, result }) => ({
+      id: provider.id,
+      name: provider.name,
+      tracklistUrl: result.tracklistUrl,
+    }))
+}
+
+function emitTracklistOptions() {
+  if (!currentSourceUrl || !currentTracklistProvider) return
+  mainWindow.webContents.send('tracklist-options', {
+    sourceUrl: currentSourceUrl,
+    selectedProviderId: currentTracklistProvider,
+    options: tracklistOptionPayload(),
+  })
+}
+
+function registerTracklistOption(provider, result, lookupToken = currentLookupToken) {
+  if (
+    lookupToken !== currentLookupToken ||
+    !result?.usable ||
+    result.sourceUrl !== currentSourceUrl
+  ) return false
+  currentTracklistOptions.set(provider.id, { provider, result })
+  emitTracklistOptions()
+  return true
+}
+
+function applyTracklistResult(tlPlugin, result, { persistPreference = false } = {}) {
+  isTracklistLookupPending = false
+  currentTracklistUrl = result.tracklistUrl
+  currentTracklistProvider = tlPlugin.id
+  currentSetTitle = result.title
+  currentTracks = result.tracks
+  registerTracklistOption(tlPlugin, result)
+  if (persistPreference) writeTracklistPreference(currentSourceUrl, tlPlugin.id)
 
   mainWindow.webContents.send('tracklist-loaded', {
     ...tracklistLoadedBase(tlPlugin),
-    title,
-    tracklistUrl: best.url,
+    title: result.title,
+    tracklistUrl: result.tracklistUrl,
     isFallback: false,
+    fromCache: result.fromCache,
   })
   log(`[lookup] DONE sent tracklist-loaded tracks=${currentTracks.length}`)
 
   mainWindow.webContents.send('tracklist-data', {
     providerId: tlPlugin.id,
-    url: best.url,
+    url: result.tracklistUrl,
     tracks: currentTracks,
+    fromCache: result.fromCache,
   })
+  emitTracklistOptions()
   mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+}
+
+function sendTracklistFallback(tlPlugin, error = null) {
+  isTracklistLookupPending = false
+  currentTracklistUrl = null
+  currentTracklistProvider = null
+  currentTracks = []
+  const lookupError = tracklistLookupErrorPayload(error, tlPlugin)
+  mainWindow.webContents.send('tracklist-loaded', {
+    ...tracklistLoadedBase(tlPlugin),
+    tracklistUrl: null,
+    isFallback: true,
+    ...(lookupError ? { lookupError } : {}),
+    ...tracklistFallbackExtras(),
+  })
+  if (lookupError?.code === 'network_unavailable') {
+    mainWindow.webContents.send('wv-status', {
+      type: 'network-error',
+      url: currentSourceUrl,
+      message: lookupError.message,
+    })
+  } else {
+    mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+  }
+}
+
+/** Manual retry path retained for the existing alternate-provider action. */
+async function runTracklistLookup(tlPlugin, meta, lookupToken, { manual = false } = {}) {
+  if (!manual) mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${tlPlugin.name}…` })
+  try {
+    const result = await probeTracklistProvider(tlPlugin, meta, lookupToken)
+    if (result.stale || lookupToken !== currentLookupToken) return
+    emitSetMetadata(tlPlugin, result.metadata, result.sourceUrl, lookupToken)
+    const soundcloudUrl = result.sourceLinks?.soundcloud || null
+    emitSetAvailability({
+      [tlPlugin.id]: {
+        status: result.usable ? 'available' : 'unavailable',
+        url: result.usable ? result.tracklistUrl : null,
+      },
+      ...(tlPlugin.id === 'set79'
+        ? { soundcloud: { status: soundcloudUrl ? 'available' : 'unavailable', url: soundcloudUrl } }
+        : {}),
+    }, result.sourceUrl, lookupToken)
+    if (result.usable) applyTracklistResult(tlPlugin, result, { persistPreference: manual })
+    else sendTracklistFallback(tlPlugin)
+  } catch (error) {
+    if (lookupToken !== currentLookupToken) return
+    log(`[lookup] provider failed provider=${tlPlugin.id}: ${error?.message || error}`)
+    emitSetAvailability({
+      [tlPlugin.id]: { status: 'error' },
+      ...(tlPlugin.id === 'set79' ? { soundcloud: { status: 'error', url: null } } : {}),
+    }, meta.url || currentSourceUrl, lookupToken)
+    sendTracklistFallback(tlPlugin, error)
+  }
+}
+
+async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
+  bypassCache = false,
+  showLoading = true,
+  waitForFallback = false,
+} = {}) {
+  const fallbackPlugin = plugins.automaticFallbackTracklistsForSource(currentSourceId)[0] || null
+  if (showLoading) mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${primaryPlugin.name}…` })
+
+  const lookups = startPrimaryWithFallback({
+    primaryProvider: primaryPlugin,
+    fallbackProvider: fallbackPlugin,
+    preferredProviderId: getTracklistPreference(meta.url || currentSourceUrl),
+    lookup: plugin => probeTracklistProvider(plugin, meta, lookupToken, { bypassCache }),
+  })
+
+  // set79 metadata is useful even when 1001Tracklists supplies the tracks.
+  lookups.fallback.then(outcome => {
+    if (!outcome) return
+    if (outcome.result) registerTracklistOption(outcome.provider, outcome.result, lookupToken)
+    if (outcome.result) emitSetMetadata(outcome.provider, outcome.result.metadata, outcome.result.sourceUrl, lookupToken)
+    const soundcloudUrl = outcome.result?.sourceLinks?.soundcloud || null
+    emitSetAvailability({
+      [outcome.provider.id]: {
+        status: providerAvailability(outcome),
+        url: outcome.result?.usable ? outcome.result.tracklistUrl : null,
+      },
+      soundcloud: { status: soundcloudUrl ? 'available' : providerAvailability(outcome), url: soundcloudUrl },
+    }, meta.url || currentSourceUrl, lookupToken)
+  })
+
+  lookups.primary.then(outcome => {
+    if (!outcome) return
+    if (outcome.result) registerTracklistOption(outcome.provider, outcome.result, lookupToken)
+    emitSetAvailability({
+      [primaryPlugin.id]: {
+        status: providerAvailability(outcome),
+        url: outcome.result?.usable ? outcome.result.tracklistUrl : null,
+      },
+    }, meta.url || currentSourceUrl, lookupToken)
+
+    if (!outcome.result?.usable && lookupToken === currentLookupToken) {
+      // The fallback may still be running, but playback should already be visible.
+      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    }
+  })
+
+  const choice = await lookups.selected
+  if (lookupToken !== currentLookupToken || choice.selected?.result?.stale) return
+
+  if (choice.selected) {
+    applyTracklistResult(choice.selected.provider, choice.selected.result)
+    // A user-requested refresh keeps its busy state until every advertised
+    // service has settled, while the selected result is still applied immediately.
+    if (waitForFallback) await Promise.all([lookups.primary, lookups.fallback])
+    return
+  }
+
+  const primaryError = choice.primary?.error || null
+  if (primaryError) log(`[lookup] primary provider failed: ${primaryError?.message || primaryError}`)
+  if (choice.fallback?.error) log(`[lookup] fallback provider failed: ${choice.fallback.error?.message || choice.fallback.error}`)
+  sendTracklistFallback(primaryPlugin, primaryError)
 }
 
 /**
@@ -1000,8 +1208,69 @@ async function tryTracklistProvider(providerId) {
   currentTracklistProvider = null
   isTracklistLookupPending = true
 
+  emitSetAvailability({
+    [tlPlugin.id]: { status: 'checking' },
+    ...(tlPlugin.id === 'set79' ? { soundcloud: { status: 'checking', url: null } } : {}),
+  }, currentSourceUrl, lookupToken)
+
   await runTracklistLookup(tlPlugin, currentSourceMeta, lookupToken, { manual: true })
   return true
+}
+
+async function selectTracklistProvider(providerId) {
+  const option = currentTracklistOptions.get(providerId)
+  if (!option || !currentSourceUrl) {
+    log(`[lookup] provider selection rejected provider=${providerId} source=${currentSourceUrl || '(none)'}`)
+    return false
+  }
+  if (providerId === currentTracklistProvider) {
+    writeTracklistPreference(currentSourceUrl, providerId)
+    return true
+  }
+
+  log(`[lookup] SWITCH provider=${providerId} source=${currentSourceUrl}`)
+  scrobbleLastTrackIfReady()
+  resetTimelineState()
+  applyTracklistResult(option.provider, option.result, { persistPreference: true })
+  return true
+}
+
+async function refreshTracklistLookups() {
+  const primaryPlugin = plugins.tracklistForSource(currentSourceId)
+  if (!primaryPlugin || !currentSourceMeta || !currentSourceUrl) {
+    log('[lookup] refresh rejected — no current set')
+    return false
+  }
+
+  const lookupToken = ++currentLookupToken
+  triedProviders = new Set()
+  currentTracklistOptions = new Map()
+  isTracklistLookupPending = true
+  log(`[lookup] REFRESH source=${currentSourceUrl} token=${lookupToken}`)
+
+  // Clear stale presentation state immediately. The cache remains available
+  // for later sessions, but neither provider may read it during this refresh.
+  mainWindow.webContents.send('set-metadata', {
+    sourceUrl: currentSourceUrl,
+    providerId: null,
+    ...normalizeSetMetadata(null),
+  })
+  mainWindow.webContents.send('set-availability', {
+    sourceUrl: currentSourceUrl,
+    services: {
+      youtube: { status: 'available', url: currentSourceUrl },
+      soundcloud: { status: 'checking', url: null },
+      '1001tracklists': { status: 'checking', url: null },
+      set79: { status: 'checking', url: null },
+    },
+  })
+
+  await runAutomaticTracklistLookups(primaryPlugin, currentSourceMeta, lookupToken, {
+    bypassCache: true,
+    showLoading: false,
+    waitForFallback: true,
+  })
+  return lookupToken === currentLookupToken
 }
 
 // ── Source → tracklist routing ────────────────────────────────────────────────
@@ -1021,6 +1290,7 @@ async function handleSourceUrl(source, url, wvContents) {
   currentTracks = []
   currentTracklistUrl = null
   currentTracklistProvider = null
+  currentTracklistOptions = new Map()
   currentSourceId = source.id
   currentSourceMeta = null
   triedProviders = new Set()
@@ -1058,6 +1328,20 @@ async function handleSourceUrl(source, url, wvContents) {
       tracklistUrl: null,
       isFallback: false,
     })
+    mainWindow.webContents.send('set-metadata', {
+      sourceUrl: currentSourceUrl,
+      providerId: null,
+      ...normalizeSetMetadata(null),
+    })
+    mainWindow.webContents.send('set-availability', {
+      sourceUrl: currentSourceUrl,
+      services: {
+        youtube: { status: 'available', url: currentSourceUrl },
+        soundcloud: { status: 'checking', url: null },
+        '1001tracklists': { status: 'checking' },
+        set79: { status: 'checking' },
+      },
+    })
     const playerUrl = youtubePlayerUrl(videoId)
     log(`[lookup] loading player webview → ${playerUrl}`)
     mainWindow.webContents.send('wv-status', { type: 'player-loading' })
@@ -1068,7 +1352,7 @@ async function handleSourceUrl(source, url, wvContents) {
     return
   }
 
-  await runTracklistLookup(tlPlugin, meta, lookupToken)
+  await runAutomaticTracklistLookups(tlPlugin, meta, lookupToken)
 }
 
 // ── WebView wiring ────────────────────────────────────────────────────────────
@@ -1779,6 +2063,7 @@ ipcMain.handle('store-set', (_event, data) => {
     next.settings.lfmSession = lfmSession
   }
   if (existing.tracklistCache) next.tracklistCache = existing.tracklistCache
+  if (existing.tracklistPreferences) next.tracklistPreferences = existing.tracklistPreferences
   writeStore(next)
 })
 
@@ -1862,11 +2147,14 @@ ipcMain.handle('tracklist-cache-clear', () => {
   const store = readStore()
   const count = Object.keys(store.tracklistCache || {}).length
   store.tracklistCache = {}
+  store.tracklistPreferences = {}
   writeStore(store)
   log(`[cache] cleared ${count} tracklist entries`)
   return count
 })
 ipcMain.handle('tracklist-try-provider', (_event, providerId) => tryTracklistProvider(providerId))
+ipcMain.handle('tracklist-select-provider', (_event, providerId) => selectTracklistProvider(providerId))
+ipcMain.handle('tracklist-refresh', () => refreshTracklistLookups())
 ipcMain.handle('updates-check', () => checkForUpdates({ manual: true }))
 ipcMain.handle('updates-download', () => downloadUpdate())
 ipcMain.handle('updates-install', () => {
@@ -1908,7 +2196,7 @@ ipcMain.handle('window-drag-end', () => {
 // provider sends the user to its site (the tracklist page, a contribute form),
 // so deriving the list from the registry keeps a new provider's links from
 // being silently dropped here.
-const APP_EXTERNAL_HOSTS = ['djscrobbler.com', 'github.com', 'cast.ro']
+const APP_EXTERNAL_HOSTS = ['djscrobbler.com', 'github.com', 'cast.ro', 'youtube.com', 'youtu.be', 'soundcloud.com']
 
 function allowedExternalHosts() {
   return [...new Set([

@@ -10,9 +10,8 @@
  *      title. Results carry `url_identity` (the SoundCloud path), which is
  *      exactly what the tracklist URL is built from.
  *
- * Path 2 is what powers the "Try set79.com instead" button the app offers
- * when 1001Tracklists has nothing: the user's YouTube set is very often the
- * same recording as a SoundCloud upload set79 has already analysed.
+ * Path 2 lets set79 run as a best-effort fallback beside 1001Tracklists. The
+ * manual provider action remains available to callers that explicitly retry.
  *
  * The search endpoint is CSRF-protected, so it rides on a short-lived session
  * bootstrapped from a normal page load. Extraction needs no session at all —
@@ -162,6 +161,19 @@ function tracklistUrlForIdentity(identity) {
   return `https://${HOST}/tracklist/${identity}`
 }
 
+function soundcloudUrlForTracklistUrl(tracklistUrl) {
+  try {
+    const url = new URL(tracklistUrl)
+    if (url.hostname !== HOST && url.hostname !== `www.${HOST}`) return null
+    const prefix = '/tracklist/'
+    if (!url.pathname.startsWith(prefix)) return null
+    const identity = normaliseIdentity(decodeURIComponent(url.pathname.slice(prefix.length)))
+    return identity ? `https://${identity}` : null
+  } catch {
+    return null
+  }
+}
+
 // A SoundCloud permalink already *is* a set79 identity — no search needed.
 function soundcloudIdentity(url) {
   try {
@@ -197,6 +209,17 @@ function flattenTitle(title) {
     .trim()
 }
 
+// Cross-platform titles sometimes disagree only on a weekend/edition marker
+// (for example YouTube "WE2" versus SoundCloud with no marker). This is a
+// deliberately narrow relaxation, added as a later query rung rather than
+// changing the original title used for scoring.
+function dropEditionMarkers(title) {
+  return String(title || '')
+    .replace(/\b(?:we|w)\s*\d{1,2}\b/ig, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // Query ladder, most precise first. Every rung is searched and the hits merged
 // rather than stopping at the first non-empty one: a rung can return a single
 // wrong set, and stopping there would hide the right one further down. The
@@ -206,7 +229,8 @@ function searchQueries(meta) {
   const title = (meta?.title || '').trim()
   if (!title) return []
   const simplified = simplifyTitle(title)
-  const queries = [title, simplified, flattenTitle(simplified)]
+  const flattened = flattenTitle(simplified)
+  const queries = [title, simplified, flattened, dropEditionMarkers(flattened)]
   return [...new Set(queries.filter(q => q.length >= 3))]
 }
 
@@ -267,6 +291,35 @@ const TRACKLIST_EXTRACT_SCRIPT = `(() => {
   }).filter(t => t.raw || t.hasTimestamp)
 })()`
 
+// set79 publishes these fields as explicit semantic links and a machine-readable
+// date. Keep this separate from the track rows and deliberately avoid guessing
+// values from the set title or descriptive prose.
+const METADATA_EXTRACT_SCRIPT = `(() => {
+  const related = document.querySelector('nav[aria-label="Related Content"]') || document
+  const names = selector => Array.from(related.querySelectorAll(selector))
+    .map(el => el.textContent.trim())
+    .filter(Boolean)
+  const firstName = selector => names(selector)[0] || null
+  const date = document.querySelector('time[datetime]')?.getAttribute('datetime')?.trim() || null
+  return {
+    djNames: [...new Set(names('a[href^="/dj/"] [itemprop="name"]'))],
+    venue: firstName('a[href^="/club/"] [itemprop="name"]'),
+    event: firstName('a[href^="/festival/"] [itemprop="name"], a[href^="/host/"] [itemprop="name"]'),
+    date,
+  }
+})()`
+
+// The total is populated by set79's embedded SoundCloud player after load.
+// It is used only to rank a small title-matched shortlist, not as metadata.
+const CANDIDATE_INFO_EXTRACT_SCRIPT = `(() => {
+  const text = document.querySelector('#cp-time-total')?.textContent?.trim()
+  if (!text || text === '--:--') return null
+  const parts = text.split(':').map(Number)
+  if (parts.length < 2 || parts.length > 3 || parts.some(n => !Number.isFinite(n) || n < 0)) return null
+  const durationSeconds = parts.reduce((total, part) => total * 60 + part, 0)
+  return durationSeconds > 0 ? { durationSeconds } : null
+})()`
+
 module.exports = {
   id: 'set79',
   name: 'set79',
@@ -280,9 +333,17 @@ module.exports = {
   // set79's search happily returns loosely-related sets by the same DJ.
   minMatchScore: 40,
 
+  // Only open a few plausible set79 pages to read the SoundCloud player's
+  // duration. Playback is already running while this best-effort work occurs.
+  durationCandidateLimit: 3,
+  minDurationCandidateTitleScore: 25,
+  candidateInfoExtractScript: CANDIDATE_INFO_EXTRACT_SCRIPT,
+
   matchUrl(url) {
     return url.includes('set79.com/tracklist/')
   },
+
+  sourceUrlForTracklistUrl: soundcloudUrlForTracklistUrl,
 
   async findTracklists(meta) {
     const direct = soundcloudIdentity(meta.url)
@@ -311,6 +372,7 @@ module.exports = {
   autoplayScript: null,
 
   tracklistExtractScript: TRACKLIST_EXTRACT_SCRIPT,
+  metadataExtractScript: METADATA_EXTRACT_SCRIPT,
 
   nowPlayingScript: `(() => {
     const activeRow = document.querySelector('.track-row.active')
@@ -348,9 +410,13 @@ module.exports = {
     normaliseIdentity,
     providerError,
     flattenTitle,
+    dropEditionMarkers,
     searchQueries,
     simplifyTitle,
+    soundcloudUrlForTracklistUrl,
     soundcloudIdentity,
     TRACKLIST_EXTRACT_SCRIPT,
+    METADATA_EXTRACT_SCRIPT,
+    CANDIDATE_INFO_EXTRACT_SCRIPT,
   },
 }

@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..')
 const readSource = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n')
 
 const appJs = readSource('renderer/app.js')
+const preloadJs = readSource('preload.js')
 const indexHtml = readSource('renderer/index.html')
 const styleCss = readSource('renderer/style.css')
 
@@ -96,6 +97,23 @@ test('clearTracklist resets scroll on both tracklist containers', () => {
   assert.match(appJs, /compactScroll\.scrollTop\s*=\s*0/)
 })
 
+test('an active set exposes the tracklist shell before provider rows arrive', () => {
+  const loadedHandler = appJs.slice(
+    appJs.indexOf("window.api.on('tracklist-loaded'"),
+    appJs.indexOf("window.api.on('now-playing'")
+  )
+  assert.match(loadedHandler, /mainContent\.classList\.add\('has-tracklist'\)/)
+
+  const loadSet = appJs.slice(appJs.indexOf('function loadSet('), appJs.indexOf('// ── Resume dialog'))
+  assert.match(loadSet, /state\.currentSetAvailability\s*=\s*\{/)
+  assert.match(loadSet, /mainContent\.classList\.add\('has-tracklist'\)/)
+  assert.match(loadSet, /renderSetMetadataHeader\(\)/)
+
+  const showLoading = appJs.slice(appJs.indexOf('function showLoading('), appJs.indexOf('function showNoTracklist('))
+  assert.match(showLoading, /const preserveSetShell =/)
+  assert.match(showLoading, /if \(preserveSetShell\)/)
+})
+
 test('narrow sidebar hides sep-stat-label words and they exist in markup', () => {
   // CSS rule hides stat labels when sidebar is narrow
   assert.match(styleCss, /sidebar-narrow[^}]*\.sep-stat-label/s)
@@ -151,4 +169,74 @@ test('provider attribution comes from the payload, not a hardcoded name', () => 
   assert.match(appJs, /function tracklistProviderNote/)
   // The old hardcoded contribute copy must not survive
   assert.equal(appJs.includes('const ID_COMMUNITY_NOTE'), false)
+})
+
+test('normalized set metadata arrives separately from tracklist rows', () => {
+  assert.match(preloadJs, /'set-metadata'/)
+  assert.match(appJs, /window\.api\.on\('set-metadata'/)
+  assert.match(appJs, /state\.currentSetMetadata = metadata/)
+  assert.match(appJs, /metadata\?\.sourceUrl !== state\.currentSetUrl/)
+})
+
+test('metadata header renders normalized facts as pills above the tracklist', () => {
+  const headerAt = indexHtml.indexOf('id="set-metadata-header"')
+  const tracklistAt = indexHtml.indexOf('id="tracklist-list"')
+  assert.ok(headerAt >= 0 && headerAt < tracklistAt)
+  for (const id of ['set-metadata-tags', 'set-availability', 'btn-set-metadata-refresh']) {
+    assert.equal(indexHtml.includes(`id="${id}"`), true, `${id} missing from metadata header`)
+  }
+  assert.equal(indexHtml.includes('experimental-badge'), false)
+  assert.equal(indexHtml.includes('set-metadata-title'), false)
+  assert.match(indexHtml, /class="set-metadata-facts-row">[\s\S]*id="set-metadata-tags"[\s\S]*id="btn-set-metadata-refresh"/)
+  assert.match(styleCss, /\.set-metadata-pill\s*[,\{]/)
+  assert.match(appJs, /metadata\.djNames/)
+  assert.match(appJs, /metadata\.venue/)
+  assert.match(appJs, /metadata\.event/)
+  assert.match(appJs, /metadata\.date/)
+})
+
+test('availability header includes both source and provider checks', () => {
+  assert.match(preloadJs, /'set-availability'/)
+  assert.match(appJs, /window\.api\.on\('set-availability'/)
+  for (const service of ['1001tracklists', 'youtube', 'soundcloud', 'set79']) {
+    assert.match(appJs, new RegExp(`id: '${service}'`), `${service} availability pill missing`)
+  }
+  for (const status of ['checking', 'available', 'unavailable', 'error']) {
+    assert.match(styleCss, new RegExp(`status-${status}`), `${status} availability style missing`)
+  }
+})
+
+test('the merged availability row is labelled Sources', () => {
+  assert.match(appJs, /set-availability-label">sources</)
+  assert.doesNotMatch(appJs, /set-availability-label">availability</)
+})
+
+test('available source and provider pills merge status with guarded external links', () => {
+  assert.match(appJs, /const url = status === 'available' \? services\[id\]\?\.url : null/)
+  assert.match(appJs, /set-availability-pill status-/)
+  assert.match(appJs, /is-clickable/)
+  assert.match(appJs, /window\.api\.openExternal\(url\)/)
+  assert.match(styleCss, /\.set-availability-pill\.is-clickable/)
+})
+
+test('tracklist provider choices have a styled single-provider state and selector pills', () => {
+  assert.equal(indexHtml.includes('id="tracklist-provider-choice"'), true)
+  assert.match(appJs, /function renderTracklistProviderChoice\(\)/)
+  assert.match(appJs, /tracklist-provider-choice is-single/)
+  assert.match(appJs, /tracklist-provider-value/)
+  assert.equal((appJs.match(/tracklist source/g) || []).length, 2)
+  assert.match(appJs, /tracklist-provider-pill.*active/)
+  assert.match(appJs, /window\.api\.selectTracklistProvider\(option\.id\)/)
+  assert.match(preloadJs, /selectTracklistProvider: \(providerId\) => ipcRenderer\.invoke\('tracklist-select-provider'/)
+  assert.match(styleCss, /\.tracklist-provider-choice\.is-single/)
+  assert.match(styleCss, /\.tracklist-provider-choice\s*\{[^}]*justify-content:\s*center/s)
+  assert.match(styleCss, /\.tracklist-provider-pill\.active/)
+})
+
+test('metadata refresh button invokes a cache-bypassing lookup and shows busy state', () => {
+  assert.match(preloadJs, /refreshTracklists: \(\) => ipcRenderer\.invoke\('tracklist-refresh'\)/)
+  assert.match(appJs, /btnSetMetadataRefresh\.addEventListener\('click', refreshSetMetadata\)/)
+  assert.match(appJs, /await window\.api\.refreshTracklists\(\)/)
+  assert.match(appJs, /btnSetMetadataRefresh\.classList\.add\('is-refreshing'\)/)
+  assert.match(styleCss, /\.set-metadata-refresh\.is-refreshing svg/)
 })

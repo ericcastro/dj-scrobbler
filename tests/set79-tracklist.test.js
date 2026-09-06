@@ -20,6 +20,15 @@ test('set79 recognizes its own tracklist URLs', () => {
   assert.equal(set79.matchUrl('https://soundcloud.com/foo/bar'), false)
 })
 
+test('set79 recovers the explicit SoundCloud source from its tracklist URL', () => {
+  const { soundcloudUrlForTracklistUrl } = set79._test
+  assert.equal(
+    soundcloudUrlForTracklistUrl('https://set79.com/tracklist/soundcloud.com/critical-music/enei-live'),
+    'https://soundcloud.com/critical-music/enei-live'
+  )
+  assert.equal(soundcloudUrlForTracklistUrl('https://example.com/tracklist/soundcloud.com/a/b'), null)
+})
+
 // ── Identity handling ─────────────────────────────────────────────────────────
 
 test('set79 identities accept only two-segment SoundCloud track paths', () => {
@@ -65,6 +74,18 @@ test('a separator the indexed title lacks does not cost the match', () => {
 
   assert.ok(queries.includes('CLOUDY HIVE Festival 2026 TECHNO CASTLE'),
     `flattened query missing from ladder: ${JSON.stringify(queries)}`)
+})
+
+test('search adds a narrow edition-free rung for cross-platform titles', () => {
+  const queries = set79._test.searchQueries({
+    title: 'Cloudy WE2 | Tomorrowland 2025',
+  })
+
+  assert.equal(queries[0], 'Cloudy WE2 | Tomorrowland 2025')
+  assert.ok(queries.includes('Cloudy Tomorrowland 2025'),
+    `edition-free query missing from ladder: ${JSON.stringify(queries)}`)
+  assert.equal(set79._test.dropEditionMarkers('Artist weekend 2 Festival'), 'Artist weekend 2 Festival',
+    'ordinary words must not be stripped')
 })
 
 test('flattening drops separators but keeps hyphenated names intact', () => {
@@ -143,6 +164,30 @@ test('the extract script reads set79\'s server-rendered track rows', () => {
   }
 })
 
+test('set79 metadata extraction uses only explicit semantic fields', () => {
+  const script = set79._test.METADATA_EXTRACT_SCRIPT
+
+  assert.match(script, /nav\[aria-label="Related Content"\]/)
+  assert.match(script, /a\[href\^="\/dj\/"\]/)
+  assert.match(script, /a\[href\^="\/club\/"\]/)
+  assert.match(script, /a\[href\^="\/festival\/"\]/)
+  assert.match(script, /a\[href\^="\/host\/"\]/)
+  assert.match(script, /time\[datetime\]/)
+  for (const field of ['djNames', 'venue', 'event', 'date']) {
+    assert.match(script, new RegExp(`\\b${field}\\b`), `${field} missing from metadata result`)
+  }
+  assert.doesNotMatch(script, /document\.title|description|split\(|match\(/,
+    'metadata must not be guessed from titles or prose')
+})
+
+test('set79 candidate info reads the explicit SoundCloud player duration', () => {
+  const script = set79._test.CANDIDATE_INFO_EXTRACT_SCRIPT
+
+  assert.match(script, /#cp-time-total/)
+  assert.match(script, /durationSeconds/)
+  assert.doesNotMatch(script, /document\.title|description/)
+})
+
 // ── Registry wiring ───────────────────────────────────────────────────────────
 
 test('set79 is registered as an alternate for YouTube, never the primary', () => {
@@ -152,6 +197,14 @@ test('set79 is registered as an alternate for YouTube, never the primary', () =>
     ['set79']
   )
   assert.equal(plugins.tracklistById('set79'), set79)
+})
+
+test('set79 is also registered as YouTube\'s automatic fallback', () => {
+  assert.equal(plugins.tracklistForSource('youtube').id, '1001tracklists')
+  assert.deepEqual(
+    plugins.automaticFallbackTracklistsForSource('youtube').map(p => p.id),
+    ['set79']
+  )
 })
 
 test('an alternate is not offered twice for the same set', () => {

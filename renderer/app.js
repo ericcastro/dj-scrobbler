@@ -16,6 +16,7 @@ const state = {
   currentTracklistProvider: null,
   currentTracklistProviderName: null,
   currentTracklistProviderFooter: null,
+  currentTracklistOptions: [],
   currentContributeUrl: null,
   currentAltProvider: null,   // { id, name, label, prompt, note } offered in the fallback panel
   currentThumbnailUrl: null,
@@ -29,6 +30,8 @@ const state = {
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
   stats: { totalListenedSeconds: 0, totalTracksListened: 0, listenDays: [], firstListenDate: null },
   currentTracks: [],       // full track array from tracklist-data, used for progress lookups
+  currentSetMetadata: null, // normalized provider metadata, delivered separately from track rows
+  currentSetAvailability: null, // per-service lookup state and explicit source URLs
   pendingResumeTime: null, // seconds to seek to after first playback-progress tick
 }
 
@@ -82,6 +85,11 @@ const favEmpty           = document.getElementById('fav-empty')
 const histEmpty          = document.getElementById('hist-empty')
 const mainContent              = document.getElementById('main-content')
 const tracklistBelowVideo      = document.getElementById('tracklist-below-video')
+const setMetadataHeader        = document.getElementById('set-metadata-header')
+const setMetadataTags          = document.getElementById('set-metadata-tags')
+const setAvailability          = document.getElementById('set-availability')
+const btnSetMetadataRefresh    = document.getElementById('btn-set-metadata-refresh')
+const tracklistProviderChoice  = document.getElementById('tracklist-provider-choice')
 const tracklistList            = document.getElementById('tracklist-list')
 const tracklistUnavailableEl      = document.getElementById('tracklist-unavailable')
 const tracklistUnavailableTitle   = document.getElementById('tracklist-unavailable-title')
@@ -368,6 +376,130 @@ function setNpSource(text, url) {
     })
   } else {
     npSource.textContent = text
+  }
+}
+
+const SET_SERVICE_ORDER = [
+  { id: '1001tracklists', label: '1001Tracklists' },
+  { id: 'youtube', label: 'YouTube' },
+  { id: 'soundcloud', label: 'SoundCloud' },
+  { id: 'set79', label: 'set79' },
+]
+
+const SET_AVAILABILITY_LABELS = {
+  checking: 'checking',
+  available: 'available',
+  unavailable: 'not found',
+  error: 'error',
+}
+
+function renderSetMetadataHeader() {
+  if (!state.currentSetUrl) {
+    setMetadataHeader.classList.add('hidden')
+    return
+  }
+
+  const metadata = state.currentSetMetadata || {}
+  const services = state.currentSetAvailability?.services || {}
+  const facts = [
+    ...(metadata.djNames || []).map(value => ({ label: 'DJ', value })),
+    ...(metadata.venue ? [{ label: 'venue', value: metadata.venue }] : []),
+    ...(metadata.event ? [{ label: 'event', value: metadata.event }] : []),
+    ...(metadata.date ? [{ label: 'date', value: metadata.date }] : []),
+  ]
+
+  if (facts.length) {
+    setMetadataTags.innerHTML = facts.map(({ label, value }) => `
+      <span class="set-metadata-pill">
+        <span class="set-metadata-pill-label">${escHtml(label)}</span>
+        <span>${escHtml(value)}</span>
+      </span>
+    `).join('')
+  } else {
+    const waiting = services.set79?.status === 'checking'
+    setMetadataTags.innerHTML = `<span class="set-metadata-empty">${waiting ? 'Checking set79 for details…' : 'No structured set metadata found'}</span>`
+  }
+
+  setAvailability.innerHTML = [
+    '<span class="set-availability-label">sources</span>',
+    ...SET_SERVICE_ORDER.map(({ id, label }, index) => {
+      const status = services[id]?.status || 'checking'
+      const statusLabel = SET_AVAILABILITY_LABELS[status] || status
+      const url = status === 'available' ? services[id]?.url : null
+      const tag = url ? 'button' : 'span'
+      const attrs = url ? ` type="button" data-service-index="${index}"` : ''
+      const external = url ? '<span aria-hidden="true">↗</span>' : ''
+      return `<${tag} class="set-availability-pill status-${escHtml(status)}${url ? ' is-clickable' : ''}" title="${escHtml(label)}: ${escHtml(statusLabel)}" aria-label="${escHtml(label)}: ${escHtml(statusLabel)}"${attrs}><span class="set-availability-dot" aria-hidden="true"></span>${escHtml(label)}${external}</${tag}>`
+    }),
+  ].join('')
+  setAvailability.querySelectorAll('.set-availability-pill.is-clickable').forEach(button => {
+    button.addEventListener('click', () => {
+      const service = SET_SERVICE_ORDER[Number(button.dataset.serviceIndex)]
+      const url = service && services[service.id]?.url
+      if (url) window.api.openExternal(url)
+    })
+  })
+
+  setMetadataHeader.classList.remove('hidden')
+}
+
+function renderTracklistProviderChoice() {
+  const options = state.currentTracklistOptions || []
+  const selectedId = state.currentTracklistProvider
+  const selected = options.find(option => option.id === selectedId)
+
+  if (!selected) {
+    tracklistProviderChoice.classList.add('hidden')
+    tracklistProviderChoice.innerHTML = ''
+    return
+  }
+
+  if (options.length === 1) {
+    tracklistProviderChoice.className = 'tracklist-provider-choice is-single'
+    tracklistProviderChoice.innerHTML = `
+      <span class="tracklist-provider-label">tracklist source</span>
+      <span class="tracklist-provider-value">${escHtml(selected.name)}</span>
+    `
+    return
+  }
+
+  tracklistProviderChoice.className = 'tracklist-provider-choice'
+  tracklistProviderChoice.innerHTML = `
+    <span class="tracklist-provider-label">tracklist source</span>
+    <div class="tracklist-provider-pills" role="radiogroup" aria-label="Tracklist provider">
+      ${options.map((option, index) => `
+        <button type="button" class="tracklist-provider-pill${option.id === selectedId ? ' active' : ''}"
+          role="radio" aria-checked="${option.id === selectedId}" data-provider-index="${index}">
+          ${escHtml(option.name)}
+        </button>
+      `).join('')}
+    </div>
+  `
+
+  tracklistProviderChoice.querySelectorAll('.tracklist-provider-pill').forEach(button => {
+    button.addEventListener('click', async () => {
+      const option = options[Number(button.dataset.providerIndex)]
+      if (!option || option.id === state.currentTracklistProvider) return
+      const buttons = tracklistProviderChoice.querySelectorAll('.tracklist-provider-pill')
+      buttons.forEach(item => { item.disabled = true })
+      try {
+        await window.api.selectTracklistProvider(option.id)
+      } finally {
+        buttons.forEach(item => { item.disabled = false })
+      }
+    })
+  })
+}
+
+async function refreshSetMetadata() {
+  if (!state.currentSetUrl || btnSetMetadataRefresh.disabled) return
+  btnSetMetadataRefresh.disabled = true
+  btnSetMetadataRefresh.classList.add('is-refreshing')
+  try {
+    await window.api.refreshTracklists()
+  } finally {
+    btnSetMetadataRefresh.disabled = false
+    btnSetMetadataRefresh.classList.remove('is-refreshing')
   }
 }
 
@@ -1220,6 +1352,11 @@ function wireMainEvents() {
     document.body.classList.remove('is-browsing')
     hasEverPlayed = true
     updateViewTabs()
+    if (url !== state.currentSetUrl) {
+      state.currentSetMetadata = null
+      state.currentSetAvailability = null
+      state.currentTracklistOptions = []
+    }
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
     state.currentSetUrl        = url
@@ -1228,6 +1365,11 @@ function wireMainEvents() {
     state.currentTracklistProvider = providerId || null
     state.currentTracklistProviderName   = providerName || null
     state.currentTracklistProviderFooter = providerFooterLabel || null
+    // The header and empty tracklist are the stable shell for an active set.
+    // Keep them visible while provider results are still arriving.
+    mainContent.classList.add('has-tracklist')
+    renderSetMetadataHeader()
+    renderTracklistProviderChoice()
 
     if (isFallback) {
       state.currentTracks  = []   // prevent stale count leaking into bookmark
@@ -1403,6 +1545,30 @@ function wireMainEvents() {
     persist()
     renderHistory()
     renderFavorites()
+  })
+
+  window.api.on('tracklist-options', (payload) => {
+    if (isResumeDialogOpen() || payload?.sourceUrl !== state.currentSetUrl) return
+    state.currentTracklistOptions = Array.isArray(payload.options) ? payload.options : []
+    renderTracklistProviderChoice()
+  })
+
+  window.api.on('set-metadata', (metadata) => {
+    if (isResumeDialogOpen() || metadata?.sourceUrl !== state.currentSetUrl) return
+    state.currentSetMetadata = metadata
+    renderSetMetadataHeader()
+  })
+
+  window.api.on('set-availability', (availability) => {
+    if (isResumeDialogOpen() || availability?.sourceUrl !== state.currentSetUrl) return
+    state.currentSetAvailability = {
+      sourceUrl: availability.sourceUrl,
+      services: {
+        ...(state.currentSetAvailability?.services || {}),
+        ...(availability.services || {}),
+      },
+    }
+    renderSetMetadataHeader()
   })
 
   window.api.on('menu-open-about', () => openAboutDialog())
@@ -1947,6 +2113,29 @@ function loadSet(item, resume) {
     document.body.classList.add('has-active-set')
     hideIntro()
     showLoading('Searching tracklist…')
+    state.tracklistUnavailable = false
+    state.currentTracks = []
+    state.currentSetTitle = item.title || item.url
+    state.currentSetUrl = item.url
+    state.currentThumbnailUrl = item.thumbnailUrl || null
+    state.currentTracklistUrl = null
+    state.currentTracklistProvider = null
+    state.currentTracklistProviderName = null
+    state.currentTracklistProviderFooter = null
+    state.currentTracklistOptions = []
+    state.currentSetMetadata = null
+    state.currentSetAvailability = {
+      sourceUrl: item.url,
+      services: {
+        youtube: { status: 'available', url: item.url },
+        soundcloud: { status: 'checking', url: null },
+        '1001tracklists': { status: 'checking', url: null },
+        set79: { status: 'checking', url: null },
+      },
+    }
+    mainContent.classList.add('has-tracklist')
+    renderSetMetadataHeader()
+    renderTracklistProviderChoice()
     window.api.loadSourceUrl(item.url)
     updateViewTabs()
   } else {
@@ -2185,6 +2374,7 @@ function renderTracklist(tracks) {
   }
 
   mainContent.classList.toggle('has-tracklist', tracks.length > 0)
+  renderSetMetadataHeader()
 }
 
 function highlightTracklistByNum(trackNum) {
@@ -2204,8 +2394,10 @@ function clearTracklist() {
   tracklistCompactList.innerHTML = ''
   tlListFooter.classList.add('hidden')
   tlCompactFooter.classList.add('hidden')
+  tracklistProviderChoice.classList.add('hidden')
   mainContent.classList.remove('has-tracklist')
   tracklistUnavailableEl.classList.add('hidden')
+  setMetadataHeader.classList.add('hidden')
   // Reset scroll position so every new set starts from the top, then
   // highlightTracklistByNum will scroll to the resumed track once it fires.
   tracklistBelowVideo.scrollTop = 0
@@ -2331,6 +2523,8 @@ function resetNowPlaying() {
   state.currentAltProvider  = null
   state.currentThumbnailUrl = null
   state.currentTracks       = []
+  state.currentSetMetadata  = null
+  state.currentSetAvailability = null
   state.playbackCurrentTime = 0
   state.playbackDuration    = 0
   updatePlaybackProgress(0, 0)
@@ -2363,9 +2557,14 @@ function showLoading(msg = 'Loading…') {
   noTracklistMsg.classList.add('hidden')
   noTracklistPrompt.classList.add('hidden')
   // A new search is starting — clear the unavailable state + stale tracklist
+  const preserveSetShell = mainContent.classList.contains('has-tracklist') && !!state.currentSetUrl
   state.tracklistUnavailable = false
   state.currentTracks = []
   clearTracklist()
+  if (preserveSetShell) {
+    mainContent.classList.add('has-tracklist')
+    renderSetMetadataHeader()
+  }
   refreshScrobbleBadge()
 
   // Start watchdog: if we're still spinning after 30 s, prompt the user
@@ -2660,6 +2859,8 @@ function wireEvents() {
   btnContributeTracklist.addEventListener('click', () => {
     if (state.currentContributeUrl) window.api.openExternal(state.currentContributeUrl)
   })
+
+  btnSetMetadataRefresh.addEventListener('click', refreshSetMetadata)
 
   // Ask main to re-run the lookup against an alternate provider. The reply
   // arrives as a fresh tracklist-loaded, which repaints this whole panel — the
