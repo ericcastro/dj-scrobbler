@@ -2033,7 +2033,7 @@ button.set-metadata-pill {
 
 .set-event-dismiss {
   color: var(--text2);
-  opacity: .48;
+  opacity: 1;
   text-decoration: none;
 }
 
@@ -2059,8 +2059,9 @@ button.set-metadata-pill {
   align-items: baseline;
   flex-wrap: wrap;
   gap: 4px 10px;
-  align-self: flex-start;
+  align-self: stretch;
   flex: none;
+  justify-content: space-between;
   color: var(--text2);
   font: inherit;
   font-size: 10px;
