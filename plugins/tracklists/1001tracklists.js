@@ -39,18 +39,35 @@ function networkError(message) {
 // 1001Tracklists commonly omits the first cue rather than publishing an
 // explicit 0:00. For app-owned playback, a real numbered track 1 necessarily
 // owns the timeline from the beginning. Keep every later missing cue untouched.
+function isDefaultArtworkUrl(url) {
+  try {
+    const parsed = new URL(String(url || ''))
+    return parsed.hostname === 'cdn.1001tracklists.com' &&
+      parsed.pathname === '/images/artworks/default_100.png'
+  } catch {
+    return false
+  }
+}
+
 function normalizeTracklist(tracks) {
   if (!Array.isArray(tracks)) return []
-  const firstIndex = tracks.findIndex(track =>
+  let normalized = tracks
+  if (tracks.some(track => isDefaultArtworkUrl(track?.artUrl))) {
+    normalized = tracks.map(track => isDefaultArtworkUrl(track?.artUrl)
+      ? { ...track, artUrl: '' }
+      : track)
+  }
+
+  const firstIndex = normalized.findIndex(track =>
     track?.trackNum === 1 && !track.isWWith && !track.isMashupComponent
   )
-  if (firstIndex < 0) return tracks
+  if (firstIndex < 0) return normalized
 
-  const first = tracks[firstIndex]
+  const first = normalized[firstIndex]
   const isRealTrack = !!(first.raw || first.title || first.artist || first.isId)
-  if (!isRealTrack || first.hasTimestamp || !first.noTimestamp) return tracks
+  if (!isRealTrack || first.hasTimestamp || !first.noTimestamp) return normalized
 
-  const normalized = tracks.slice()
+  if (normalized === tracks) normalized = tracks.slice()
   normalized[firstIndex] = {
     ...first,
     hasTimestamp: true,
@@ -360,6 +377,7 @@ module.exports = {
     extractVideoIdFromHtml,
     networkError,
     normalizeTracklist,
+    isDefaultArtworkUrl,
     providerError,
   },
 }

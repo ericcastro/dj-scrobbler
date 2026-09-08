@@ -23,3 +23,15 @@ test('YouTube intercept parser only accepts its source prefix', () => {
   assert.equal(youtube.parseIntercept(`__INTERCEPT__youtube__${url}`), url)
   assert.equal(youtube.parseIntercept(`__INTERCEPT__soundcloud__${url}`), null)
 })
+
+test('YouTube public watch metadata yields stable plays and upload date fields', () => {
+  assert.deepEqual(youtube.parsePublicVideoStats(`
+    <meta itemprop="interactionCount" content="24389">
+    <meta itemprop="uploadDate" content="2026-08-14">
+  `), { viewCount: 24389, publishedAt: '2026-08-14' })
+
+  assert.deepEqual(youtube.parsePublicVideoStats(`
+    {"videoDetails":{"videoId":"abc","viewCount":"981"},
+     "microformat":{"playerMicroformatRenderer":{"uploadDate":"2022-01-02T23:57:33-07:00"}}}
+  `), { viewCount: 981, publishedAt: '2022-01-02' })
+})

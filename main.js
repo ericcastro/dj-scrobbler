@@ -17,6 +17,15 @@ const macUpdater = require('./lib/mac-updater')
 const { wireYouTubePlayerUi, isYouTubePlayerUrl } = require('./lib/youtube-player-ui')
 const { startPrimaryWithFallback } = require('./lib/parallel-tracklist-lookup')
 const { hasSetMetadata, normalizeSetMetadata } = require('./lib/set-metadata')
+const { classifyMetadataOutlook } = require('./lib/metadata-outlook')
+const {
+  migrateStats,
+  recordListening,
+  recordTrack,
+  samplePlayback,
+  statsForRenderer,
+  upsertSet,
+} = require('./lib/listening-stats')
 const {
   artworkLookupKey,
   isArtworkLookupCandidate,
@@ -126,23 +135,36 @@ function writeStore(data) {
   fs.writeFileSync(getStorePath(), JSON.stringify(data, null, 2))
 }
 
-function backfillSavedDjNamesFromCache(store) {
-  const cachedNamesBySource = new Map()
+function backfillSavedMetadataFromCache(store) {
+  const cachedMetadataBySource = new Map()
   Object.values(store.tracklistCache || {}).forEach(entry => {
     if (!entry?.sourceUrl) return
-    const names = normalizeSetMetadata(entry.metadata).djNames
-    if (names.length) cachedNamesBySource.set(entry.sourceUrl, names)
+    const metadata = normalizeSetMetadata(entry.metadata)
+    const existing = cachedMetadataBySource.get(entry.sourceUrl) || normalizeSetMetadata(null)
+    cachedMetadataBySource.set(entry.sourceUrl, {
+      djNames: metadata.djNames.length ? metadata.djNames : existing.djNames,
+      venue: metadata.venue || existing.venue,
+      event: metadata.event || existing.event,
+      date: metadata.date || existing.date,
+    })
   })
 
   let changed = false
   ;['favorites', 'history'].forEach(key => {
     if (!Array.isArray(store[key])) return
     store[key] = store[key].map(item => {
-      if (Array.isArray(item.djNames) && item.djNames.length) return item
-      const djNames = cachedNamesBySource.get(item.url)
-      if (!djNames) return item
+      const metadata = cachedMetadataBySource.get(item.url)
+      if (!metadata) return item
+      const patch = {
+        ...(!Array.isArray(item.djNames) || !item.djNames.length ? { djNames: metadata.djNames } : {}),
+        ...(!item.venue && metadata.venue ? { venue: metadata.venue } : {}),
+        ...(!item.event && metadata.event ? { event: metadata.event } : {}),
+        ...(!item.date && metadata.date ? { date: metadata.date } : {}),
+      }
+      if (!patch.djNames?.length) delete patch.djNames
+      if (!Object.keys(patch).length) return item
       changed = true
-      return { ...item, djNames }
+      return { ...item, ...patch }
     })
   })
   return changed
@@ -150,7 +172,7 @@ function backfillSavedDjNamesFromCache(store) {
 
 function readStoreForRenderer() {
   const store = readStore()
-  if (backfillSavedDjNamesFromCache(store)) writeStore(store)
+  if (backfillSavedMetadataFromCache(store)) writeStore(store)
   const rendererStore = { ...store }
   delete rendererStore.tracklistCache
   delete rendererStore.tracklistPreferences
@@ -164,23 +186,54 @@ function getStatsPath() {
   return path.join(app.getPath('userData'), 'dj-scrobbler-stats.json')
 }
 
-const DEFAULT_STATS = {
-  totalListenedSeconds: 0,
-  totalTracksListened:  0,
-  listenDays:           [],   // 'YYYY-MM-DD' strings, deduplicated
-  firstListenDate:      null, // 'YYYY-MM-DD', set once on first playback tick
+const STATS_WRITE_DEBOUNCE_MS = 5000
+let listeningStats = null
+let listeningStatsDirty = false
+let listeningStatsWriteTimer = null
+
+function loadStats() {
+  if (listeningStats) return listeningStats
+  try {
+    const stored = JSON.parse(fs.readFileSync(getStatsPath(), 'utf8'))
+    listeningStats = migrateStats(stored)
+    if (stored?.schemaVersion !== listeningStats.schemaVersion) markStatsDirty()
+  } catch {
+    listeningStats = migrateStats(null)
+  }
+  return listeningStats
 }
 
 function readStats() {
+  return statsForRenderer(loadStats())
+}
+
+function persistStatsNow() {
+  if (listeningStatsWriteTimer) {
+    clearTimeout(listeningStatsWriteTimer)
+    listeningStatsWriteTimer = null
+  }
+  if (!listeningStatsDirty || !listeningStats) return
+  const statsPath = getStatsPath()
+  const temporaryPath = `${statsPath}.${process.pid}.tmp`
   try {
-    return { ...DEFAULT_STATS, ...JSON.parse(fs.readFileSync(getStatsPath(), 'utf8')) }
-  } catch {
-    return { ...DEFAULT_STATS }
+    fs.writeFileSync(temporaryPath, JSON.stringify(listeningStats, null, 2))
+    fs.renameSync(temporaryPath, statsPath)
+    listeningStatsDirty = false
+  } catch (error) {
+    try { fs.unlinkSync(temporaryPath) } catch {}
+    log(`[stats] persist failed: ${error?.message || error}`)
   }
 }
 
-function writeStats(data) {
-  fs.writeFileSync(getStatsPath(), JSON.stringify(data, null, 2))
+function markStatsDirty({ immediate = false } = {}) {
+  listeningStatsDirty = true
+  if (immediate) {
+    persistStatsNow()
+    return
+  }
+  if (!listeningStatsWriteTimer) {
+    listeningStatsWriteTimer = setTimeout(persistStatsNow, STATS_WRITE_DEBOUNCE_MS)
+  }
 }
 
 function tracklistCacheKey(providerId, sourceUrl) {
@@ -496,6 +549,10 @@ let lastPlayerPlaying    = null
 let lastPlaybackTickAt   = null
 let currentTrackPlayedMs = 0
 let activeTrackKey       = null
+let statsPlaybackSample  = null
+let statsSetReady        = false
+let currentStatsDjNames  = []
+let lastStatsTrackNum    = null
 let currentLookupToken   = 0
 let currentArtworkToken  = 0
 let artworkCacheGeneration = 0
@@ -535,6 +592,77 @@ function resetTimelineState() {
   activeTrackKey       = null
 }
 
+function currentStatsSet() {
+  if (!statsSetReady || !currentSourceUrl) return null
+  return {
+    sourceId: currentSourceId,
+    sourceUrl: currentSourceUrl,
+    title: currentSetTitle,
+    djNames: currentStatsDjNames,
+  }
+}
+
+function storedDjNamesForStats(store, sourceUrl) {
+  for (const key of ['history', 'favorites']) {
+    const saved = Array.isArray(store?.[key])
+      ? store[key].find(item => item?.url === sourceUrl && item.djNames?.length)
+      : null
+    const names = normalizeSetMetadata(saved).djNames
+    if (names.length) return names
+  }
+  return []
+}
+
+function syncCurrentStatsMetadataFromStore(store) {
+  const names = storedDjNamesForStats(store, currentSourceUrl)
+  if (!statsSetReady || !names.length) return
+  currentStatsDjNames = names
+  registerCurrentStatsSet()
+}
+
+function registerCurrentStatsSet() {
+  const descriptor = currentStatsSet()
+  if (!descriptor) return null
+  const setId = upsertSet(loadStats(), descriptor)
+  markStatsDirty()
+  return setId
+}
+
+function resetStatsPlayback({ flush = false } = {}) {
+  statsPlaybackSample = null
+  if (flush) persistStatsNow()
+}
+
+function updateListeningStats(poll, now) {
+  const descriptor = currentStatsSet()
+  const previous = statsPlaybackSample
+  // Adjacent 500 ms polls should move together. The sampler rejects seeks,
+  // stalled playheads, and long gaps caused by suspend or an unresponsive webview.
+  const sampled = samplePlayback(previous, poll, now, descriptor?.sourceUrl)
+  if (descriptor && sampled.interval) {
+    recordListening(
+      loadStats(),
+      descriptor,
+      sampled.interval.startedAtMs,
+      sampled.interval.endedAtMs
+    )
+    markStatsDirty()
+  }
+  statsPlaybackSample = sampled.current
+
+  if (previous?.isPlaying && !poll.isPlaying) persistStatsNow()
+}
+
+function recordStatsTrackTransition(track, now) {
+  const trackNum = Number(track?.trackNum)
+  if (!Number.isFinite(trackNum)) return
+  if (lastStatsTrackNum !== null && trackNum === lastStatsTrackNum + 1) {
+    const descriptor = currentStatsSet()
+    if (descriptor && recordTrack(loadStats(), descriptor, now)) markStatsDirty()
+  }
+  lastStatsTrackNum = trackNum
+}
+
 function scrobbleLastTrackIfReady() {
   if (!lastTrackData || lastTrackData.isId || !trackStartedAt) return
   if (currentTrackPlayedMs < 30000) return
@@ -544,6 +672,7 @@ function scrobbleLastTrackIfReady() {
 function stopMonitoring({ finalize = true } = {}) {
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null }
   if (finalize) scrobbleLastTrackIfReady()
+  resetStatsPlayback({ flush: true })
   resetTimelineState()
 }
 
@@ -709,7 +838,7 @@ function emitPlayerStateOnly(poll) {
   })
 }
 
-function emitTimelineTrack(track, poll) {
+function emitTimelineTrack(track, poll, now = Date.now()) {
   const key = keyForTrack(track)
   const raw = track.raw || [track.artist, track.title].filter(Boolean).join(' - ') || key
   const data = {
@@ -736,6 +865,7 @@ function emitTimelineTrack(track, poll) {
 
   if (trackChanged) {
     scrobbleLastTrackIfReady()
+    recordStatsTrackTransition(track, now)
     activeTrackKey = key
     lastNowPlaying = data.raw
     lastTrackData  = data
@@ -753,6 +883,7 @@ function emitTimelineTrack(track, poll) {
 function handlePlaybackPoll(poll) {
   const now = Date.now()
   updatePlayAccumulator(now)
+  updateListeningStats(poll, now)
 
   if (poll.duration > 0) {
     // Keep the source duration on the lookup metadata as soon as the app-owned
@@ -771,7 +902,7 @@ function handlePlaybackPoll(poll) {
     return
   }
 
-  emitTimelineTrack(activeTrack, poll)
+  emitTimelineTrack(activeTrack, poll, now)
 }
 
 // window.ytPlayer is exposed by the HTTPS-hosted djscrobbler.com embed page
@@ -1077,6 +1208,12 @@ function tracklistLoadedBase(tlPlugin) {
     providerId: tlPlugin?.id || null,
     providerName: tlPlugin?.name || null,
     providerFooterLabel: tlPlugin?.footerLabel || null,
+    sourcePublishedAt: currentSourceMeta?.publishedAt || null,
+    sourceViewCount: currentSourceMeta?.viewCount ?? null,
+    metadataOutlook: classifyMetadataOutlook({
+      publishedAt: currentSourceMeta?.publishedAt,
+      viewCount: currentSourceMeta?.viewCount,
+    }),
   }
 }
 
@@ -1105,6 +1242,8 @@ function tracklistFallbackExtras() {
 
 function emitSetMetadata(tlPlugin, metadata, sourceUrl, lookupToken) {
   if (lookupToken !== currentLookupToken || sourceUrl !== currentSourceUrl || !hasSetMetadata(metadata)) return
+  if (!currentStatsDjNames.length) currentStatsDjNames = metadata.djNames || []
+  registerCurrentStatsSet()
   mainWindow.webContents.send('set-metadata', {
     sourceUrl,
     providerId: tlPlugin.id,
@@ -1126,6 +1265,24 @@ function providerAvailability(outcome) {
 function emitSetAvailability(services, sourceUrl, lookupToken) {
   if (lookupToken !== currentLookupToken || sourceUrl !== currentSourceUrl) return
   mainWindow.webContents.send('set-availability', { sourceUrl, services })
+}
+
+function emitSourceStatsWhenReady(meta, sourceUrl, lookupToken) {
+  if (!meta?.publicStatsPromise) return
+  Promise.resolve(meta.publicStatsPromise).then(stats => {
+    if (lookupToken !== currentLookupToken || sourceUrl !== currentSourceUrl) return
+    meta.viewCount = stats?.viewCount ?? null
+    meta.publishedAt = stats?.publishedAt || null
+    mainWindow.webContents.send('source-metadata', {
+      sourceUrl,
+      sourcePublishedAt: meta.publishedAt,
+      sourceViewCount: meta.viewCount,
+      metadataOutlook: classifyMetadataOutlook({
+        publishedAt: meta.publishedAt,
+        viewCount: meta.viewCount,
+      }),
+    })
+  }).catch(error => log(`[source] public metadata failed: ${error?.message || error}`))
 }
 
 /** Search and extract without changing the active tracklist or UI. */
@@ -1237,6 +1394,7 @@ function applyTracklistResult(tlPlugin, result, { persistPreference = false } = 
   currentTracklistUrl = result.tracklistUrl
   currentTracklistProvider = tlPlugin.id
   currentSetTitle = result.title
+  registerCurrentStatsSet()
   const artworkToken = ++currentArtworkToken
   currentTracks = prepareTracksForArtwork(result.tracks)
   registerTracklistOption(tlPlugin, result)
@@ -1485,6 +1643,43 @@ async function refreshTracklistLookups() {
   return lookupToken === currentLookupToken
 }
 
+async function autoSetMetadata() {
+  const set79 = plugins.tracklistById('set79')
+  if (!set79 || !currentSourceMeta || !currentSourceUrl) return false
+
+  // Reuse the active token so this metadata-only probe never cancels the
+  // initial tracklist lookup or background artwork work.
+  const lookupToken = currentLookupToken
+  emitSetAvailability({
+    set79: { status: 'checking', url: null },
+    soundcloud: { status: 'checking', url: null },
+  }, currentSourceUrl, lookupToken)
+
+  try {
+    const result = await probeTracklistProvider(set79, currentSourceMeta, lookupToken, { bypassCache: true })
+    if (result.stale || lookupToken !== currentLookupToken) return false
+    const matched = hasSetMetadata(result.metadata)
+    if (matched) emitSetMetadata(set79, result.metadata, result.sourceUrl, lookupToken)
+    const soundcloudUrl = result.sourceLinks?.soundcloud || null
+    emitSetAvailability({
+      set79: {
+        status: result.usable ? 'available' : 'unavailable',
+        url: result.usable ? result.tracklistUrl : null,
+      },
+      soundcloud: { status: soundcloudUrl ? 'available' : 'unavailable', url: soundcloudUrl },
+    }, result.sourceUrl, lookupToken)
+    return matched
+  } catch (error) {
+    if (lookupToken !== currentLookupToken) return false
+    log(`[set79] auto metadata failed: ${error?.message || error}`)
+    emitSetAvailability({
+      set79: { status: 'error', url: null },
+      soundcloud: { status: 'error', url: null },
+    }, currentSourceUrl, lookupToken)
+    return false
+  }
+}
+
 // ── Source → tracklist routing ────────────────────────────────────────────────
 
 async function handleSourceUrl(source, url, wvContents) {
@@ -1496,6 +1691,11 @@ async function handleSourceUrl(source, url, wvContents) {
 
   const lookupToken = ++currentLookupToken
   log(`[lookup] START source=${source.id} url=${url} token=${lookupToken}`)
+
+  statsSetReady = false
+  currentStatsDjNames = []
+  lastStatsTrackNum = null
+  resetStatsPlayback({ flush: true })
 
   const videoId = extractVideoId(url)
   log(`[lookup] videoId=${videoId || '(none)'}`)
@@ -1522,6 +1722,12 @@ async function handleSourceUrl(source, url, wvContents) {
   currentSourceUrl = meta.url || url
   currentSourceMeta = meta
   currentSetTitle = meta.title || currentSourceUrl
+  currentStatsDjNames = normalizeSetMetadata(meta).djNames
+  if (!currentStatsDjNames.length) {
+    currentStatsDjNames = storedDjNamesForStats(readStore(), currentSourceUrl)
+  }
+  statsSetReady = true
+  registerCurrentStatsSet()
   currentThumbnailUrl = thumbnailForSourceUrl(currentSourceUrl) || currentThumbnailUrl
   log(`[lookup] meta resolved title="${currentSetTitle}" sourceUrl="${currentSourceUrl}"`)
 
@@ -1532,11 +1738,7 @@ async function handleSourceUrl(source, url, wvContents) {
     isTracklistLookupPending = true
     currentWvContents = playbackContents
     mainWindow.webContents.send('tracklist-loaded', {
-      url: currentSourceUrl,
-      sourceUrl: currentSourceUrl,
-      title: currentSetTitle,
-      thumbnailUrl: currentThumbnailUrl,
-      providerId: null,
+      ...tracklistLoadedBase(null),
       tracklistUrl: null,
       isFallback: false,
     })
@@ -1554,6 +1756,7 @@ async function handleSourceUrl(source, url, wvContents) {
         set79: { status: 'checking' },
       },
     })
+    emitSourceStatsWhenReady(meta, currentSourceUrl, lookupToken)
     const playerUrl = youtubePlayerUrl(videoId)
     log(`[lookup] loading player webview → ${playerUrl}`)
     mainWindow.webContents.send('wv-status', { type: 'player-loading' })
@@ -2256,6 +2459,7 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   isQuitting = true
   clearTimeout(saveBoundsTimer) // prevent in-flight timer from firing on a destroyed window
+  persistStatsNow()
 })
 
 app.on('window-all-closed', () => {
@@ -2266,7 +2470,10 @@ app.on('window-all-closed', () => {
 
 ipcMain.handle('store-get',  () => readStoreForRenderer())
 ipcMain.handle('stats-get',  () => readStats())
-ipcMain.handle('stats-set',  (_event, data) => writeStats(data))
+// Kept as a compatibility no-op while the renderer still maintains its live
+// lifetime display. Persisted stats are owned by the main-process player poll,
+// so a legacy whole-object save cannot erase daily set and DJ attribution.
+ipcMain.handle('stats-set',  () => readStats())
 ipcMain.handle('store-set', (_event, data) => {
   const existing = readStore()
   const next = { ...data }
@@ -2278,6 +2485,51 @@ ipcMain.handle('store-set', (_event, data) => {
   if (existing.tracklistPreferences) next.tracklistPreferences = existing.tracklistPreferences
   if (existing.artworkCache) next.artworkCache = existing.artworkCache
   writeStore(next)
+  syncCurrentStatsMetadataFromStore(next)
+})
+
+function validatedEventLocation(value, { allowMissingCountryCode = false } = {}) {
+  const city = String(value?.city || '').trim().slice(0, 100)
+  const country = String(value?.country || '').trim().slice(0, 100)
+  const countryCode = String(value?.countryCode || '').trim().toUpperCase()
+  if (!city || !country || (!allowMissingCountryCode && !/^[A-Z]{2}$/.test(countryCode)) || (countryCode && !/^[A-Z]{2}$/.test(countryCode))) {
+    throw new Error('Choose a city and country first.')
+  }
+  return { city, country, countryCode }
+}
+
+ipcMain.handle('event-location-resolve', async (_event, value) => {
+  const location = validatedEventLocation(value, { allowMissingCountryCode: true })
+  const resolved = await plugins.resolveEventLocation(location)
+  if (!resolved) throw new Error(`Resident Advisor does not list ${location.city}, ${location.country} as an exact city.`)
+  return resolved
+})
+
+ipcMain.handle('event-lookup', async (_event, value) => {
+  const sourceUrl = String(value?.sourceUrl || '')
+  const requestId = Number(value?.requestId) || 0
+  const eventSettings = readStore().settings || {}
+  if (eventSettings.eventSuggestionsEnabled === false) {
+    return { sourceUrl, requestId, location: null, results: [] }
+  }
+  const location = validatedEventLocation(eventSettings.eventLocation)
+  if (!sourceUrl || sourceUrl !== currentSourceUrl) return { sourceUrl, requestId, location, results: [] }
+  const djNames = Array.isArray(value?.djNames)
+    ? value.djNames.map(name => String(name).trim().slice(0, 120)).filter(Boolean).slice(0, 8)
+    : []
+  const results = await plugins.lookupNextEvents({
+    djNames,
+    location,
+    onError(source, artist, error) {
+      log(`[events] ${source.name} failed artist="${artist}": ${error?.message || error}`)
+    },
+    onProgress(progress) {
+      if (!_event.sender.isDestroyed() && sourceUrl === currentSourceUrl) {
+        _event.sender.send('event-lookup-progress', { sourceUrl, requestId, ...progress })
+      }
+    },
+  })
+  return { sourceUrl, requestId, location, results }
 })
 
 ipcMain.handle('register-webview-role', (_event, id, role) => {
@@ -2371,6 +2623,7 @@ ipcMain.handle('tracklist-cache-clear', () => {
 ipcMain.handle('tracklist-try-provider', (_event, providerId) => tryTracklistProvider(providerId))
 ipcMain.handle('tracklist-select-provider', (_event, providerId) => selectTracklistProvider(providerId))
 ipcMain.handle('tracklist-refresh', () => refreshTracklistLookups())
+ipcMain.handle('set-metadata-auto', () => autoSetMetadata())
 ipcMain.handle('updates-check', () => checkForUpdates({ manual: true }))
 ipcMain.handle('updates-download', () => downloadUpdate())
 ipcMain.handle('updates-install', () => {
@@ -2418,6 +2671,7 @@ function allowedExternalHosts() {
   return [...new Set([
     ...APP_EXTERNAL_HOSTS,
     ...plugins.TRACKLISTS.map(p => p.externalHost).filter(Boolean),
+    ...plugins.EVENTS.map(p => p.externalHost).filter(Boolean),
   ])]
 }
 

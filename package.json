@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --developer",
+    "poc:next-dj": "node scripts/pocs/next-dj.js",
     "test": "node --test tests/run-tests.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",

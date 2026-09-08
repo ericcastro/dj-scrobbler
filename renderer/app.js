@@ -31,7 +31,14 @@ const state = {
   stats: { totalListenedSeconds: 0, totalTracksListened: 0, listenDays: [], firstListenDate: null },
   currentTracks: [],       // full track array from tracklist-data, used for progress lookups
   currentSetMetadata: null, // normalized provider metadata, delivered separately from track rows
+  currentSourceStats: null, // public source age/plays plus the metadata-likelihood classification
   currentSetAvailability: null, // per-service lookup state and explicit source URLs
+  metadataEditMode: null, // null follows the default: open only when the set has no metadata
+  metadataOverwriteOnSet79: false,
+  metadataRemovedValues: [], // current-set edits kept as restoration suggestions until reapplied/refreshed
+  currentEventLookup: null, // async next-gig state for DJs in the metadata pills
+  currentEventLookupKey: '',
+  currentEventLookupRequest: 0,
   pendingResumeTime: null, // seconds to seek to after first playback-progress tick
 }
 
@@ -81,24 +88,47 @@ const videoControls      = document.getElementById('video-controls')
 const navBtns            = document.querySelectorAll('.nav-btn')
 const panels             = document.querySelectorAll('.sidebar-panel')
 const librarySearchInput = document.getElementById('library-search-input')
-const libraryViewOptions = document.querySelectorAll('.library-view-option')
+const libraryViewOptions = document.querySelectorAll('[data-library-view]')
 const libraryOverview    = document.getElementById('library-overview')
 const djLibraryGrid      = document.getElementById('dj-library-grid')
 const libraryEmpty       = document.getElementById('library-empty')
+const eventVenueLibrarySearchInput = document.getElementById('event-venue-library-search-input')
+const eventVenueLibraryViewOptions = document.querySelectorAll('[data-event-venue-view]')
+const eventVenueLibraryTypeOptions = document.querySelectorAll('[data-event-venue-type]')
+const eventVenueLibraryGrid = document.getElementById('event-venue-library-grid')
+const eventVenueLibraryEmpty = document.getElementById('event-venue-library-empty')
 const libraryDjDetail    = document.getElementById('library-dj-detail')
 const libraryDjName      = document.getElementById('library-dj-name')
 const libraryDjCount     = document.getElementById('library-dj-count')
 const libraryDjSets      = document.getElementById('library-dj-sets')
 const btnLibraryBack     = document.getElementById('btn-library-back')
+const libraryBackLabel   = document.getElementById('library-back-label')
+const sidebarDjList      = document.getElementById('sidebar-dj-list')
+const sidebarDjEmpty     = document.getElementById('sidebar-dj-empty')
+const sidebarEventList = document.getElementById('sidebar-event-list')
+const sidebarEventEmpty = document.getElementById('sidebar-event-empty')
+const sidebarVenueList = document.getElementById('sidebar-venue-list')
+const sidebarVenueEmpty = document.getElementById('sidebar-venue-empty')
 const favoritesList      = document.getElementById('favorites-list')
 const historyList        = document.getElementById('history-list')
 const favEmpty           = document.getElementById('fav-empty')
 const histEmpty          = document.getElementById('hist-empty')
 const mainContent              = document.getElementById('main-content')
 const tracklistBelowVideo      = document.getElementById('tracklist-below-video')
+const tracklistScrollRegion    = document.getElementById('tracklist-scroll-region')
 const setMetadataHeader        = document.getElementById('set-metadata-header')
 const setMetadataTags          = document.getElementById('set-metadata-tags')
 const btnSetMetadataRefresh    = document.getElementById('btn-set-metadata-refresh')
+const btnSetMetadataEdit       = document.getElementById('btn-set-metadata-edit')
+const setEventLookup           = document.getElementById('set-event-lookup')
+const eventCityInput           = document.getElementById('event-city')
+const eventCountrySelect       = document.getElementById('event-country')
+const eventCountryOtherGroup   = document.getElementById('event-country-other-group')
+const eventCountryOtherInput   = document.getElementById('event-country-other')
+const btnSaveEventLocation     = document.getElementById('btn-save-event-location')
+const eventLocationStatus      = document.getElementById('event-location-status')
+const eventSuggestionsEnabledInput = document.getElementById('event-suggestions-enabled')
+const eventLocationSetup       = document.getElementById('event-location-setup')
 const tracklistProviderChoice  = document.getElementById('tracklist-provider-choice')
 const tracklistList            = document.getElementById('tracklist-list')
 const tracklistUnavailableEl      = document.getElementById('tracklist-unavailable')
@@ -131,6 +161,10 @@ const npTracknum         = document.getElementById('np-tracknum')
 const npTrack            = document.getElementById('np-track')
 const npTrackText        = document.getElementById('np-track-text')
 const npArtist           = document.getElementById('np-artist')
+const npArtistSeparator  = document.getElementById('np-artist-separator')
+const npTitleRow         = document.getElementById('np-title-row')
+const npTitleContent     = document.getElementById('np-title-content')
+const npInfo             = document.getElementById('np-info')
 const npArtwork          = document.getElementById('np-artwork')
 const npArtworkImage     = document.getElementById('np-artwork-image')
 const npSet              = document.getElementById('np-set')
@@ -202,11 +236,21 @@ const introSearchInput   = document.getElementById('intro-search-input')
 const introResumeSection  = document.getElementById('intro-resume')
 const introResumeGrid     = document.getElementById('intro-resume-grid')
 const historyPanelTitle   = document.querySelector('#panel-history .panel-title')
+const djPanelTitle        = document.querySelector('#panel-djs .panel-title')
+const eventPanelTitle = document.querySelector('#panel-events .panel-title')
+const venuePanelTitle = document.querySelector('#panel-venues .panel-title')
 
 // ── Icons (Lucide MIT) ────────────────────────────────────────────────────────
 
 function icon(paths, size = 14) {
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`
+}
+
+function spectrumBarsHtml(className = '') {
+  return `<span class="spectrum-bars${className ? ` ${className}` : ''}" aria-hidden="true">
+    <span class="spectrum-bar"></span><span class="spectrum-bar"></span>
+    <span class="spectrum-bar"></span><span class="spectrum-bar"></span>
+  </span>`
 }
 
 const ICON = {
@@ -383,8 +427,10 @@ function closeContributeDialog() {
 function setNpArtwork(artUrl, artworkStatus = 'missing') {
   const url = String(artUrl || '').trim()
   const loading = !url && artworkStatus === 'loading'
-  npArtwork.classList.toggle('hidden', !url && !loading)
+  const showPlaceholder = !url && !loading && document.body.classList.contains('has-active-set')
+  npArtwork.classList.toggle('hidden', !url && !loading && !showPlaceholder)
   npArtwork.classList.toggle('is-loading', loading)
+  npArtwork.classList.toggle('is-empty', showPlaceholder)
   npArtworkImage.hidden = !url
   if (url) {
     if (npArtworkImage.src !== url) npArtworkImage.src = url
@@ -395,11 +441,280 @@ function setNpArtwork(artUrl, artworkStatus = 'missing') {
 
 npArtworkImage.addEventListener('error', () => setNpArtwork())
 
+const PARTY_EVENT_COUNTRY_GROUPS = [
+  { continent: 'North America', codes: ['US', 'CA', 'MX'] },
+  { continent: 'Europe', codes: [
+    'GB', 'FR', 'DE', 'NL', 'BE', 'ES', 'PT', 'IT', 'CH', 'AT', 'PL', 'CZ',
+    'DK', 'SE', 'NO', 'FI', 'IE', 'GR', 'HR', 'HU', 'RO', 'RS', 'BG', 'SI', 'SK',
+    'EE', 'LV', 'LT', 'IS', 'MT', 'CY', 'TR', 'UA',
+  ] },
+  { continent: 'South America', codes: ['BR', 'AR', 'CL', 'CO', 'PE', 'UY', 'EC', 'BO', 'PY', 'VE'] },
+]
+
+const PARTY_EVENT_COUNTRY_CODES = new Set(PARTY_EVENT_COUNTRY_GROUPS.flatMap(group => group.codes))
+
+function countryName(code) {
+  if (code === 'XK') return 'Kosovo'
+  return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) || code
+}
+
+function populateEventCountries() {
+  eventCountrySelect.innerHTML = ''
+  const placeholder = document.createElement('option')
+  placeholder.value = ''
+  placeholder.textContent = 'Choose a country'
+  placeholder.disabled = true
+  placeholder.selected = true
+  eventCountrySelect.append(placeholder)
+  PARTY_EVENT_COUNTRY_GROUPS.forEach(({ continent, codes }) => {
+    const heading = document.createElement('option')
+    heading.disabled = true
+    heading.textContent = `— ${continent} —`
+    eventCountrySelect.append(heading)
+    codes.forEach(code => {
+      const option = document.createElement('option')
+      option.value = code
+      option.textContent = countryName(code)
+      eventCountrySelect.append(option)
+    })
+  })
+  const otherHeading = document.createElement('option')
+  otherHeading.disabled = true
+  otherHeading.textContent = '──────────'
+  eventCountrySelect.append(otherHeading)
+  const other = document.createElement('option')
+  other.value = 'OTHER'
+  other.textContent = 'Other…'
+  eventCountrySelect.append(other)
+}
+
+function syncOtherCountryField({ focus = false } = {}) {
+  const isOther = eventCountrySelect.value === 'OTHER'
+  eventCountryOtherGroup.classList.toggle('hidden', !isOther)
+  if (isOther && focus) requestAnimationFrame(() => eventCountryOtherInput.focus())
+}
+
+function configuredEventLocation() {
+  const location = state.store.settings?.eventLocation
+  return location?.city && location?.country && location?.countryCode ? location : null
+}
+
+function eventSuggestionsEnabled() {
+  return state.store.settings?.eventSuggestionsEnabled !== false
+}
+
+function renderEventLocationSettings() {
+  const enabled = eventSuggestionsEnabled()
+  eventSuggestionsEnabledInput.checked = enabled
+  eventLocationSetup.classList.toggle('hidden', !enabled)
+  const location = configuredEventLocation()
+  eventCityInput.value = location?.city || ''
+  const countryCode = location?.countryCode || ''
+  const isOther = !!location && !PARTY_EVENT_COUNTRY_CODES.has(countryCode)
+  eventCountrySelect.value = isOther ? 'OTHER' : countryCode
+  eventCountryOtherInput.value = isOther ? location.country : ''
+  syncOtherCountryField()
+  eventLocationStatus.textContent = location ? `Current: ${location.city}, ${location.country}` : ''
+}
+
+function setEventSuggestionsEnabled(enabled) {
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings.eventSuggestionsEnabled = !!enabled
+  state.currentEventLookupRequest++
+  state.currentEventLookupKey = ''
+  state.currentEventLookup = null
+  persist()
+  renderEventLocationSettings()
+  renderSetMetadataHeader()
+  if (enabled) lookupNextDjEvents({ force: true })
+}
+
+function openEventLocationSettings() {
+  switchSidebarPanel('settings')
+  sidebarAutoHidden = false
+  sidebar.classList.remove('collapsed')
+  document.body.classList.remove('sidebar-player-hidden')
+  setSidebarWidthVar()
+  requestAnimationFrame(() => {
+    eventCityInput.focus()
+    eventCityInput.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  })
+}
+
+function changeEventLocation() {
+  openEventLocationSettings()
+  eventCityInput.value = ''
+  eventCountrySelect.value = ''
+  eventCountryOtherInput.value = ''
+  syncOtherCountryField()
+  eventLocationStatus.textContent = 'Choose a new city and country.'
+  requestAnimationFrame(() => eventCityInput.focus())
+}
+
+function eventLocationControlHtml(location) {
+  return `<span class="set-event-location-control">
+    <span>location: ${escHtml(location.city)}, ${escHtml(location.country)} <button type="button" class="set-event-change-location">change</button></span>
+    <button type="button" class="set-event-dismiss"><span aria-hidden="true">×</span> don't suggest events in my city</button>
+  </span>`
+}
+
+async function saveEventLocation() {
+  const city = eventCityInput.value.trim()
+  const selection = eventCountrySelect.value
+  const countryCode = selection === 'OTHER' ? '' : selection
+  const country = selection === 'OTHER' ? eventCountryOtherInput.value.trim() : countryCode ? countryName(countryCode) : ''
+  if (!city || !selection || !country) {
+    eventLocationStatus.textContent = 'Enter a city and choose a country.'
+    ;(selection === 'OTHER' ? eventCountryOtherInput : eventCityInput).focus()
+    return
+  }
+  btnSaveEventLocation.disabled = true
+  btnSaveEventLocation.textContent = 'Checking city…'
+  eventLocationStatus.textContent = 'Matching the exact city with Resident Advisor…'
+  try {
+    const location = await window.api.resolveEventLocation({ city, country, countryCode })
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.eventLocation = location
+    await window.api.setStore(state.store)
+    renderEventLocationSettings()
+    state.currentEventLookupKey = ''
+    renderSetMetadataHeader()
+    lookupNextDjEvents({ force: true })
+  } catch (error) {
+    eventLocationStatus.textContent = error?.message || 'Could not verify that city. Try again.'
+  } finally {
+    btnSaveEventLocation.disabled = false
+    btnSaveEventLocation.textContent = 'Save location'
+  }
+}
+
+function renderNextDjEvents() {
+  if (!eventSuggestionsEnabled()) {
+    setEventLookup.innerHTML = ''
+    setEventLookup.classList.add('hidden')
+    return
+  }
+  setEventLookup.classList.remove('hidden')
+  const location = configuredEventLocation()
+  if (!location) {
+    setEventLookup.innerHTML = `<span><button type="button" class="set-event-location-cta">Add your location</button> info to find out when these DJs are playing in your city next</span>`
+    setEventLookup.querySelector('.set-event-location-cta').addEventListener('click', openEventLocationSettings)
+    return
+  }
+
+  const djNames = state.currentSetMetadata?.djNames || []
+  if (!djNames.length) {
+    setEventLookup.innerHTML = ''
+    setEventLookup.classList.add('hidden')
+    return
+  }
+  if (state.currentEventLookup?.status === 'checking') {
+    const progress = state.currentEventLookup.progress
+    const artist = progress?.artist || djNames[0]
+    const sources = progress?.activeSourceNames?.join(' + ')
+    const count = progress?.total ? ` · ${progress.completed}/${progress.total} sources checked` : ''
+    const activity = sources
+      ? `Checking ${escHtml(artist)} on ${escHtml(sources)}…${count}`
+      : `Preparing the lookup for ${escHtml(artist)}…${count}`
+    setEventLookup.innerHTML = `
+      <div class="set-event-status-row">
+        <span class="set-event-lookup-status"><span class="set-event-activity-dot" aria-hidden="true"></span>${activity}</span>
+      </div>
+      ${eventLocationControlHtml(location)}`
+    wireEventLocationChange()
+    return
+  }
+  const matches = (state.currentEventLookup?.results || []).filter(result => result.event)
+  if (!matches.length) {
+    const unavailable = (state.currentEventLookup?.results || []).some(result => result.unavailableSources?.length)
+    setEventLookup.innerHTML = `
+      <div class="set-event-status-row">
+        <span class="set-event-lookup-status">${unavailable ? 'No date found; some event sources could not be checked.' : `No upcoming dates found in ${escHtml(location.city)}.`}</span>
+      </div>
+      ${eventLocationControlHtml(location)}`
+    wireEventLocationChange()
+    return
+  }
+  setEventLookup.innerHTML = matches.map((result, index) => `
+    <div class="set-event-line">
+      <div class="set-event-summary-clip"><span class="set-event-summary-text"><strong>${escHtml(result.artist)}</strong> — ${eventSummaryHtml(result)}</span></div>
+      <button type="button" class="set-event-link" data-event-index="${index}">${escHtml(result.event.sourceName)} ↗</button>
+    </div>
+  `).join('') + eventLocationControlHtml(location)
+  setEventLookup.querySelectorAll('.set-event-link').forEach(button => {
+    button.addEventListener('click', () => {
+      const url = matches[Number(button.dataset.eventIndex)]?.event?.url
+      if (url) window.api.openExternal(url)
+    })
+  })
+  setEventLookup.querySelectorAll('.set-event-line').forEach(line => {
+    wireOverflowMarquee(line.querySelector('.set-event-summary-text'), line)
+  })
+  wireEventLocationChange()
+}
+
+function normalizedEventDisplayText(value) {
+  return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, ' ').trim().toLowerCase()
+}
+
+function compactEventTitle(title, artist, venue) {
+  const artistKey = normalizedEventDisplayText(artist)
+  const parts = String(title || '')
+    .split(/\s*(?::|\||—|–)\s*/)
+    .map(part => part.trim())
+    .filter(part => part && normalizedEventDisplayText(part) !== artistKey)
+  const compact = parts.join(' — ')
+  return normalizedEventDisplayText(compact) === normalizedEventDisplayText(venue) ? '' : compact
+}
+
+function eventSummaryHtml(result) {
+  const event = result.event
+  const title = compactEventTitle(event.title, result.artist, event.venue)
+  const lead = [escHtml(event.dateLabel), ...(title ? [escHtml(title)] : [])].join(' · ')
+  return `${lead} <span class="set-event-venue">@ ${escHtml(event.venue)}</span>`
+}
+
+function wireEventLocationChange() {
+  setEventLookup.querySelector('.set-event-change-location')?.addEventListener('click', changeEventLocation)
+  setEventLookup.querySelector('.set-event-dismiss')?.addEventListener('click', () => setEventSuggestionsEnabled(false))
+}
+
+async function lookupNextDjEvents({ force = false } = {}) {
+  if (!eventSuggestionsEnabled()) {
+    state.currentEventLookup = null
+    setEventLookup.classList.add('hidden')
+    return
+  }
+  const location = configuredEventLocation()
+  const djNames = state.currentSetMetadata?.djNames || []
+  if (!location || !state.currentSetUrl || !djNames.length) {
+    state.currentEventLookup = null
+    renderNextDjEvents()
+    return
+  }
+  const key = [state.currentSetUrl, location.city, location.countryCode, ...djNames].join('|').toLowerCase()
+  if (!force && key === state.currentEventLookupKey) return
+  state.currentEventLookupKey = key
+  const request = ++state.currentEventLookupRequest
+  const sourceUrl = state.currentSetUrl
+  state.currentEventLookup = { status: 'checking', results: [], progress: null }
+  renderNextDjEvents()
+  try {
+    const payload = await window.api.lookupNextEvents({ sourceUrl, djNames, requestId: request })
+    if (request !== state.currentEventLookupRequest || payload?.sourceUrl !== state.currentSetUrl) return
+    state.currentEventLookup = { status: 'ready', results: payload.results || [] }
+  } catch (error) {
+    if (request !== state.currentEventLookupRequest) return
+    state.currentEventLookup = { status: 'error', results: [], message: error?.message }
+  }
+  renderNextDjEvents()
+}
+
 const SET_SERVICE_ORDER = [
   { id: '1001tracklists', label: '1001Tracklists' },
+  { id: 'set79', label: 'set79' },
   { id: 'youtube', label: 'YouTube' },
   { id: 'soundcloud', label: 'SoundCloud' },
-  { id: 'set79', label: 'set79' },
 ]
 
 const SET_AVAILABILITY_LABELS = {
@@ -407,6 +722,244 @@ const SET_AVAILABILITY_LABELS = {
   available: 'available',
   unavailable: 'not found',
   error: 'error',
+}
+
+function mergeSetMetadata(existing, incoming) {
+  const savedExisting = savedSetMetadata(existing)
+  const savedIncoming = savedSetMetadata(incoming)
+  return {
+    ...(existing || {}),
+    ...(incoming || {}),
+    djNames: normalizedDjNames([...(savedExisting.djNames || []), ...(savedIncoming.djNames || [])]),
+    venue: savedExisting.venue || savedIncoming.venue || null,
+    event: savedExisting.event || savedIncoming.event || null,
+    date: savedExisting.date || savedIncoming.date || null,
+  }
+}
+
+function titleContainsLibraryValue(title, value) {
+  const normalize = text => String(text || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+  const titleKey = normalize(title)
+  const valueKey = normalize(value)
+  return valueKey.length >= 3 && ` ${titleKey} `.includes(` ${valueKey} `)
+}
+
+function metadataLibraryValues(field) {
+  const seen = new Map()
+  ;[...(state.store.favorites || []), ...(state.store.history || [])].forEach(set => {
+    const values = field === 'djNames' ? normalizedDjNames(set.djNames) : [normalizedMetadataText(set[field])].filter(Boolean)
+    values.forEach(value => {
+      const key = librarySearchKey(value)
+      if (key && !seen.has(key)) seen.set(key, value)
+    })
+  })
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+}
+
+function setMetadataSuggestions() {
+  const metadata = state.currentSetMetadata || {}
+  const suggestions = []
+  const currentDjs = new Set(normalizedDjNames(metadata.djNames).map(name => librarySearchKey(name)))
+
+  metadataLibraryValues('djNames').forEach(name => {
+    if (!currentDjs.has(librarySearchKey(name)) && titleContainsLibraryValue(state.currentSetTitle, name)) {
+      suggestions.push({ field: 'djNames', label: 'DJ', value: name })
+    }
+  })
+
+  for (const field of ['event', 'venue', 'date']) {
+    metadataLibraryValues(field).forEach(value => {
+      if (!metadata[field] && titleContainsLibraryValue(state.currentSetTitle, value)) {
+        suggestions.push({ field, label: field, value })
+      }
+    })
+  }
+
+  // A just-removed value is always a useful suggestion: unlike the broader
+  // library matches, it has already been confirmed for this exact set.
+  ;(state.metadataRemovedValues || []).forEach(removed => {
+    const isPresent = removed.field === 'djNames'
+      ? currentDjs.has(librarySearchKey(removed.value))
+      : librarySearchKey(metadata[removed.field]) === librarySearchKey(removed.value)
+    if (!isPresent) suggestions.push(removed)
+  })
+
+  const seen = new Set()
+  return suggestions.filter(suggestion => {
+    const key = `${suggestion.field}:${librarySearchKey(suggestion.value)}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function formatCompactViews(value) {
+  if (!Number.isFinite(value)) return null
+  return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+function metadataOutlookCopy(waiting, services) {
+  const outlook = state.currentSourceStats?.metadataOutlook
+  const soundcloudStatus = services.soundcloud?.status
+  if (!waiting && soundcloudStatus === 'unavailable') {
+    return "No SoundCloud match — set79 can't look this set up yet."
+  }
+  if (!waiting && soundcloudStatus === 'error') return "set79 couldn't be checked right now."
+  if (waiting) return 'Checking set79 for set details…'
+  if (outlook?.kind === 'likely') return `Popular recent set (${formatCompactViews(outlook.viewCount)} plays) — metadata may arrive soon.`
+  if (outlook?.kind === 'unlikely') return 'Older, low-play set — more metadata is unlikely.'
+  return 'No community metadata found yet.'
+}
+
+function applySetMetadataValue(field, rawValue) {
+  const value = String(rawValue || '').trim()
+  if (!value || !state.currentSetUrl) return
+  const current = mergeSetMetadata(null, state.currentSetMetadata)
+  if (field === 'djNames') current.djNames = normalizedDjNames([...(current.djNames || []), value])
+  else if (field === 'event' || field === 'venue' || field === 'date') current[field] = value
+  else return
+  state.metadataRemovedValues = (state.metadataRemovedValues || []).filter(removed => (
+    removed.field !== field || librarySearchKey(removed.value) !== librarySearchKey(value)
+  ))
+  state.currentSetMetadata = current
+  tagSavedSetMetadata(state.currentSetUrl, current, { overwrite: true })
+  state.currentEventLookupKey = ''
+  renderSetMetadataHeader()
+  lookupNextDjEvents()
+}
+
+function removeSetMetadataValue(field, rawValue) {
+  const value = String(rawValue || '').trim()
+  if (!value || !state.currentSetUrl) return
+  const current = mergeSetMetadata(null, state.currentSetMetadata)
+  if (field === 'djNames') {
+    current.djNames = normalizedDjNames(current.djNames).filter(name => librarySearchKey(name) !== librarySearchKey(value))
+  } else if (field === 'event' || field === 'venue' || field === 'date') {
+    current[field] = null
+  } else {
+    return
+  }
+  const label = field === 'djNames' ? 'DJ' : field
+  state.metadataRemovedValues = [
+    ...(state.metadataRemovedValues || []).filter(removed => (
+      removed.field !== field || librarySearchKey(removed.value) !== librarySearchKey(value)
+    )),
+    { field, label, value },
+  ]
+  state.currentSetMetadata = current
+  tagSavedSetMetadata(state.currentSetUrl, current, { overwrite: true, replace: true })
+  state.currentEventLookupKey = ''
+  renderSetMetadataHeader()
+  lookupNextDjEvents()
+}
+
+function beginSetMetadataEdit(button, field) {
+  state.metadataEditMode = true
+  const form = document.createElement('form')
+  form.className = 'set-metadata-editor'
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.autocomplete = 'off'
+  input.placeholder = field === 'djNames' ? 'DJ name' : field
+  input.setAttribute('aria-label', `Add ${field === 'djNames' ? 'DJ name' : field}`)
+  const submit = document.createElement('button')
+  submit.type = 'submit'
+  submit.textContent = 'add'
+  const autocomplete = document.createElement('div')
+  autocomplete.className = 'set-metadata-autocomplete hidden'
+  form.append(input, submit, autocomplete)
+  button.replaceWith(form)
+  input.focus()
+
+  const renderAutocomplete = () => {
+    const query = librarySearchKey(input.value)
+    const selectedValues = new Set(
+      (field === 'djNames' ? normalizedDjNames(state.currentSetMetadata?.djNames) : [])
+        .map(librarySearchKey)
+    )
+    const matches = metadataLibraryValues(field)
+      .filter(value => !selectedValues.has(librarySearchKey(value)))
+      .filter(value => !query || librarySearchKey(value).includes(query))
+      .sort((a, b) => {
+        const aStarts = librarySearchKey(a).startsWith(query) ? 0 : 1
+        const bStarts = librarySearchKey(b).startsWith(query) ? 0 : 1
+        return aStarts - bStarts || a.localeCompare(b, undefined, { sensitivity: 'base' })
+      })
+      .slice(0, 6)
+    autocomplete.innerHTML = matches.map((value, index) => `<button type="button" data-autocomplete-index="${index}">${escHtml(value)}</button>`).join('')
+    autocomplete.classList.toggle('hidden', !matches.length)
+    autocomplete.querySelectorAll('button').forEach(option => {
+      option.addEventListener('mousedown', event => event.preventDefault())
+      option.addEventListener('click', () => applySetMetadataValue(field, matches[Number(option.dataset.autocompleteIndex)]))
+    })
+  }
+  renderAutocomplete()
+  input.addEventListener('input', renderAutocomplete)
+  form.addEventListener('submit', event => {
+    event.preventDefault()
+    if (input.value.trim()) applySetMetadataValue(field, input.value)
+    else renderSetMetadataHeader()
+  })
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Escape') renderSetMetadataHeader()
+  })
+  input.addEventListener('blur', () => setTimeout(() => {
+    if (form.isConnected && !form.contains(document.activeElement)) renderSetMetadataHeader()
+  }, 0))
+}
+
+function openMetadataLibraryValue(field, value) {
+  const key = librarySearchKey(value)
+  document.body.classList.remove('is-browsing')
+  showLibrary()
+  if (field === 'djNames') {
+    const entity = favoriteDjLibrary().find(dj => librarySearchKey(dj.name) === key)
+    if (entity) showDjLibraryDetail(entity)
+    else {
+      showDjLibraryOverview()
+      librarySearchInput.value = value
+      renderDjLibrary()
+    }
+  } else if (field === 'event' || field === 'venue') {
+    setEventVenueLibraryType(field)
+    const entity = favoriteEventVenueLibrary(field).find(group => group.key === key)
+    if (entity) showEventVenueLibraryDetail(entity)
+    else {
+      showDjLibraryOverview()
+      eventVenueLibrarySearchInput.value = value
+      renderEventVenueLibrary()
+    }
+  }
+  updateViewTabs()
+}
+
+function wireSetMetadataActions(suggestions, facts) {
+  setMetadataTags.querySelectorAll('.set-metadata-library-link').forEach(button => {
+    button.addEventListener('click', () => {
+      const fact = facts[Number(button.dataset.metadataIndex)]
+      if (fact) openMetadataLibraryValue(fact.field, fact.value)
+    })
+  })
+  setMetadataTags.querySelectorAll('.set-metadata-remove').forEach(button => {
+    button.addEventListener('click', () => {
+      const fact = facts[Number(button.dataset.metadataIndex)]
+      if (fact) removeSetMetadataValue(fact.field, fact.value)
+    })
+  })
+  setMetadataTags.querySelectorAll('.set-metadata-add').forEach(button => {
+    button.addEventListener('click', () => beginSetMetadataEdit(button, button.dataset.metadataField))
+  })
+  setMetadataTags.querySelectorAll('.set-metadata-suggestion').forEach(button => {
+    button.addEventListener('click', () => {
+      const suggestion = suggestions[Number(button.dataset.suggestionIndex)]
+      if (suggestion) applySetMetadataValue(suggestion.field, suggestion.value)
+    })
+  })
 }
 
 function renderSetMetadataHeader() {
@@ -417,25 +970,65 @@ function renderSetMetadataHeader() {
 
   const metadata = state.currentSetMetadata || {}
   const services = state.currentSetAvailability?.services || {}
+  const suggestions = setMetadataSuggestions()
   const facts = [
-    ...(metadata.djNames || []).map(value => ({ label: 'DJ', value })),
-    ...(metadata.venue ? [{ label: 'venue', value: metadata.venue }] : []),
-    ...(metadata.event ? [{ label: 'event', value: metadata.event }] : []),
-    ...(metadata.date ? [{ label: 'date', value: metadata.date }] : []),
+    ...(metadata.djNames || []).map(value => ({ field: 'djNames', label: 'DJ', value })),
+    ...(metadata.venue ? [{ field: 'venue', label: 'venue', value: metadata.venue }] : []),
+    ...(metadata.event ? [{ field: 'event', label: 'event', value: metadata.event }] : []),
+    ...(metadata.date ? [{ field: 'date', label: 'date', value: metadata.date }] : []),
   ]
+  const editMode = state.metadataEditMode == null ? facts.length === 0 : state.metadataEditMode
+  setMetadataHeader.classList.toggle('is-editing', editMode)
+  btnSetMetadataEdit.textContent = editMode ? 'done' : 'edit'
+  btnSetMetadataEdit.setAttribute('aria-pressed', String(editMode))
+  if (!state.metadataOverwriteOnSet79) {
+    btnSetMetadataRefresh.disabled = !services.set79 || services.set79.status === 'checking'
+  }
 
-  if (facts.length) {
-    setMetadataTags.innerHTML = facts.map(({ label, value }) => `
+  const factPills = facts.map(({ field, label, value }, index) => editMode ? `
+      <span class="set-metadata-pill is-editing-value">
+        <span class="set-metadata-pill-label">${escHtml(label)}</span>
+        <span>${escHtml(value)}</span>
+        <button type="button" class="set-metadata-remove" data-metadata-index="${index}" aria-label="Remove ${escHtml(label)} ${escHtml(value)}" title="Remove ${escHtml(value)}">×</button>
+      </span>
+    ` : field === 'date' ? `
       <span class="set-metadata-pill">
         <span class="set-metadata-pill-label">${escHtml(label)}</span>
         <span>${escHtml(value)}</span>
       </span>
+    ` : `
+      <button type="button" class="set-metadata-pill set-metadata-library-link" data-metadata-index="${index}" title="Open ${escHtml(value)} in Library">
+        <span class="set-metadata-pill-label">${escHtml(label)}</span>
+        <span>${escHtml(value)}</span>
+      </button>
     `).join('')
+  const suggestionPills = editMode ? suggestions.map((suggestion, index) => `
+    <button type="button" class="set-metadata-suggestion" data-suggestion-index="${index}" title="Found in this set title">
+      <span class="set-metadata-pill-label">+ ${escHtml(suggestion.label)}</span>
+      <span>${escHtml(suggestion.value)}</span>
+    </button>
+  `).join('') : ''
+  const addPills = editMode ? [
+    { field: 'djNames', label: '+ DJ' },
+    ...(!metadata.event ? [{ field: 'event', label: '+ event' }] : []),
+    ...(!metadata.venue ? [{ field: 'venue', label: '+ venue' }] : []),
+    ...(!metadata.date ? [{ field: 'date', label: '+ date' }] : []),
+  ].map(({ field, label }) => `<button type="button" class="set-metadata-add" data-metadata-field="${field}">${label}</button>`).join('') : ''
+
+  if (facts.length) {
+    setMetadataTags.innerHTML = factPills + suggestionPills + addPills
   } else {
     const waiting = services.set79?.status === 'checking'
-    setMetadataTags.innerHTML = `<span class="set-metadata-empty">${waiting ? 'Checking set79 for details…' : 'No structured set metadata found'}</span>`
+    setMetadataTags.innerHTML = `
+      <div class="set-metadata-recovery">
+        <span class="set-metadata-empty-detail">${escHtml(metadataOutlookCopy(waiting, services))}</span>
+      </div>
+      ${suggestionPills}${addPills}`
   }
 
+  wireSetMetadataActions(suggestions, facts)
+
+  renderNextDjEvents()
   setMetadataHeader.classList.remove('hidden')
 }
 
@@ -446,7 +1039,7 @@ function renderSetSources() {
   }
 
   const services = state.currentSetAvailability?.services || {}
-  npSource.innerHTML = SET_SERVICE_ORDER.map(({ id, label }, index) => {
+  const sourceItems = SET_SERVICE_ORDER.map(({ id, label }, index) => {
       const status = services[id]?.status || 'checking'
       const statusLabel = SET_AVAILABILITY_LABELS[status] || status
       const url = status === 'available' ? services[id]?.url : null
@@ -454,7 +1047,10 @@ function renderSetSources() {
       const attrs = url ? ` type="button" data-service-index="${index}"` : ''
       const external = url ? '<span aria-hidden="true">↗</span>' : ''
       return `<${tag} class="set-availability-pill status-${escHtml(status)}${url ? ' is-clickable' : ''}" title="${escHtml(label)}: ${escHtml(statusLabel)}" aria-label="${escHtml(label)}: ${escHtml(statusLabel)}"${attrs}><span class="set-availability-dot" aria-hidden="true"></span>${escHtml(label)}${external}</${tag}>`
-    }).join('')
+    })
+  npSource.innerHTML = [sourceItems.slice(0, 2), sourceItems.slice(2)]
+    .map(row => `<div class="np-source-row">${row.join('')}</div>`)
+    .join('')
   npSource.querySelectorAll('.set-availability-pill.is-clickable').forEach(button => {
     button.addEventListener('click', () => {
       const service = SET_SERVICE_ORDER[Number(button.dataset.serviceIndex)]
@@ -512,15 +1108,23 @@ function renderTracklistProviderChoice() {
   })
 }
 
-async function refreshSetMetadata() {
+async function autoSetMetadata() {
   if (!state.currentSetUrl || btnSetMetadataRefresh.disabled) return
+  const sourceUrl = state.currentSetUrl
   btnSetMetadataRefresh.disabled = true
   btnSetMetadataRefresh.classList.add('is-refreshing')
+  state.metadataOverwriteOnSet79 = true
+  state.metadataRemovedValues = []
+  state.currentEventLookupKey = ''
+  state.currentEventLookup = null
   try {
-    await window.api.refreshTracklists()
+    await window.api.autoSetMetadata()
   } finally {
-    btnSetMetadataRefresh.disabled = false
+    state.metadataOverwriteOnSet79 = false
     btnSetMetadataRefresh.classList.remove('is-refreshing')
+    if (state.currentSetUrl === sourceUrl) {
+      btnSetMetadataRefresh.disabled = false
+    }
   }
 }
 
@@ -669,6 +1273,30 @@ function setTrackPlaying(playing) {
   document.body.classList.toggle('is-track-playing', playing)
 }
 
+function showNowPlayingTrack() {
+  if (!state.currentSetUrl) return
+  hideIntro()
+  document.body.classList.remove('is-browsing')
+  updateViewTabs()
+  const trackNum = state.nowPlaying?.trackNum
+  if (trackNum) requestAnimationFrame(() => highlightTracklistByNum(trackNum))
+}
+
+// Reusable edge mask for a scrolling layer. At rest it leaves content untouched;
+// once moving, content becomes fully transparent at the edge and fades in below.
+function wireScrollEdgeFade(container, { size = 24, threshold = 1, wheelSurface = null } = {}) {
+  if (!container) return
+  container.classList.add('scroll-edge-fade')
+  container.style.setProperty('--scroll-fade-size', `${size}px`)
+  const update = () => container.classList.toggle('is-scrolled', container.scrollTop >= threshold)
+  container.addEventListener('scroll', update, { passive: true })
+  wheelSurface?.addEventListener('wheel', event => {
+    container.scrollTop += event.deltaY
+    event.preventDefault()
+  }, { passive: false })
+  update()
+}
+
 function hideBrowseLoading(reason) {
   if (!browseLoading.classList.contains('hidden')) {
     console.log('[browser-wv] hideBrowseLoading via=' + reason)
@@ -724,9 +1352,13 @@ async function init() {
     }
   })
 
+  populateEventCountries()
   state.store = await window.api.getStore()
+  renderEventLocationSettings()
   state.stats = await window.api.getStats()
   setLibraryViewMode(state.store.settings?.libraryViewMode || 'grid', false)
+  setEventVenueLibraryType(state.store.settings?.eventVenueLibraryType || 'event', false)
+  setEventVenueLibraryViewMode(state.store.settings?.eventVenueLibraryViewMode || 'grid', false)
   document.body.classList.add(`platform-${await window.api.getPlatform()}`)
   if (await window.api.isDeveloper()) btnDevtools.classList.remove('hidden')
 
@@ -760,7 +1392,9 @@ async function init() {
   wireFooterMarquees()
 
   // Restore which sidebar panel was open when the app was last closed
-  const activePanel = state.store.settings?.activeSidebarPanel
+  const savedPanel = state.store.settings?.activeSidebarPanel
+  const activePanel = savedPanel === 'event-venues' ? 'events' : savedPanel
+  if (savedPanel === 'event-venues') state.store.settings.activeSidebarPanel = activePanel
   if (activePanel) applySidebarPanel(activePanel)
 
   state.lfmStatus = await window.api.lfmStatusGet()
@@ -795,6 +1429,7 @@ async function init() {
   browserWebview.addEventListener('render-process-gone', (e) => resetBrowserWebview(e.reason || 'unknown'))
   browserWebview.addEventListener('crashed', () => resetBrowserWebview('crashed'))
 
+  wireScrollEdgeFade(tracklistScrollRegion, { size: 28, wheelSurface: setMetadataHeader })
   wireEvents()
   wireMainEvents()
   // No default navigation — show intro screen
@@ -817,7 +1452,10 @@ function showIntro() {
 function showLibrary() {
   introScreen.classList.add('hidden')
   libraryScreen.classList.remove('hidden')
-  requestAnimationFrame(renderDjLibrary)
+  requestAnimationFrame(() => {
+    renderDjLibrary()
+    renderEventVenueLibrary()
+  })
 }
 
 // Must match the CSS --item width and gap for the resume grid
@@ -1377,7 +2015,7 @@ function wireMainEvents() {
     }
   })
 
-  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, providerName, providerFooterLabel, tracklistUrl, lookupError, contributeLabel, contributeNote, contributeUrl, alternateProviders }) => {
+  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, providerName, providerFooterLabel, tracklistUrl, lookupError, contributeLabel, contributeNote, contributeUrl, alternateProviders, sourcePublishedAt, sourceViewCount, metadataOutlook }) => {
     // Don't update set state or history while the user is deciding in the dialog.
     if (isResumeDialogOpen()) return
     document.body.classList.add('has-active-set')
@@ -1386,12 +2024,22 @@ function wireMainEvents() {
     updateViewTabs()
     if (url !== state.currentSetUrl) {
       state.currentSetMetadata = null
+      state.currentSourceStats = null
       state.currentSetAvailability = null
       state.currentTracklistOptions = []
+      state.metadataEditMode = null
+      state.metadataOverwriteOnSet79 = false
+      state.metadataRemovedValues = []
     }
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
     state.currentSetUrl        = url
+    state.currentSetMetadata   = state.currentSetMetadata || savedMetadataForUrl(url)
+    state.currentSourceStats   = {
+      publishedAt: sourcePublishedAt || null,
+      viewCount: sourceViewCount ?? null,
+      metadataOutlook: metadataOutlook || null,
+    }
     state.currentThumbnailUrl  = thumbnailUrl || null
     state.currentTracklistUrl  = tracklistUrl || null
     state.currentTracklistProvider = providerId || null
@@ -1445,6 +2093,7 @@ function wireMainEvents() {
       setTrackPlaying(false)
       npTrackText.textContent = ''
       npArtist.textContent   = ''
+      npArtistSeparator.classList.add('hidden')
       npTracknum.textContent = ''
       setNpArtwork()
       ppIcon.innerHTML      = icon(ICON.play, 16)
@@ -1463,7 +2112,7 @@ function wireMainEvents() {
     state.isIdTrack = false
     updateBookmarkBtn()
     refreshScrobbleBadge()
-    const djNames = normalizedDjNames(state.currentSetMetadata?.djNames)
+    const metadata = savedSetMetadata(state.currentSetMetadata)
     addToHistory({
       title,
       url,
@@ -1471,8 +2120,9 @@ function wireMainEvents() {
       thumbnailUrl: state.currentThumbnailUrl,
       tracklistUrl: state.currentTracklistUrl,
       tracklistProvider: state.currentTracklistProvider,
-      ...(djNames.length ? { djNames } : {}),
+      ...metadata,
     })
+    renderFavorites()
   })
 
   window.api.on('now-playing', (data) => {
@@ -1486,6 +2136,7 @@ function wireMainEvents() {
     if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
       npTrackText.textContent = data.isId ? 'ID' : (data.title || data.raw || '—')
       npArtist.textContent   = data.isId ? '—' : (data.artist || '—')
+      npArtistSeparator.classList.toggle('hidden', !npArtist.textContent || npArtist.textContent === '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
       setNpArtwork(data.isId ? null : data.artUrl, data.isId ? 'missing' : data.artworkStatus)
       if (data.trackNum) highlightTracklistByNum(data.trackNum)
@@ -1634,9 +2285,43 @@ function wireMainEvents() {
 
   window.api.on('set-metadata', (metadata) => {
     if (isResumeDialogOpen() || metadata?.sourceUrl !== state.currentSetUrl) return
-    state.currentSetMetadata = metadata
-    tagSavedSetDjNames(metadata.sourceUrl, metadata.djNames)
+    const replaceFromSet79 = state.metadataOverwriteOnSet79 && metadata.providerId === 'set79'
+    state.currentSetMetadata = replaceFromSet79
+      ? mergeSetMetadata(null, metadata)
+      : mergeSetMetadata(state.currentSetMetadata, metadata)
+    ;(state.metadataRemovedValues || []).forEach(removed => {
+      if (removed.field === 'djNames') {
+        state.currentSetMetadata.djNames = normalizedDjNames(state.currentSetMetadata.djNames)
+          .filter(name => librarySearchKey(name) !== librarySearchKey(removed.value))
+      } else if (removed.field === 'event' || removed.field === 'venue' || removed.field === 'date') {
+        state.currentSetMetadata[removed.field] = null
+      }
+    })
+    tagSavedSetMetadata(metadata.sourceUrl, state.currentSetMetadata, {
+      overwrite: replaceFromSet79,
+      replace: replaceFromSet79,
+    })
+    if (replaceFromSet79) state.metadataEditMode = null
     renderSetMetadataHeader()
+    lookupNextDjEvents()
+  })
+
+  window.api.on('source-metadata', (metadata) => {
+    if (isResumeDialogOpen() || metadata?.sourceUrl !== state.currentSetUrl) return
+    state.currentSourceStats = {
+      publishedAt: metadata.sourcePublishedAt || null,
+      viewCount: metadata.sourceViewCount ?? null,
+      metadataOutlook: metadata.metadataOutlook || null,
+    }
+    renderSetMetadataHeader()
+  })
+
+  window.api.on('event-lookup-progress', (progress) => {
+    if (!eventSuggestionsEnabled()) return
+    if (progress?.sourceUrl !== state.currentSetUrl || progress?.requestId !== state.currentEventLookupRequest) return
+    if (state.currentEventLookup?.status !== 'checking') return
+    state.currentEventLookup.progress = progress
+    renderNextDjEvents()
   })
 
   window.api.on('set-availability', (availability) => {
@@ -1918,8 +2603,12 @@ function wireSidebarResize() {
 // ── Favorites ────────────────────────────────────────────────────────────────
 
 let activeLibraryDjKey = null
+let activeLibraryEventVenueKey = null
 let libraryViewMode = 'grid'
+let eventVenueLibraryViewMode = 'grid'
+let eventVenueLibraryType = 'event'
 const djLibraryCoverChoices = new Map()
+const eventVenueLibraryCoverChoices = new Map()
 
 function normalizedDjNames(djNames) {
   if (!Array.isArray(djNames)) return []
@@ -1934,20 +2623,57 @@ function normalizedDjNames(djNames) {
     })
 }
 
-function tagSavedSetDjNames(url, djNames) {
-  const names = normalizedDjNames(djNames)
-  if (!url || !names.length) return
+function normalizedMetadataText(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function savedSetMetadata(metadata) {
+  const djNames = normalizedDjNames(metadata?.djNames)
+  const venue = normalizedMetadataText(metadata?.venue)
+  const event = normalizedMetadataText(metadata?.event)
+  const date = normalizedMetadataText(metadata?.date)
+  return {
+    ...(djNames.length ? { djNames } : {}),
+    ...(venue ? { venue } : {}),
+    ...(event ? { event } : {}),
+    ...(date ? { date } : {}),
+  }
+}
+
+function savedMetadataForUrl(url) {
+  const saved = state.store.history.find(item => item.url === url) || state.store.favorites.find(item => item.url === url)
+  const metadata = savedSetMetadata(saved)
+  return Object.keys(metadata).length ? { sourceUrl: url, providerId: null, ...metadata } : null
+}
+
+function tagSavedSetMetadata(url, metadata, { overwrite = false, replace = false } = {}) {
+  const metadataPatch = savedSetMetadata(metadata)
+  if (!url || (!replace && !Object.keys(metadataPatch).length)) return
   let changed = false
   ;['history', 'favorites'].forEach(key => {
     state.store[key] = state.store[key].map(item => {
-      if (item.url !== url || JSON.stringify(item.djNames || []) === JSON.stringify(names)) return item
+      if (item.url !== url) return item
+      const next = { ...item }
+      if (replace) {
+        for (const field of ['djNames', 'venue', 'event', 'date']) delete next[field]
+      }
+      for (const [field, value] of Object.entries(metadataPatch)) {
+        if (field === 'djNames' && !overwrite) {
+          next.djNames = normalizedDjNames([...normalizedDjNames(next.djNames), ...value])
+          continue
+        }
+        const missing = !normalizedMetadataText(next[field])
+        if (overwrite || missing) next[field] = value
+      }
+      if (JSON.stringify(next) === JSON.stringify(item)) return item
       changed = true
-      return { ...item, djNames: names }
+      return next
     })
   })
   if (!changed) return
   persist()
   renderFavorites()
+  renderHistory()
 }
 
 function favoriteDjLibrary() {
@@ -1965,6 +2691,21 @@ function favoriteDjLibrary() {
   return [...djs.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 }
 
+function favoriteEventVenueLibrary(kind = eventVenueLibraryType) {
+  const groups = new Map()
+  state.store.favorites.forEach(set => {
+    const field = kind === 'venue' ? 'venue' : 'event'
+    const names = [normalizedMetadataText(set[field])].filter(Boolean)
+    names.forEach(name => {
+      const key = librarySearchKey(name)
+      if (!groups.has(key)) groups.set(key, { key, kind: field, name, sets: [] })
+      const group = groups.get(key)
+      if (!group.sets.some(item => item.url === set.url)) group.sets.push(set)
+    })
+  })
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+}
+
 function randomDjCover(dj) {
   const preferredSets = dj.soloSets.some(set => set.thumbnailUrl) ? dj.soloSets : dj.sets
   const candidates = [...new Set(preferredSets.map(set => set.thumbnailUrl).filter(Boolean))]
@@ -1974,6 +2715,17 @@ function randomDjCover(dj) {
   if (candidates.includes(existing)) return existing
   const selected = candidates[Math.floor(Math.random() * candidates.length)]
   djLibraryCoverChoices.set(dj.key, selected)
+  return selected
+}
+
+function randomEventVenueCover(group) {
+  const candidates = [...new Set(group.sets.map(set => set.thumbnailUrl).filter(Boolean))]
+  if (!candidates.length) return null
+
+  const existing = eventVenueLibraryCoverChoices.get(group.key)
+  if (candidates.includes(existing)) return existing
+  const selected = candidates[Math.floor(Math.random() * candidates.length)]
+  eventVenueLibraryCoverChoices.set(group.key, selected)
   return selected
 }
 
@@ -2005,6 +2757,39 @@ function setLibraryViewMode(mode, persistSetting = true) {
   renderDjLibrary()
 }
 
+function setEventVenueLibraryViewMode(mode, persistSetting = true) {
+  eventVenueLibraryViewMode = mode === 'list' ? 'list' : 'grid'
+  eventVenueLibraryViewOptions.forEach(option => {
+    const active = option.dataset.eventVenueView === eventVenueLibraryViewMode
+    option.classList.toggle('active', active)
+    option.setAttribute('aria-pressed', String(active))
+  })
+  if (persistSetting) {
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.eventVenueLibraryViewMode = eventVenueLibraryViewMode
+    persist()
+  }
+  renderEventVenueLibrary()
+}
+
+function setEventVenueLibraryType(type, persistSetting = true) {
+  eventVenueLibraryType = type === 'venue' ? 'venue' : 'event'
+  eventVenueLibraryTypeOptions.forEach(option => {
+    const active = option.dataset.eventVenueType === eventVenueLibraryType
+    option.classList.toggle('active', active)
+    option.setAttribute('aria-pressed', String(active))
+  })
+  if (persistSetting) {
+    if (!state.store.settings) state.store.settings = {}
+    state.store.settings.eventVenueLibraryType = eventVenueLibraryType
+    persist()
+  }
+  eventVenueLibrarySearchInput.placeholder = `filter ${eventVenueLibraryType}s…`
+  eventVenueLibrarySearchInput.setAttribute('aria-label', `Filter saved ${eventVenueLibraryType}s`)
+  activeLibraryEventVenueKey = null
+  renderEventVenueLibrary()
+}
+
 function openStoredSet(item) {
   const hasProgress = !!(item.progressTrackNum > 1 && item.lastTrackCueSeconds != null)
                    || !!(item.progressTimePct > 5 && item.progressTime)
@@ -2020,14 +2805,19 @@ function openStoredSet(item) {
 
 function renderLibrarySetCard(item) {
   const pct = getProgressPct(item)
+  const isCurrentSet = !!state.currentSetUrl && item.url === state.currentSetUrl
   const card = document.createElement('button')
   card.type = 'button'
   card.className = 'library-set-card'
-  card.title = item.title || item.url
+  card.classList.toggle('is-current-set', isCurrentSet)
+  card.title = isCurrentSet ? 'Return to Now Playing' : (item.title || item.url)
   card.innerHTML = `
-    ${item.thumbnailUrl
-      ? `<img class="library-set-thumb" src="${escHtml(item.thumbnailUrl)}" alt="" loading="lazy" />`
-      : '<div class="library-set-thumb library-set-thumb-empty"></div>'}
+    <div class="library-set-thumb-frame">
+      ${item.thumbnailUrl
+        ? `<img class="library-set-thumb" src="${escHtml(item.thumbnailUrl)}" alt="" loading="lazy" />`
+        : '<div class="library-set-thumb library-set-thumb-empty"></div>'}
+      ${spectrumBarsHtml('library-set-playing-indicator')}
+    </div>
     <div class="library-set-title-row">
       <span class="library-set-heart" aria-hidden="true"><svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></span>
       <div class="library-set-title-wrap">
@@ -2036,25 +2826,42 @@ function renderLibrarySetCard(item) {
     </div>
     <div class="library-set-progress"><div class="library-set-progress-fill" style="width:${pct}%"></div></div>
   `
-  card.addEventListener('click', () => openStoredSet(item))
+  card.addEventListener('click', () => {
+    if (item.url === state.currentSetUrl) {
+      showNowPlayingTrack()
+      return
+    }
+    openStoredSet(item)
+  })
   wireOverflowMarquee(card.querySelector('.library-set-title-text'), card)
   return card
 }
 
-function showDjLibraryDetail(dj) {
-  activeLibraryDjKey = dj.key
+function showLibraryEntityDetail(entity, scope) {
+  activeLibraryDjKey = scope === 'dj' ? entity.key : null
+  activeLibraryEventVenueKey = scope !== 'dj' ? entity.key : null
   libraryScreen.classList.add('is-detail')
   libraryOverview.classList.add('hidden')
   libraryDjDetail.classList.remove('hidden')
-  libraryDjName.textContent = dj.name
-  libraryDjCount.textContent = `${dj.sets.length} saved set${dj.sets.length === 1 ? '' : 's'}`
+  libraryBackLabel.textContent = scope === 'dj' ? 'All DJs' : `All ${scope}s`
+  libraryDjName.textContent = entity.name
+  libraryDjCount.textContent = `${entity.sets.length} saved set${entity.sets.length === 1 ? '' : 's'}`
   libraryDjSets.innerHTML = ''
-  dj.sets.forEach(set => libraryDjSets.appendChild(renderLibrarySetCard(set)))
+  entity.sets.forEach(set => libraryDjSets.appendChild(renderLibrarySetCard(set)))
   libraryScreen.scrollTop = 0
+}
+
+function showDjLibraryDetail(dj) {
+  showLibraryEntityDetail(dj, 'dj')
+}
+
+function showEventVenueLibraryDetail(group) {
+  showLibraryEntityDetail(group, group.kind)
 }
 
 function showDjLibraryOverview() {
   activeLibraryDjKey = null
+  activeLibraryEventVenueKey = null
   libraryScreen.classList.remove('is-detail')
   libraryDjDetail.classList.add('hidden')
   libraryOverview.classList.remove('hidden')
@@ -2117,6 +2924,145 @@ function renderDjLibrary() {
   }
 }
 
+function renderEventVenueLibrary() {
+  const allGroups = favoriteEventVenueLibrary(eventVenueLibraryType)
+  const query = librarySearchKey(eventVenueLibrarySearchInput.value)
+  const groups = query
+    ? allGroups.filter(group => librarySearchKey(group.name).includes(query))
+    : allGroups
+  eventVenueLibraryGrid.className = `dj-library-grid is-${eventVenueLibraryViewMode}`
+  eventVenueLibraryGrid.innerHTML = ''
+  eventVenueLibraryEmpty.style.display = groups.length ? 'none' : ''
+  eventVenueLibraryEmpty.textContent = query
+    ? `No saved ${eventVenueLibraryType}s match that search.`
+    : `${eventVenueLibraryType === 'event' ? 'Events' : 'Venues'} from your saved sets will appear here.`
+
+  let previousInitial = null
+  groups.forEach(group => {
+    if (eventVenueLibraryViewMode === 'list') {
+      const initial = libraryInitial(group.name)
+      if (initial !== previousInitial) {
+        previousInitial = initial
+        const heading = document.createElement('li')
+        heading.className = 'dj-library-letter'
+        heading.textContent = initial
+        eventVenueLibraryGrid.appendChild(heading)
+      }
+    }
+    const item = document.createElement('li')
+    const card = document.createElement('button')
+    card.type = 'button'
+    card.className = 'dj-library-card'
+    card.title = `View saved sets from ${group.name}`
+    const thumbnail = randomEventVenueCover(group)
+    card.setAttribute('aria-label', `${group.name}, ${group.sets.length} saved set${group.sets.length === 1 ? '' : 's'}`)
+    card.innerHTML = `
+      <div class="dj-library-thumb-frame">
+        ${thumbnail
+          ? `<img class="dj-library-thumb" src="${escHtml(thumbnail)}" alt="" loading="lazy" />`
+          : '<div class="dj-library-thumb dj-library-thumb-empty"></div>'}
+      </div>
+      <div class="dj-library-meta">
+        <div class="dj-library-name">${escHtml(group.name)}</div>
+        <div class="dj-library-count">${group.sets.length} saved set${group.sets.length === 1 ? '' : 's'}</div>
+      </div>
+    `
+    card.addEventListener('click', () => showEventVenueLibraryDetail(group))
+    item.appendChild(card)
+    eventVenueLibraryGrid.appendChild(item)
+  })
+
+  if (activeLibraryEventVenueKey) {
+    const activeGroup = allGroups.find(group => group.key === activeLibraryEventVenueKey)
+    if (activeGroup) showEventVenueLibraryDetail(activeGroup)
+    else showDjLibraryOverview()
+  }
+}
+
+function openLibraryEntityFromSidebar(entity, scope) {
+  document.body.classList.remove('is-browsing')
+  showLibrary()
+  if (scope === 'dj') showDjLibraryDetail(entity)
+  else {
+    setEventVenueLibraryType(scope)
+    showEventVenueLibraryDetail(entity)
+  }
+  updateViewTabs()
+}
+
+function makeLibraryQuickAccessItem(entity, scope) {
+  const li = document.createElement('li')
+  li.className = 'library-quick-item'
+  const thumbnail = scope === 'dj' ? randomDjCover(entity) : randomEventVenueCover(entity)
+  li.innerHTML = `
+    ${thumbnail
+      ? `<img class="library-quick-thumb" src="${escHtml(thumbnail)}" alt="" loading="lazy" />`
+      : '<div class="library-quick-thumb library-quick-thumb-empty"></div>'}
+    <div class="set-item-meta">
+      <div class="set-item-title">${escHtml(entity.name)}</div>
+      <div class="set-item-src">${entity.sets.length} saved set${entity.sets.length === 1 ? '' : 's'}</div>
+    </div>
+  `
+  li.tabIndex = 0
+  li.setAttribute('role', 'button')
+  li.setAttribute('aria-label', `Open ${entity.name} in Library`)
+  const open = () => openLibraryEntityFromSidebar(entity, scope)
+  li.addEventListener('click', open)
+  li.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    open()
+  })
+  wireSetItemMarquee(li)
+  return li
+}
+
+function renderSidebarLibraryGroups(groups, { list, empty, panelTitle, title, scope }) {
+  list.innerHTML = ''
+  empty.style.display = groups.length ? 'none' : ''
+  panelTitle.textContent = title
+  let previousInitial = null
+  groups.forEach((group, index) => {
+    const initial = libraryInitial(group.name)
+    if (initial !== previousInitial) {
+      previousInitial = initial
+      if (index === 0) {
+        panelTitle.innerHTML = `${escHtml(title)}<span class="history-title-label">${escHtml(initial)}</span>`
+      } else {
+        const separator = document.createElement('li')
+        separator.className = 'history-group-sep'
+        separator.textContent = initial
+        list.appendChild(separator)
+      }
+    }
+    list.appendChild(makeLibraryQuickAccessItem(group, scope))
+  })
+}
+
+function renderSidebarLibraryQuickAccess() {
+  renderSidebarLibraryGroups(favoriteDjLibrary(), {
+    list: sidebarDjList,
+    empty: sidebarDjEmpty,
+    panelTitle: djPanelTitle,
+    title: 'DJs',
+    scope: 'dj',
+  })
+  renderSidebarLibraryGroups(favoriteEventVenueLibrary('event'), {
+    list: sidebarEventList,
+    empty: sidebarEventEmpty,
+    panelTitle: eventPanelTitle,
+    title: 'Events',
+    scope: 'event',
+  })
+  renderSidebarLibraryGroups(favoriteEventVenueLibrary('venue'), {
+    list: sidebarVenueList,
+    empty: sidebarVenueEmpty,
+    panelTitle: venuePanelTitle,
+    title: 'Venues',
+    scope: 'venue',
+  })
+}
+
 function addToFavorites(item) {
   if (state.store.favorites.find((f) => f.url === item.url)) return
   state.store.favorites.unshift(item)
@@ -2140,6 +3086,9 @@ function syncProgressToItem(url) {
   if (histEntry.tracklistUrl     != null) patch.tracklistUrl     = histEntry.tracklistUrl
   if (histEntry.tracklistProvider != null) patch.tracklistProvider = histEntry.tracklistProvider
   if (histEntry.djNames?.length) patch.djNames = histEntry.djNames
+  if (histEntry.venue) patch.venue = histEntry.venue
+  if (histEntry.event) patch.event = histEntry.event
+  if (histEntry.date) patch.date = histEntry.date
   if (!Object.keys(patch).length) return
   state.store.favorites = state.store.favorites.map(f =>
     f.url === url ? { ...patch, ...f } : f   // patch fills gaps; f's own values win
@@ -2167,6 +3116,8 @@ function renderFavorites() {
   favEmpty.style.display = favs.length ? 'none' : ''
   favs.forEach((item) => favoritesList.appendChild(makeSetListItem(item, () => removeFromFavorites(item.url))))
   renderDjLibrary()
+  renderEventVenueLibrary()
+  renderSidebarLibraryQuickAccess()
 }
 
 function isFavorited(url) {
@@ -2194,6 +3145,9 @@ function addToHistory(item) {
     tracklistUrl:     existing.tracklistUrl,
     tracklistProvider: existing.tracklistProvider,
     djNames: existing.djNames,
+    venue: existing.venue,
+    event: existing.event,
+    date: existing.date,
   } : {}
   state.store.history = state.store.history.filter(h => h.url !== item.url)
   state.store.history.unshift({ ...preserved, ...item, playedAt: Date.now() })
@@ -2256,7 +3210,7 @@ function renderHistory() {
   renderIntroResume()
 }
 
-function wireOverflowMarquee(target, hoverTarget = target) {
+function wireOverflowMarquee(target, hoverTarget = target, clipTarget = target) {
   if (!target || target.dataset.marqueeWired === 'true') return
   target.dataset.marqueeWired = 'true'
 
@@ -2267,7 +3221,7 @@ function wireOverflowMarquee(target, hoverTarget = target) {
     target.classList.remove('overflow-marquee')
 
     requestAnimationFrame(() => {
-      const overflow = target.scrollWidth - target.clientWidth
+      const overflow = target.scrollWidth - clipTarget.clientWidth
       if (overflow <= 4) return
       const moveSecs = Math.max(1.5, overflow / 60)
       const pauseSecs = 1
@@ -2316,7 +3270,8 @@ function wireSetItemMarquee(li) {
 }
 
 function wireFooterMarquees() {
-  ;[npTrackText, npArtist, npSet, scrobbleLabel].forEach(el => wireOverflowMarquee(el))
+  wireOverflowMarquee(npTitleContent, npTitleRow, npTitleRow)
+  ;[npSet, scrobbleLabel].forEach(el => wireOverflowMarquee(el))
 }
 
 function isYouTubeSourceUrl(url) {
@@ -2395,6 +3350,7 @@ function loadSet(item, resume) {
     : null
   if (isYouTubeSourceUrl(item.url)) {
     document.body.classList.add('has-active-set')
+    setNpArtwork()
     hideIntro()
     showLoading('Searching tracklist…')
     state.tracklistUnavailable = false
@@ -2407,7 +3363,9 @@ function loadSet(item, resume) {
     state.currentTracklistProviderName = null
     state.currentTracklistProviderFooter = null
     state.currentTracklistOptions = []
-    state.currentSetMetadata = null
+    state.currentSetMetadata = savedMetadataForUrl(item.url)
+    state.metadataRemovedValues = []
+    state.currentSourceStats = null
     state.currentSetAvailability = {
       sourceUrl: item.url,
       services: {
@@ -2489,6 +3447,7 @@ function syncResumeSettingUI() {
 function makeSetListItem(item, onRemove) {
   const li = document.createElement('li')
   li.dataset.url = item.url
+  li.classList.toggle('is-current-set', !!state.currentSetUrl && item.url === state.currentSetUrl)
   const thumbHtml = item.thumbnailUrl
     ? `<img class="set-item-thumb" src="${escHtml(item.thumbnailUrl)}" alt="" loading="lazy" />`
     : `<div class="set-item-thumb set-item-thumb-empty"></div>`
@@ -2500,13 +3459,20 @@ function makeSetListItem(item, onRemove) {
     ${thumbHtml}
     <div class="set-item-meta">
       <div class="set-item-title">${escHtml(item.title)}</div>
-      <div class="set-item-src">${item.trackCount != null ? `${item.trackCount} tracks` : 'tracklist unavailable'}</div>
+      <div class="set-item-src">
+        <span>${item.trackCount != null ? `${item.trackCount} tracks` : 'tracklist unavailable'}</span>
+        ${spectrumBarsHtml('set-playing-indicator')}
+      </div>
     </div>
     ${onRemove ? '<button class="set-item-remove" title="Remove">✕</button>' : ''}
     ${progressHtml}
   `
   li.addEventListener('click', (e) => {
     if (e.target.classList.contains('set-item-remove')) return
+    if (item.url === state.currentSetUrl) {
+      showNowPlayingTrack()
+      return
+    }
     openStoredSet(item)
   })
   if (onRemove) {
@@ -2581,6 +3547,7 @@ function createTrackItem(track, compact) {
     ${numHtml}
     ${artHtml}
     ${trackInfoHtml}
+    ${spectrumBarsHtml('track-playing-indicator')}
     ${cueHtml}
   `
 
@@ -2677,7 +3644,7 @@ function clearTracklist() {
   setMetadataHeader.classList.add('hidden')
   // Reset scroll position so every new set starts from the top, then
   // highlightTracklistByNum will scroll to the resumed track once it fires.
-  tracklistBelowVideo.scrollTop = 0
+  tracklistScrollRegion.scrollTop = 0
   const compactScroll = rightPanel.querySelector('.panel-items')
   if (compactScroll) compactScroll.scrollTop = 0
 }
@@ -2801,7 +3768,14 @@ function resetNowPlaying() {
   state.currentThumbnailUrl = null
   state.currentTracks       = []
   state.currentSetMetadata  = null
+  state.currentSourceStats  = null
   state.currentSetAvailability = null
+  state.metadataEditMode = null
+  state.metadataOverwriteOnSet79 = false
+  state.metadataRemovedValues = []
+  state.currentEventLookup = null
+  state.currentEventLookupKey = ''
+  state.currentEventLookupRequest++
   state.playbackCurrentTime = 0
   state.playbackDuration    = 0
   updatePlaybackProgress(0, 0)
@@ -2809,10 +3783,12 @@ function resetNowPlaying() {
   setTrackPlaying(false)
   npTrackText.textContent = ''
   npArtist.textContent   = ''
+  npArtistSeparator.classList.add('hidden')
   npTracknum.textContent = ''
   setNpArtwork()
   npSet.textContent      = ''
   renderSetSources()
+  renderNextDjEvents()
   ppIcon.innerHTML       = icon(ICON.play, 16)
   btnPlayPause.classList.remove('playing')
   updateBookmarkBtn()
@@ -2980,6 +3956,12 @@ function wireEvents() {
   btnVideoDock.addEventListener('click', () => applyVideoMode(videoModePrimaryAction()))
   btnVideoFullscreen.addEventListener('click', () => applyVideoMode(btnVideoFullscreen.dataset.mode || 'fullscreen'))
   btnVideoHide.addEventListener('click', () => applyVideoMode('hidden'))
+  npInfo.addEventListener('click', showNowPlayingTrack)
+  npInfo.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    showNowPlayingTrack()
+  })
   videoControls.addEventListener('mousedown', startWindowDrag)
   window.addEventListener('resize', applyResponsiveSidebar)
   volumeControl.addEventListener('mouseenter', showVolumePopover)
@@ -3026,6 +4008,12 @@ function wireEvents() {
       // Include whatever we already know at bookmark time — trackCount from the
       // current tracklist, plus progress if a track has played this session.
       const histEntry = state.store.history.find(h => h.url === state.currentSetUrl)
+      const metadata = savedSetMetadata({
+        djNames: state.currentSetMetadata?.djNames?.length ? state.currentSetMetadata.djNames : histEntry?.djNames,
+        venue: state.currentSetMetadata?.venue || histEntry?.venue,
+        event: state.currentSetMetadata?.event || histEntry?.event,
+        date: state.currentSetMetadata?.date || histEntry?.date,
+      })
       addToFavorites({
         title:            state.currentSetTitle || state.currentSetUrl,
         url:              state.currentSetUrl,
@@ -3033,7 +4021,7 @@ function wireEvents() {
         thumbnailUrl:     state.currentThumbnailUrl,
         tracklistUrl:     state.currentTracklistUrl || histEntry?.tracklistUrl || undefined,
         tracklistProvider: state.currentTracklistProvider || histEntry?.tracklistProvider || undefined,
-        djNames:          normalizedDjNames(state.currentSetMetadata?.djNames || histEntry?.djNames),
+        ...metadata,
         trackCount:       state.currentTracks.length || histEntry?.trackCount || undefined,
         progressTrackNum: histEntry?.progressTrackNum || undefined,
         lastTrackCueSeconds: histEntry?.lastTrackCueSeconds ?? undefined,
@@ -3116,6 +4104,20 @@ function wireEvents() {
   document.querySelectorAll('.theme-swatch').forEach(btn => {
     btn.addEventListener('click', () => applyTheme(btn.dataset.themeId))
   })
+  eventSuggestionsEnabledInput.addEventListener('change', () => {
+    setEventSuggestionsEnabled(eventSuggestionsEnabledInput.checked)
+  })
+  btnSaveEventLocation.addEventListener('click', saveEventLocation)
+  eventCityInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') saveEventLocation()
+  })
+  eventCountrySelect.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') saveEventLocation()
+  })
+  eventCountrySelect.addEventListener('change', () => syncOtherCountryField({ focus: true }))
+  eventCountryOtherInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') saveEventLocation()
+  })
 
   sidebarFooter.addEventListener('click', (e) => {
     const link = e.target.closest('.sidebar-footer-link')
@@ -3139,7 +4141,14 @@ function wireEvents() {
     if (state.currentContributeUrl) window.api.openExternal(state.currentContributeUrl)
   })
 
-  btnSetMetadataRefresh.addEventListener('click', refreshSetMetadata)
+  btnSetMetadataRefresh.addEventListener('click', autoSetMetadata)
+  btnSetMetadataEdit.addEventListener('click', () => {
+    const metadata = state.currentSetMetadata || {}
+    const hasMetadata = !!((metadata.djNames || []).length || metadata.venue || metadata.event || metadata.date)
+    const currentMode = state.metadataEditMode == null ? !hasMetadata : state.metadataEditMode
+    state.metadataEditMode = !currentMode
+    renderSetMetadataHeader()
+  })
 
   // Ask main to re-run the lookup against an alternate provider. The reply
   // arrives as a fresh tracklist-loaded, which repaints this whole panel — the
@@ -3237,9 +4246,17 @@ function wireEvents() {
   libraryViewOptions.forEach(option => {
     option.addEventListener('click', () => setLibraryViewMode(option.dataset.libraryView))
   })
+  eventVenueLibrarySearchInput.addEventListener('input', renderEventVenueLibrary)
+  eventVenueLibraryViewOptions.forEach(option => {
+    option.addEventListener('click', () => setEventVenueLibraryViewMode(option.dataset.eventVenueView))
+  })
+  eventVenueLibraryTypeOptions.forEach(option => {
+    option.addEventListener('click', () => setEventVenueLibraryType(option.dataset.eventVenueType))
+  })
   btnLibraryBack.addEventListener('click', () => {
+    const focusEventVenueSearch = !!activeLibraryEventVenueKey
     showDjLibraryOverview()
-    librarySearchInput.focus()
+    ;(focusEventVenueSearch ? eventVenueLibrarySearchInput : librarySearchInput).focus()
   })
   btnViewNowplaying.addEventListener('click', () => {
     hideIntro()

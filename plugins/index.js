@@ -16,9 +16,11 @@ const youtube          = require('./sources/youtube')
 const soundcloudDormant = require('./sources/soundcloud')
 const tl1001           = require('./tracklists/1001tracklists')
 const set79            = require('./tracklists/set79')
+const events           = require('./events')
 
 const SOURCES    = [youtube]
 const TRACKLISTS = [tl1001, set79]
+const EVENTS     = events.EVENTS
 
 // Parked for the v0.5 player refactor: the SoundCloud *source* still needs the
 // app-owned player work before it can participate in playback. Its tracklist
@@ -179,6 +181,7 @@ function tracklistMatchScore(meta, candidate) {
 module.exports = {
   SOURCES,
   TRACKLISTS,
+  EVENTS,
   ROUTING,
   ALTERNATE_ROUTING,
   AUTOMATIC_FALLBACK_ROUTING,
@@ -192,4 +195,6 @@ module.exports = {
   durationSimilarity,
   tracklistMatchScore,
   titleSimilarity,
+  lookupNextEvents: events.lookupNextEvents,
+  resolveEventLocation: events.resolveLocation,
 }

@@ -80,3 +80,19 @@ test('1001Tracklists preserves an explicit first timestamp and empty placeholder
     cueDisplay: '0:00',
   })
 })
+
+test('1001Tracklists default artwork is treated as missing artwork', () => {
+  const tracks = [{
+    trackNum: 2,
+    artist: 'Artist',
+    title: 'Track',
+    artUrl: 'https://cdn.1001tracklists.com/images/artworks/default_100.png',
+  }]
+
+  assert.deepEqual(tracklists1001.normalizeTracklist(tracks), [{ ...tracks[0], artUrl: '' }])
+  assert.equal(
+    tracklists1001._test.isDefaultArtworkUrl('https://cdn.1001tracklists.com/images/artworks/default_100.png'),
+    true
+  )
+  assert.equal(tracklists1001._test.isDefaultArtworkUrl('https://example.com/default_100.png'), false)
+})

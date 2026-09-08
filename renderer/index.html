@@ -55,7 +55,7 @@
 
   <!-- Main layout -->
   <div id="layout">
-    <!-- Left sidebar — DJ set navigation only -->
+    <!-- Left sidebar — workspace navigation and saved-library quick access -->
     <aside id="sidebar">
       <!-- Full-workspace views -->
       <div id="sidebar-view-tabs">
@@ -124,6 +124,18 @@
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           Favorites
         </button>
+        <button class="nav-btn" data-panel="djs">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          DJs
+        </button>
+        <button class="nav-btn" data-panel="events">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          Events
+        </button>
+        <button class="nav-btn" data-panel="venues">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-5h6v5M8 10h.01M12 10h.01M16 10h.01"/></svg>
+          Venues
+        </button>
         <button class="nav-btn" data-panel="history">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           History
@@ -144,6 +156,33 @@
         </div>
       </div>
 
+      <div id="panel-djs" class="sidebar-panel">
+        <button class="panel-collapse-btn" title="Collapse"><svg viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5L5 1.5L8 4.5"/><path d="M2 8.5L5 5.5L8 8.5"/></svg></button>
+        <div class="panel-items">
+          <div class="panel-title">DJs</div>
+          <ul id="sidebar-dj-list" class="set-list library-quick-list"></ul>
+          <div class="empty-msg" id="sidebar-dj-empty">DJs from your favorites will appear here.</div>
+        </div>
+      </div>
+
+      <div id="panel-events" class="sidebar-panel">
+        <button class="panel-collapse-btn" title="Collapse"><svg viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5L5 1.5L8 4.5"/><path d="M2 8.5L5 5.5L8 8.5"/></svg></button>
+        <div class="panel-items">
+          <div class="panel-title">Events</div>
+          <ul id="sidebar-event-list" class="set-list library-quick-list"></ul>
+          <div class="empty-msg" id="sidebar-event-empty">Events from your favorites will appear here.</div>
+        </div>
+      </div>
+
+      <div id="panel-venues" class="sidebar-panel">
+        <button class="panel-collapse-btn" title="Collapse"><svg viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5L5 1.5L8 4.5"/><path d="M2 8.5L5 5.5L8 8.5"/></svg></button>
+        <div class="panel-items">
+          <div class="panel-title">Venues</div>
+          <ul id="sidebar-venue-list" class="set-list library-quick-list"></ul>
+          <div class="empty-msg" id="sidebar-venue-empty">Venues from your favorites will appear here.</div>
+        </div>
+      </div>
+
       <div id="panel-history" class="sidebar-panel">
         <button class="panel-collapse-btn" title="Collapse"><svg viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5L5 1.5L8 4.5"/><path d="M2 8.5L5 5.5L8 8.5"/></svg></button>
         <div class="panel-items">
@@ -156,6 +195,45 @@
       <div id="panel-settings" class="sidebar-panel">
         <button class="panel-collapse-btn" title="Collapse"><svg viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 4.5L5 1.5L8 4.5"/><path d="M2 8.5L5 5.5L8 8.5"/></svg></button>
         <div class="panel-items">
+          <div class="panel-title">Last.fm</div>
+
+          <div id="lfm-disconnected">
+            <p class="setting-desc">Connect your Last.fm account to scrobble tracks as you listen.</p>
+            <button id="btn-lfm-connect" class="btn-primary">Connect Last.fm</button>
+            <div id="lfm-connect-status"></div>
+          </div>
+
+          <div id="lfm-connected" class="hidden">
+            <div class="lfm-user-row">
+              <span class="lfm-dot">◎</span>
+              <span id="lfm-username"></span>
+            </div>
+            <p class="setting-desc">Tracks are scrobbled automatically as they play.</p>
+            <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
+          </div>
+
+          <div class="panel-title">Location</div>
+          <label class="resume-radio-label event-suggestions-toggle">
+            <input type="checkbox" id="event-suggestions-enabled"> Suggest DJ events in my city
+          </label>
+          <div id="event-location-setup">
+            <p class="setting-desc">Used to find the next local date for DJs in the current set.</p>
+            <div class="setting-group">
+              <label for="event-city">City</label>
+              <input id="event-city" type="text" autocomplete="address-level2" placeholder="Paris">
+            </div>
+            <div class="setting-group">
+              <label for="event-country">Country</label>
+              <select id="event-country" autocomplete="country"></select>
+            </div>
+            <div id="event-country-other-group" class="setting-group hidden">
+              <label for="event-country-other">Country name</label>
+              <input id="event-country-other" type="text" autocomplete="country-name" placeholder="Type your country">
+            </div>
+            <button id="btn-save-event-location" class="btn-primary" type="button">Save location</button>
+            <p id="event-location-status" class="setting-status" aria-live="polite"></p>
+          </div>
+
           <div class="panel-title">Theme</div>
           <div class="theme-swatches">
             <button class="theme-swatch" data-theme-id="neon-night">
@@ -182,23 +260,6 @@
               </div>
               <span class="swatch-name">Sunset Deck</span>
             </button>
-          </div>
-
-          <div class="panel-title">Last.fm</div>
-
-          <div id="lfm-disconnected">
-            <p class="setting-desc">Connect your Last.fm account to scrobble tracks as you listen.</p>
-            <button id="btn-lfm-connect" class="btn-primary">Connect Last.fm</button>
-            <div id="lfm-connect-status"></div>
-          </div>
-
-          <div id="lfm-connected" class="hidden">
-            <div class="lfm-user-row">
-              <span class="lfm-dot">◎</span>
-              <span id="lfm-username"></span>
-            </div>
-            <p class="setting-desc">Tracks are scrobbled automatically as they play.</p>
-            <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
           </div>
 
           <div class="panel-title">Playback</div>
@@ -315,32 +376,71 @@
         <div id="library-content">
           <div id="library-heading">
             <h1>Library</h1>
-            <p>DJs from your saved sets</p>
-            <div id="library-controls">
-              <div id="library-search">
-                <input id="library-search-input" type="text" placeholder="filter DJs…" autocomplete="off" spellcheck="false" aria-label="Filter saved DJs" />
-                <span aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m16.5 16.5 4 4"/></svg></span>
-              </div>
-              <div id="library-view-switch" role="group" aria-label="Library layout">
-                <button class="library-view-option active" type="button" data-library-view="grid" aria-pressed="true" title="Grid view">
-                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-                  Grid
-                </button>
-                <button class="library-view-option" type="button" data-library-view="list" aria-pressed="false" title="List view">
-                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
-                  List
-                </button>
-              </div>
-            </div>
+            <p>Browse your saved sets by DJ, event or venue</p>
           </div>
           <div id="library-overview">
-            <ul id="dj-library-grid" class="dj-library-grid" aria-label="Saved DJs"></ul>
-            <div class="empty-msg" id="library-empty">DJs from your saved sets will appear here.</div>
+            <section class="library-catalog" aria-labelledby="library-dj-title">
+              <div class="library-section-heading">
+                <div>
+                  <h2 id="library-dj-title">DJs</h2>
+                  <p>Artists tagged in your saved sets</p>
+                </div>
+                <div id="library-controls" class="library-controls">
+                  <div id="library-search" class="library-search">
+                    <input id="library-search-input" type="text" placeholder="filter DJs…" autocomplete="off" spellcheck="false" aria-label="Filter saved DJs" />
+                    <span aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m16.5 16.5 4 4"/></svg></span>
+                  </div>
+                  <div id="library-view-switch" class="library-view-switch" role="group" aria-label="DJ library layout">
+                    <button class="library-view-option active" type="button" data-library-view="grid" aria-pressed="true" title="Grid view">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                      Grid
+                    </button>
+                    <button class="library-view-option" type="button" data-library-view="list" aria-pressed="false" title="List view">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                      List
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <ul id="dj-library-grid" class="dj-library-grid" aria-label="Saved DJs"></ul>
+              <div class="empty-msg" id="library-empty">DJs from your saved sets will appear here.</div>
+            </section>
+
+            <section class="library-catalog library-event-venue-catalog" aria-labelledby="library-event-venue-title">
+              <div class="library-section-heading">
+                <div>
+                  <h2 id="library-event-venue-title">Events &amp; Venues</h2>
+                  <p>Places and events tagged in your saved sets</p>
+                </div>
+                <div id="event-venue-library-controls" class="library-controls">
+                  <div id="event-venue-library-type-switch" class="library-view-switch library-type-switch" role="group" aria-label="Show events or venues">
+                    <button class="library-view-option active" type="button" data-event-venue-type="event" aria-pressed="true">Events</button>
+                    <button class="library-view-option" type="button" data-event-venue-type="venue" aria-pressed="false">Venues</button>
+                  </div>
+                  <div id="event-venue-library-search" class="library-search">
+                    <input id="event-venue-library-search-input" type="text" placeholder="filter events or venues…" autocomplete="off" spellcheck="false" aria-label="Filter saved events and venues" />
+                    <span aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m16.5 16.5 4 4"/></svg></span>
+                  </div>
+                  <div id="event-venue-library-view-switch" class="library-view-switch" role="group" aria-label="Event and venue library layout">
+                    <button class="library-view-option active" type="button" data-event-venue-view="grid" aria-pressed="true" title="Grid view">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                      Grid
+                    </button>
+                    <button class="library-view-option" type="button" data-event-venue-view="list" aria-pressed="false" title="List view">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                      List
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <ul id="event-venue-library-grid" class="dj-library-grid" aria-label="Saved events and venues"></ul>
+              <div class="empty-msg" id="event-venue-library-empty">Events and venues from your saved sets will appear here.</div>
+            </section>
           </div>
           <section id="library-dj-detail" class="hidden" aria-labelledby="library-dj-name">
             <button id="btn-library-back" type="button">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-              All DJs
+              <span id="library-back-label">All DJs</span>
             </button>
             <div id="library-dj-heading">
               <h2 id="library-dj-name"></h2>
@@ -494,27 +594,33 @@
         <section id="set-metadata-header" class="set-metadata-header hidden" aria-label="Set metadata">
           <div class="set-metadata-facts-row">
             <div id="set-metadata-tags" class="set-metadata-pills" aria-label="Set details"></div>
-            <button id="btn-set-metadata-refresh" class="set-metadata-refresh" type="button" title="Refresh all set data" aria-label="Refresh all set data">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
-              <span>refresh</span>
-            </button>
+            <div class="set-metadata-controls">
+              <button id="btn-set-metadata-edit" class="set-metadata-action" type="button" aria-pressed="false">edit</button>
+              <button id="btn-set-metadata-refresh" class="set-metadata-action set-metadata-refresh" type="button" title="Replace set details with a fresh set79 match" aria-label="Automatically replace set details from set79">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+                <span>auto</span>
+              </button>
+            </div>
           </div>
+          <div id="set-event-lookup" class="set-event-lookup" aria-live="polite"></div>
         </section>
-        <div id="tracklist-provider-choice" class="tracklist-provider-choice hidden" aria-live="polite"></div>
-        <div id="tracklist-unavailable" class="hidden">
-          <div class="tl-unavailable-icon">
-            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div id="tracklist-scroll-region">
+          <div id="tracklist-provider-choice" class="tracklist-provider-choice hidden" aria-live="polite"></div>
+          <div id="tracklist-unavailable" class="hidden">
+            <div class="tl-unavailable-icon">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <p class="tl-unavailable-title" id="tracklist-unavailable-title">Tracklist not yet available</p>
+            <p class="tl-unavailable-sub" id="tracklist-unavailable-sub">No tracklist was found for this DJ set.</p>
+            <div id="tl-contribute-actions" class="hidden">
+              <button id="btn-alt-provider" class="btn-secondary hidden"></button>
+              <button id="btn-contribute-tracklist" class="btn-secondary"></button>
+              <p id="tl-contribute-note" class="tl-contribute-note"></p>
+            </div>
           </div>
-          <p class="tl-unavailable-title" id="tracklist-unavailable-title">Tracklist not yet available</p>
-          <p class="tl-unavailable-sub" id="tracklist-unavailable-sub">No tracklist was found for this DJ set.</p>
-          <div id="tl-contribute-actions" class="hidden">
-            <button id="btn-alt-provider" class="btn-secondary hidden"></button>
-            <button id="btn-contribute-tracklist" class="btn-secondary"></button>
-            <p id="tl-contribute-note" class="tl-contribute-note"></p>
-          </div>
+          <ul id="tracklist-list" class="track-list"></ul>
+          <div id="tl-list-footer" class="tl-footer hidden"></div>
         </div>
-        <ul id="tracklist-list" class="track-list"></ul>
-        <div id="tl-list-footer" class="tl-footer hidden"></div>
       </div>
     </main>
 
@@ -565,15 +671,18 @@
     <div id="np-artwork" class="hidden" aria-hidden="true">
       <img id="np-artwork-image" alt="" />
     </div>
-    <div id="np-info">
+    <div id="np-info" role="button" tabindex="0" title="Show this track in Now Playing" aria-label="Show this track in Now Playing">
       <div id="np-title-row">
-        <span id="np-tracknum"></span>
-        <span id="np-track"><span id="np-track-text"></span></span>
+        <span id="np-title-content">
+          <span id="np-tracknum"></span>
+          <span id="np-artist"></span>
+          <span id="np-artist-separator" class="hidden" aria-hidden="true"> - </span>
+          <span id="np-track"><span id="np-track-text"></span></span>
+        </span>
       </div>
-      <div id="np-artist"></div>
+      <div id="np-set"></div>
     </div>
     <div id="np-right">
-      <div id="np-set"></div>
       <div id="np-source" class="set-availability np-set-availability" aria-label="Set sources"></div>
     </div>
     <button class="icon-btn" id="btn-bookmark" title="Add to favorites">

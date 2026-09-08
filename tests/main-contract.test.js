@@ -10,6 +10,7 @@ const root = path.resolve(__dirname, '..')
 const readSource = (rel) => fs.readFileSync(path.join(root, rel), 'utf8').replace(/\r\n/g, '\n')
 
 const mainJs = readSource('main.js')
+const preloadJs = readSource('preload.js')
 
 // ── Windows titlebar overlay ───────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ test('all documented IPC channels are present in main.js', () => {
     'tracklist-loaded',
     'tracklist-options',
     'set-metadata',
+    'source-metadata',
     'set-availability',
     'wv-status',
     'lfm-status',
@@ -229,11 +231,13 @@ test('private lookup caches never round-trip through ordinary renderer persisten
   assert.match(fn, /delete rendererStore\.artworkCache/)
 })
 
-test('cached normalized DJ names backfill older saved sets for the Library', () => {
-  assert.match(mainJs, /function backfillSavedDjNamesFromCache\(store\)/)
-  assert.match(mainJs, /normalizeSetMetadata\(entry\.metadata\)\.djNames/)
+test('cached normalized metadata backfills older saved sets for the Library', () => {
+  assert.match(mainJs, /function backfillSavedMetadataFromCache\(store\)/)
+  assert.match(mainJs, /const metadata = normalizeSetMetadata\(entry\.metadata\)/)
   assert.match(mainJs, /\['favorites', 'history'\]\.forEach/)
-  assert.match(mainJs, /return \{ \.\.\.item, djNames \}/)
+  assert.match(mainJs, /!item\.venue && metadata\.venue/)
+  assert.match(mainJs, /!item\.event && metadata\.event/)
+  assert.match(mainJs, /return \{ \.\.\.item, \.\.\.patch \}/)
   assert.match(mainJs, /ipcMain\.handle\('store-get',\s*\(\) => readStoreForRenderer\(\)\)/)
 })
 
@@ -286,6 +290,14 @@ test('explicit refresh bypasses every provider cache without showing a playback 
   assert.match(mainJs, /if \(!bypassCache\) \{\s*log\(`\[lookup\] checking tracklist cache/)
 })
 
+test('automatic metadata replacement probes only set79 and bypasses its cache', () => {
+  assert.match(mainJs, /ipcMain\.handle\('set-metadata-auto', \(\) => autoSetMetadata\(\)\)/)
+  const fn = mainJs.slice(mainJs.indexOf('async function autoSetMetadata'), mainJs.indexOf('// ── Source → tracklist routing'))
+  assert.match(fn, /tracklistById\('set79'\)/)
+  assert.match(fn, /probeTracklistProvider\(set79, currentSourceMeta, lookupToken, \{ bypassCache: true \}\)/)
+  assert.doesNotMatch(fn, /runAutomaticTracklistLookups/)
+})
+
 test('available provider statuses carry their set-specific external URLs', () => {
   assert.match(mainJs, /url: outcome\.result\?\.usable \? outcome\.result\.tracklistUrl : null/)
   assert.match(mainJs, /url: outcome\.result\?\.usable \? outcome\.result\.tracklistUrl : null/)
@@ -312,4 +324,22 @@ test('every tracklist provider declares the host its links point at', () => {
   for (const p of plugins.TRACKLISTS) {
     assert.ok(p.externalHost, `${p.id} is missing externalHost`)
   }
+})
+
+test('event providers are registered, callable, and included in the external-link allowlist', () => {
+  const plugins = require('../plugins')
+  assert.deepEqual(plugins.EVENTS.map(provider => provider.id), ['resident-advisor', 'shotgun'])
+  assert.match(mainJs, /ipcMain\.handle\('event-location-resolve'/)
+  assert.match(mainJs, /ipcMain\.handle\('event-lookup'/)
+  assert.match(mainJs, /\.\.\.plugins\.EVENTS\.map\(p => p\.externalHost\)/)
+  assert.match(preloadJs, /resolveEventLocation/)
+  assert.match(preloadJs, /lookupNextEvents/)
+  assert.match(preloadJs, /'event-lookup-progress'/)
+  assert.match(mainJs, /_event\.sender\.send\('event-lookup-progress'/)
+})
+
+test('the main process refuses event lookups when local suggestions are disabled', () => {
+  const handler = mainJs.slice(mainJs.indexOf("ipcMain.handle('event-lookup'"), mainJs.indexOf("ipcMain.handle('register-webview-role'"))
+  assert.ok(handler.indexOf('eventSuggestionsEnabled === false') < handler.indexOf('plugins.lookupNextEvents'))
+  assert.match(handler, /return \{ sourceUrl, requestId, location: null, results: \[\] \}/)
 })

@@ -71,7 +71,7 @@ IPC channels used:
 |------------------|---------------------------------------------|----------------------------------------------|
 | renderer → main  | `store-get`                                 | Load persisted state                         |
 | renderer → main  | `store-set`                                 | Persist state                                |
-| renderer → main  | `stats-get` / `stats-set`                   | Load / persist listening stats               |
+| renderer → main  | `stats-get` / `stats-set`                   | Load stats / legacy compatibility save       |
 | renderer → main  | `player-toggle`                             | Play / pause the active webview              |
 | renderer → main  | `player-seek`                               | Seek to a position in seconds                |
 | renderer → main  | `player-goto-track`                         | Seek to a specific track cue point           |
@@ -317,8 +317,15 @@ The tracklist cache has a 7-day TTL and is capped at 200 entries (oldest pruned 
 
 ### `dj-scrobbler-stats.json` — listening stats
 
-Tracks cumulative listening time, set count, and scrobble count. Written separately to avoid
-touching the main store on every scrobble tick.
+The main process owns this versioned file and records wall-clock listening time from adjacent
+player polls. Time and track progress are bucketed by local calendar day and stable set ID;
+set records carry normalized DJ IDs so weekly set and DJ rankings can be derived later. A set
+with multiple DJs gives each DJ full credit for the set's listening time.
+
+Version 1 lifetime totals are retained as unattributed legacy values during migration because
+the old format does not contain enough information to reconstruct historical set or DJ totals.
+Writes are debounced, atomic, and flushed on pause, set changes, monitor shutdown, and app quit.
+`stats-set` remains a compatibility no-op until the renderer's existing live counter is removed.
 
 ---
 

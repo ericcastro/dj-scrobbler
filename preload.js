@@ -42,9 +42,12 @@ contextBridge.exposeInMainWorld('api', {
   tryTracklistProvider: (providerId) => ipcRenderer.invoke('tracklist-try-provider', providerId),
   selectTracklistProvider: (providerId) => ipcRenderer.invoke('tracklist-select-provider', providerId),
   refreshTracklists: () => ipcRenderer.invoke('tracklist-refresh'),
+  autoSetMetadata: () => ipcRenderer.invoke('set-metadata-auto'),
+  resolveEventLocation: (location) => ipcRenderer.invoke('event-location-resolve', location),
+  lookupNextEvents: (payload) => ipcRenderer.invoke('event-lookup', payload),
 
   on: (channel, callback) => {
-    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'set-availability',
+    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'source-metadata', 'set-availability', 'event-lookup-progress',
                      'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
                      'fallback-progress', 'tl-progress', 'update-status']
     if (!allowed.includes(channel)) return
