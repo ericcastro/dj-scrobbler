@@ -291,15 +291,28 @@ test('YouTube and SoundCloud source links are explicitly allowed externally', ()
   }
 })
 
-test('the initial availability payload covers both sources and both providers', () => {
-  const availability = mainJs.slice(
-    mainJs.indexOf("mainWindow.webContents.send('set-availability'", mainJs.indexOf('async function handleSourceUrl')),
-    mainJs.indexOf('const playerUrl', mainJs.indexOf('async function handleSourceUrl'))
+test('initial availability covers both sources and providers after duration is known', () => {
+  assert.match(mainJs, /function automaticLookupServices\(sourceUrl, status = 'checking'\)/)
+  const services = mainJs.slice(
+    mainJs.indexOf('function automaticLookupServices'),
+    mainJs.indexOf('function extractTracklistInBackground')
   )
-  assert.match(availability, /youtube:\s*\{ status: 'available', url: currentSourceUrl \}/)
-  assert.match(availability, /soundcloud:\s*\{ status: 'checking'/)
-  assert.match(availability, /'1001tracklists':\s*\{ status: 'checking' \}/)
-  assert.match(availability, /set79:\s*\{ status: 'checking' \}/)
+  assert.match(services, /youtube:\s*\{ status: 'available', url: sourceUrl \}/)
+  assert.match(services, /soundcloud:\s*\{ status, url: null \}/)
+  assert.match(services, /'1001tracklists':\s*\{ status, url: null \}/)
+  assert.match(services, /set79:\s*\{ status, url: null \}/)
+})
+
+test('short videos skip automatic provider lookups but retain Auto as an override', () => {
+  const sourceRouting = mainJs.slice(mainJs.indexOf('async function handleSourceUrl'), mainJs.indexOf('// ── WebView wiring'))
+  assert.match(mainJs, /const MIN_AUTOMATIC_SET_DURATION_SECONDS = 10 \* 60/)
+  assert.match(mainJs, /function isTooShortForAutomaticSetLookups\(meta\)/)
+  assert.ok(sourceRouting.indexOf('await waitForSourceDuration(meta)') < sourceRouting.indexOf('await runAutomaticTracklistLookups'))
+  assert.match(sourceRouting, /isTooShortForAutomaticSetLookups\(meta\)/)
+  assert.match(sourceRouting, /automaticLookupServices\(currentSourceUrl, 'skipped'\)/)
+  assert.match(sourceRouting, /return\n\s*}\n\n\s*mainWindow\.webContents\.send\('set-availability'/)
+  const auto = mainJs.slice(mainJs.indexOf('async function autoSetMetadata'), mainJs.indexOf('// ── Source → tracklist routing'))
+  assert.match(auto, /probeTracklistProvider\(set79, currentSourceMeta, lookupToken, \{ bypassCache: true \}\)/)
 })
 
 test('manual provider retries continue to update availability state', () => {

@@ -349,7 +349,9 @@ test('missing metadata offers local edits and exact title suggestions without bl
   assert.match(appJs, /window\.api\.on\('source-metadata'/)
   assert.match(appJs, /No community metadata found yet/)
   assert.match(appJs, /No SoundCloud match — set79 can't look this set up yet/)
+  assert.match(appJs, /This seems too short to be a DJ set\. Cowardly refusing to look up any additional info on it\. You can still try Auto\./)
   assert.match(appJs, /function hasNoSoundCloudMatch\(waiting, services\)/)
+  assert.match(appJs, /function automaticSetLookupsSuppressed\(services = state\.currentSetAvailability\?\.services \|\| \{\}\)/)
   assert.match(appJs, /function setMetadataSuggestions\(\)/)
   assert.match(appJs, /function metadataLibraryValues\(field\)/)
   assert.match(appJs, /titleContainsLibraryValue\(state\.currentSetTitle, name\)/)
@@ -357,6 +359,7 @@ test('missing metadata offers local edits and exact title suggestions without bl
   assert.match(appJs, /class="set-metadata-suggestion"/)
   assert.match(appJs, /function acceptSetMetadataSuggestions\(suggestions\)/)
   assert.match(appJs, /class="[^"]*set-metadata-accept-suggestions">accept suggestions<\/button>/)
+  assert.match(appJs, /const acceptSuggestionsAction = editMode && suggestions\.length/)
   assert.match(appJs, /class="[^"]*set-metadata-complete">complete metadata<\/button>/)
   assert.match(appJs, /You can complete the metadata yourself if you like\./)
   assert.match(appJs, /data-metadata-field="\$\{field\}"/)
@@ -491,6 +494,19 @@ test('disabled local event suggestions never start or accept a lookup', () => {
   assert.match(appJs, /eventSuggestionsEnabledInput\.addEventListener\('change'/)
 })
 
+test('short-video availability prevents automatic local event lookups', () => {
+  const lookup = appJs.slice(appJs.indexOf('async function lookupNextDjEvents'), appJs.indexOf('const SET_SERVICE_ORDER'))
+  assert.ok(lookup.indexOf('if (automaticEventLookupsBlocked())') < lookup.indexOf('window.api.lookupNextEvents'))
+  const render = appJs.slice(appJs.indexOf('function renderNextDjEvents'), appJs.indexOf('function normalizedEventDisplayText'))
+  assert.match(render, /if \(automaticEventLookupsBlocked\(\)\)/)
+  assert.match(appJs, /function automaticEventLookupsBlocked\(\)/)
+  assert.match(appJs, /automaticLookupDecisionPending: false/)
+  assert.match(appJs, /state\.automaticLookupDecisionPending = true/)
+  assert.match(appJs, /state\.automaticLookupDecisionPending = false/)
+  assert.match(appJs, /skipped: 'not checked'/)
+  assert.match(styleCss, /status-skipped/)
+})
+
 test('mini-player source strip includes both source and provider checks', () => {
   assert.match(preloadJs, /'set-availability'/)
   assert.match(appJs, /window\.api\.on\('set-availability'/)
@@ -499,7 +515,7 @@ test('mini-player source strip includes both source and provider checks', () => 
   for (const service of ['1001tracklists', 'youtube', 'soundcloud', 'set79']) {
     assert.match(appJs, new RegExp(`id: '${service}'`), `${service} availability pill missing`)
   }
-  for (const status of ['checking', 'available', 'unavailable', 'error']) {
+  for (const status of ['checking', 'available', 'unavailable', 'error', 'skipped']) {
     assert.match(styleCss, new RegExp(`status-${status}`), `${status} availability style missing`)
   }
   assert.match(styleCss, /\.set-availability-pill\.status-checking\s*\{[^}]*animation:\s*set-availability-breathe/s)

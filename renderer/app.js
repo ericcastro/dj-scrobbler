@@ -33,6 +33,7 @@ const state = {
   currentSetMetadata: null, // normalized provider metadata, delivered separately from track rows
   currentSourceStats: null, // public source age/plays plus the metadata-likelihood classification
   currentSetAvailability: null, // per-service lookup state and explicit source URLs
+  automaticLookupDecisionPending: false, // wait for the player's duration before event lookup
   metadataEditMode: null, // null follows the default: open only when the set has no metadata
   metadataOverwriteOnSet79: false,
   metadataRemovedValues: [], // persisted per-value exclusions, also shown as restoration suggestions
@@ -596,6 +597,11 @@ async function saveEventLocation() {
 }
 
 function renderNextDjEvents() {
+  if (automaticEventLookupsBlocked()) {
+    setEventLookup.innerHTML = ''
+    setEventLookup.classList.add('hidden')
+    return
+  }
   if (!eventSuggestionsEnabled()) {
     if (!state.eventSuggestionsDismissedNotice) {
       setEventLookup.innerHTML = ''
@@ -693,6 +699,11 @@ function wireEventLocationChange() {
 }
 
 async function lookupNextDjEvents({ force = false } = {}) {
+  if (automaticEventLookupsBlocked()) {
+    state.currentEventLookup = null
+    setEventLookup.classList.add('hidden')
+    return
+  }
   if (!eventSuggestionsEnabled()) {
     state.currentEventLookup = null
     setEventLookup.classList.add('hidden')
@@ -735,6 +746,7 @@ const SET_AVAILABILITY_LABELS = {
   available: 'available',
   unavailable: 'not found',
   error: 'error',
+  skipped: 'not checked',
 }
 
 function mergeSetMetadata(existing, incoming) {
@@ -820,8 +832,19 @@ function hasNoSoundCloudMatch(waiting, services) {
   return !waiting && services.soundcloud?.status === 'unavailable'
 }
 
+function automaticSetLookupsSuppressed(services = state.currentSetAvailability?.services || {}) {
+  return services.set79?.status === 'skipped'
+}
+
+function automaticEventLookupsBlocked() {
+  return state.automaticLookupDecisionPending || automaticSetLookupsSuppressed()
+}
+
 function metadataOutlookCopy(waiting, services) {
   const outlook = state.currentSourceStats?.metadataOutlook
+  if (automaticSetLookupsSuppressed(services)) {
+    return 'This seems too short to be a DJ set. Cowardly refusing to look up any additional info on it. You can still try Auto.'
+  }
   if (hasNoSoundCloudMatch(waiting, services)) {
     return "No SoundCloud match — set79 can't look this set up yet."
   }
@@ -1029,8 +1052,9 @@ function renderSetMetadataHeader() {
   ]
   const waiting = services.set79?.status === 'checking'
   const noSoundCloudMatch = hasNoSoundCloudMatch(waiting, services)
+  const automaticLookupsSuppressed = automaticSetLookupsSuppressed(services)
   const editMode = state.metadataEditMode == null
-    ? facts.length === 0 && !noSoundCloudMatch
+    ? facts.length === 0 && !noSoundCloudMatch && !automaticLookupsSuppressed
     : state.metadataEditMode
   const set79Checking = services.set79?.status === 'checking'
   const metadataRefreshing = state.metadataOverwriteOnSet79 || set79Checking
@@ -1072,24 +1096,25 @@ function renderSetMetadataHeader() {
     ...(!metadata.venue ? [{ field: 'venue', label: '+ venue' }] : []),
     ...(!metadata.date ? [{ field: 'date', label: '+ date' }] : []),
   ].map(({ field, label }) => `<button type="button" class="set-metadata-add" data-metadata-field="${field}">${label}</button>`).join('') : ''
-  const recoveryAction = facts.length === 0 && noSoundCloudMatch && !editMode
-    ? suggestions.length
-      ? '<button type="button" class="set-metadata-recovery-action set-metadata-accept-suggestions">accept suggestions</button>'
-      : '<button type="button" class="set-metadata-recovery-action set-metadata-complete">complete metadata</button>'
+  const acceptSuggestionsAction = editMode && suggestions.length
+    ? '<button type="button" class="set-metadata-recovery-action set-metadata-accept-suggestions">accept suggestions</button>'
+    : ''
+  const recoveryAction = facts.length === 0 && noSoundCloudMatch && !editMode && !suggestions.length
+    ? '<button type="button" class="set-metadata-recovery-action set-metadata-complete">complete metadata</button>'
     : ''
   const recoveryCopy = noSoundCloudMatch && !suggestions.length
     ? `${metadataOutlookCopy(waiting, services)} You can complete the metadata yourself if you like.`
     : metadataOutlookCopy(waiting, services)
 
   if (facts.length) {
-    setMetadataTags.innerHTML = factPills + suggestionPills + addPills
+    setMetadataTags.innerHTML = factPills + suggestionPills + acceptSuggestionsAction + addPills
   } else {
     setMetadataTags.innerHTML = `
       <div class="set-metadata-recovery">
         <span class="set-metadata-empty-detail">${escHtml(recoveryCopy)}</span>
         ${recoveryAction}
       </div>
-      ${suggestionPills}${addPills}`
+      ${suggestionPills}${acceptSuggestionsAction}${addPills}`
   }
 
   wireSetMetadataActions(suggestions, facts)
@@ -2090,6 +2115,7 @@ function wireMainEvents() {
       state.currentSetMetadata = null
       state.currentSourceStats = null
       state.currentSetAvailability = null
+      state.automaticLookupDecisionPending = true
       state.currentTracklistOptions = []
       state.metadataEditMode = null
       state.metadataOverwriteOnSet79 = false
@@ -2370,8 +2396,10 @@ function wireMainEvents() {
         ...(availability.services || {}),
       },
     }
+    state.automaticLookupDecisionPending = false
     renderSetMetadataHeader()
     renderSetSources()
+    lookupNextDjEvents()
   })
 
   window.api.on('menu-open-about', () => openAboutDialog())
@@ -3438,6 +3466,7 @@ function loadSet(item, resume) {
         set79: { status: 'checking', url: null },
       },
     }
+    state.automaticLookupDecisionPending = true
     mainContent.classList.add('has-tracklist')
     renderSetMetadataHeader()
     renderSetSources()
@@ -3829,6 +3858,7 @@ function resetNowPlaying() {
   state.currentSetMetadata  = null
   state.currentSourceStats  = null
   state.currentSetAvailability = null
+  state.automaticLookupDecisionPending = false
   state.metadataEditMode = null
   state.metadataOverwriteOnSet79 = false
   state.metadataRemovedValues = []

@@ -72,6 +72,7 @@ function log(...args) {
 }
 const DEVELOPER_MODE = process.argv.includes('--developer')
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const MIN_AUTOMATIC_SET_DURATION_SECONDS = 10 * 60
 const EVENT_LOOKUP_CACHE_VERSION = 1
 const MAX_EVENT_LOOKUP_CACHE_ENTRIES = 300
 const ARTWORK_CACHE_VERSION = 1
@@ -1157,6 +1158,20 @@ async function waitForSourceDuration(meta, timeoutMs = 5000) {
   return Number(meta?.durationSeconds) > 0 ? Number(meta.durationSeconds) : null
 }
 
+function isTooShortForAutomaticSetLookups(meta) {
+  const duration = Number(meta?.durationSeconds)
+  return Number.isFinite(duration) && duration > 0 && duration < MIN_AUTOMATIC_SET_DURATION_SECONDS
+}
+
+function automaticLookupServices(sourceUrl, status = 'checking') {
+  return {
+    youtube: { status: 'available', url: sourceUrl },
+    soundcloud: { status, url: null },
+    '1001tracklists': { status, url: null },
+    set79: { status, url: null },
+  }
+}
+
 function extractTracklistInBackground(tlPlugin, url) {
   return new Promise((resolve) => {
     log(`[extract] background load ${url}`)
@@ -1830,25 +1845,42 @@ async function handleSourceUrl(source, url, wvContents) {
       tracklistUrl: null,
       isFallback: false,
     })
-    mainWindow.webContents.send('set-metadata', {
-      sourceUrl: currentSourceUrl,
-      providerId: null,
-      ...normalizeSetMetadata(null),
-    })
-    mainWindow.webContents.send('set-availability', {
-      sourceUrl: currentSourceUrl,
-      services: {
-        youtube: { status: 'available', url: currentSourceUrl },
-        soundcloud: { status: 'checking', url: null },
-        '1001tracklists': { status: 'checking' },
-        set79: { status: 'checking' },
-      },
-    })
     emitSourceStatsWhenReady(meta, currentSourceUrl, lookupToken)
     const playerUrl = youtubePlayerUrl(videoId)
     log(`[lookup] loading player webview → ${playerUrl}`)
     mainWindow.webContents.send('wv-status', { type: 'player-loading' })
     playbackContents.loadURL(playerUrl)
+
+    // The player owns the most trustworthy duration. Wait briefly for it so a
+    // short clip never starts network lookups before we can apply the guard.
+    await waitForSourceDuration(meta)
+    if (lookupToken !== currentLookupToken) return
+    if (isTooShortForAutomaticSetLookups(meta)) {
+      isTracklistLookupPending = false
+      log(`[lookup] skipping automatic provider and event lookups; ${meta.durationSeconds}s is below the 10-minute set threshold`)
+      mainWindow.webContents.send('set-availability', {
+        sourceUrl: currentSourceUrl,
+        services: automaticLookupServices(currentSourceUrl, 'skipped'),
+      })
+      // Availability is emitted first: it stops the renderer from beginning
+      // its own event lookup when this empty metadata payload arrives.
+      mainWindow.webContents.send('set-metadata', {
+        sourceUrl: currentSourceUrl,
+        providerId: null,
+        ...normalizeSetMetadata(null),
+      })
+      return
+    }
+
+    mainWindow.webContents.send('set-availability', {
+      sourceUrl: currentSourceUrl,
+      services: automaticLookupServices(currentSourceUrl),
+    })
+    mainWindow.webContents.send('set-metadata', {
+      sourceUrl: currentSourceUrl,
+      providerId: null,
+      ...normalizeSetMetadata(null),
+    })
   } else {
     log(`[lookup] no youtube videoId or non-youtube source — showing no-tracklist-prompt`)
     mainWindow.webContents.send('wv-status', { type: 'no-tracklist-prompt', url })

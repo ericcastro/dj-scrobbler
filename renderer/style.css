@@ -2103,7 +2103,8 @@ button.set-metadata-pill {
 .set-availability-pill.status-checking {
   animation: set-availability-breathe 1.35s ease-in-out infinite alternate;
 }
-.set-availability-pill.status-unavailable { opacity: .55; }
+.set-availability-pill.status-unavailable,
+.set-availability-pill.status-skipped { opacity: .55; }
 
 @keyframes set-availability-pulse {
   from { opacity: .35; }
@@ -3112,7 +3113,8 @@ webview {
 }
 
 #np-source .set-availability-pill.status-unavailable,
-#np-source .set-availability-pill.status-error {
+#np-source .set-availability-pill.status-error,
+#np-source .set-availability-pill.status-skipped {
   background: transparent;
   opacity: .38;
 }
