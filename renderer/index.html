@@ -208,16 +208,15 @@
               <span class="lfm-dot">◎</span>
               <span id="lfm-username"></span>
             </div>
-            <p class="setting-desc">Tracks are scrobbled automatically as they play.</p>
+            <p class="setting-desc">When tracklists are available, individual tracks are scrobbled.</p>
             <button id="btn-lfm-disconnect" class="btn-secondary">Disconnect</button>
           </div>
 
           <div class="panel-title">Location</div>
           <label class="resume-radio-label event-suggestions-toggle">
-            <input type="checkbox" id="event-suggestions-enabled"> Suggest DJ events in my city
+            <input type="checkbox" id="event-suggestions-enabled"> Show me when DJs are playing in my city
           </label>
           <div id="event-location-setup">
-            <p class="setting-desc">Used to find the next local date for DJs in the current set.</p>
             <div class="setting-group">
               <label for="event-city">City</label>
               <input id="event-city" type="text" autocomplete="address-level2" placeholder="Paris">
@@ -266,13 +265,13 @@
           <p class="setting-desc">When opening a set you've already started:</p>
           <div class="resume-options">
             <label class="resume-radio-label">
-              <input type="radio" name="resume-behavior" value="ask"> Ask each time
-            </label>
-            <label class="resume-radio-label">
               <input type="radio" name="resume-behavior" value="always"> Always resume
             </label>
             <label class="resume-radio-label">
               <input type="radio" name="resume-behavior" value="never"> Always start from beginning
+            </label>
+            <label class="resume-radio-label">
+              <input type="radio" name="resume-behavior" value="ask"> Ask each time
             </label>
           </div>
 
@@ -285,8 +284,8 @@
           <div class="panel-title">History</div>
           <p class="setting-desc" id="history-clear-status">Remove all played sets from history.</p>
           <button id="btn-clear-history" class="btn-secondary">Clear history</button>
-          <div class="panel-title">Tracklists</div>
-          <p class="setting-desc" id="tracklist-cache-status">Tracklists are cached for 7 days; Deezer artwork matches are cached longer.</p>
+          <div class="panel-title">Cache</div>
+          <p class="setting-desc" id="tracklist-cache-status">Tracklists are cached for 7 days then refreshed automatically, in case corrections were made by the community; Deezer artwork matches are cached longer.</p>
           <button id="btn-clear-tracklist-cache" class="btn-secondary">Clear tracklist &amp; artwork cache</button>
         </div>
       </div>

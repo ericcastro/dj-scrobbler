@@ -554,7 +554,7 @@ function changeEventLocation() {
 function eventLocationControlHtml(location) {
   return `<span class="set-event-location-control">
     <span>location: ${escHtml(location.city)}, ${escHtml(location.country)} <button type="button" class="set-event-change-location">change</button></span>
-    <button type="button" class="set-event-dismiss"><span aria-hidden="true">×</span> don't suggest events in my city</button>
+    <button type="button" class="set-event-dismiss"><span aria-hidden="true">×</span> stop suggesting events in my city</button>
   </span>`
 }
 
@@ -810,8 +810,8 @@ function metadataOutlookCopy(waiting, services) {
     return "No SoundCloud match — set79 can't look this set up yet."
   }
   if (!waiting && soundcloudStatus === 'error') return "set79 couldn't be checked right now."
-  if (waiting) return 'Checking set79 for set details…'
-  if (outlook?.kind === 'likely') return `Popular recent set (${formatCompactViews(outlook.viewCount)} plays) — metadata may arrive soon.`
+  if (waiting) return 'Attempting to get DJ set details from set79…'
+  if (outlook?.kind === 'likely') return `Popular recent set (${formatCompactViews(outlook.viewCount)} plays) — metadata is likely to arrive soon.`
   if (outlook?.kind === 'unlikely') return 'Older, low-play set — more metadata is unlikely.'
   return 'No community metadata found yet.'
 }

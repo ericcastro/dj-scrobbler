@@ -459,11 +459,11 @@ test('event lookup reports source-level progress and marquees long normalized su
 })
 
 test('local event suggestions can be dismissed from the header and re-enabled in Settings', () => {
-  assert.match(indexHtml, /id="event-suggestions-enabled"> Suggest DJ events in my city/)
+  assert.match(indexHtml, /id="event-suggestions-enabled"> Show me when DJs are playing in my city/)
   assert.match(appJs, /function eventSuggestionsEnabled\(\)/)
   assert.match(appJs, /state\.store\.settings\?\.eventSuggestionsEnabled !== false/)
   assert.match(appJs, /function setEventSuggestionsEnabled\(enabled\)/)
-  assert.match(appJs, /class="set-event-dismiss"><span aria-hidden="true">×<\/span> don't suggest events in my city/)
+  assert.match(appJs, /class="set-event-dismiss"><span aria-hidden="true">×<\/span> stop suggesting events in my city/)
   assert.match(appJs, /setEventLookup\.querySelector\('\.set-event-dismiss'\).*setEventSuggestionsEnabled\(false\)/s)
   assert.match(appJs, /eventLocationSetup\.classList\.toggle\('hidden', !enabled\)/)
   assert.match(styleCss, /\.set-event-lookup\s*\{[^}]*border-top:\s*1px solid/s)
