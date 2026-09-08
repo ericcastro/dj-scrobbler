@@ -843,7 +843,7 @@ function automaticEventLookupsBlocked() {
 function metadataOutlookCopy(waiting, services) {
   const outlook = state.currentSourceStats?.metadataOutlook
   if (automaticSetLookupsSuppressed(services)) {
-    return 'This seems too short to be a DJ set. Cowardly refusing to look up any additional info on it. You can still try Auto.'
+    return 'This seems too short to be a DJ set. Cowardly refusing to look up any additional info on it.'
   }
   if (hasNoSoundCloudMatch(waiting, services)) {
     return "No SoundCloud match — set79 can't look this set up yet."
@@ -1106,16 +1106,15 @@ function renderSetMetadataHeader() {
     ? `${metadataOutlookCopy(waiting, services)} You can complete the metadata yourself if you like.`
     : metadataOutlookCopy(waiting, services)
 
-  if (facts.length) {
-    setMetadataTags.innerHTML = factPills + suggestionPills + acceptSuggestionsAction + addPills
-  } else {
-    setMetadataTags.innerHTML = `
+  const recoveryRow = !facts.length || acceptSuggestionsAction
+    ? `
       <div class="set-metadata-recovery">
         <span class="set-metadata-empty-detail">${escHtml(recoveryCopy)}</span>
-        ${recoveryAction}
+        ${acceptSuggestionsAction || recoveryAction}
       </div>
-      ${suggestionPills}${acceptSuggestionsAction}${addPills}`
-  }
+    `
+    : ''
+  setMetadataTags.innerHTML = recoveryRow + factPills + suggestionPills + addPills
 
   wireSetMetadataActions(suggestions, facts)
 

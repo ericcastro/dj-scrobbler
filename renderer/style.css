@@ -470,6 +470,11 @@ body.is-track-playing .spectrum-bar { animation-play-state: running; }
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
 }
+.view-tab.active:hover,
+.view-tab.active:focus-visible {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
 .view-tab.tab-disabled {
   opacity: 0.35;
   cursor: default;
@@ -1852,8 +1857,9 @@ button.set-metadata-pill {
 }
 
 .set-metadata-suggestion {
+  color: var(--accent2);
   border-style: solid;
-  border-color: color-mix(in srgb, var(--accent2) 45%, var(--border));
+  border-color: var(--accent2);
 }
 
 .set-metadata-editor {
@@ -2016,6 +2022,7 @@ button.set-metadata-pill {
 
 .set-event-dismissed-notice {
   color: var(--text2);
+  font-size: 10px;
   opacity: .86;
 }
 

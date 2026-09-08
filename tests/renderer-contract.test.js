@@ -112,6 +112,10 @@ test('sidebar panel collapse persists null to clear the active panel', () => {
   assert.ok(nullAssignments.length >= 2, 'activeSidebarPanel should be set to null in at least two places (toggle + collapse btn)')
 })
 
+test('an active workspace tab keeps its selected appearance on hover', () => {
+  assert.match(styleCss, /\.view-tab\.active:hover,\s*\.view-tab\.active:focus-visible\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--accent\) 18%, transparent\)[^}]*color:\s*var\(--accent\)/s)
+})
+
 test('Library is a full-workspace view grouped by normalized favorite DJ tags', () => {
   assert.equal(indexHtml.includes('id="btn-view-library"'), true)
   assert.equal(indexHtml.includes('id="library-screen"'), true)
@@ -349,7 +353,8 @@ test('missing metadata offers local edits and exact title suggestions without bl
   assert.match(appJs, /window\.api\.on\('source-metadata'/)
   assert.match(appJs, /No community metadata found yet/)
   assert.match(appJs, /No SoundCloud match — set79 can't look this set up yet/)
-  assert.match(appJs, /This seems too short to be a DJ set\. Cowardly refusing to look up any additional info on it\. You can still try Auto\./)
+  assert.match(appJs, /This seems too short to be a DJ set\. Cowardly refusing to look up any additional info on it\./)
+  assert.doesNotMatch(appJs, /You can still try Auto/)
   assert.match(appJs, /function hasNoSoundCloudMatch\(waiting, services\)/)
   assert.match(appJs, /function automaticSetLookupsSuppressed\(services = state\.currentSetAvailability\?\.services \|\| \{\}\)/)
   assert.match(appJs, /function setMetadataSuggestions\(\)/)
@@ -360,6 +365,7 @@ test('missing metadata offers local edits and exact title suggestions without bl
   assert.match(appJs, /function acceptSetMetadataSuggestions\(suggestions\)/)
   assert.match(appJs, /class="[^"]*set-metadata-accept-suggestions">accept suggestions<\/button>/)
   assert.match(appJs, /const acceptSuggestionsAction = editMode && suggestions\.length/)
+  assert.match(appJs, /const recoveryRow = !facts\.length \|\| acceptSuggestionsAction/)
   assert.match(appJs, /class="[^"]*set-metadata-complete">complete metadata<\/button>/)
   assert.match(appJs, /You can complete the metadata yourself if you like\./)
   assert.match(appJs, /data-metadata-field="\$\{field\}"/)
@@ -369,6 +375,7 @@ test('missing metadata offers local edits and exact title suggestions without bl
   assert.match(styleCss, /\.set-metadata-autocomplete\s*\{/)
   assert.match(styleCss, /\.set-metadata-recovery\s*\{[^}]*justify-content:\s*space-between/s)
   assert.match(styleCss, /\.set-metadata-recovery-action\s*\{[^}]*text-decoration:\s*underline/s)
+  assert.match(styleCss, /\.set-metadata-suggestion\s*\{[^}]*color:\s*var\(--accent2\)[^}]*border-color:\s*var\(--accent2\)/s)
   assert.match(styleCss, /\.set-metadata-editor input\s*\{[^}]*width:\s*min\(105px, 16vw\)/s)
 })
 
@@ -483,6 +490,7 @@ test('local event suggestions can be dismissed from the header and re-enabled in
   assert.match(appJs, /eventLocationSetup\.classList\.toggle\('hidden', !enabled\)/)
   assert.match(styleCss, /\.set-event-lookup\s*\{[^}]*border-top:\s*1px solid/s)
   assert.match(styleCss, /\.set-event-dismiss\s*\{[^}]*opacity:\s*\.48/s)
+  assert.match(styleCss, /\.set-event-dismissed-notice\s*\{[^}]*font-size:\s*10px/s)
   assert.match(styleCss, /\.set-event-dismiss-undo\s*\{[^}]*text-decoration:\s*underline/s)
 })
 
