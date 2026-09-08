@@ -45,15 +45,9 @@ const state = {
 }
 
 const EVENT_KAWAII_EMOTES = [
-  '(っ◔◡◔)っ ❤',
-  '(ﾉ^ヮ^)ﾉ*:・ﾟ✧',
-  '┌[ ◕ ◡ ◕]┘',
-  '【ﾉ◕ヮ◕】ﾉ',
   '〜(￣▽￣〜)',
   '♡_♡',
-  '♥ ω ♥',
-  '[〜￣▽￣]〜',
-  '╘[◉▽◉]╕',
+  '(ﾉ^ヮ^)ﾉ*:・ﾟ✧',
 ]
 
 // ── DOM refs ────────────────────────────────────────────────────────────────
@@ -668,10 +662,10 @@ function renderNextDjEvents() {
   }
   setEventLookup.innerHTML = matches.map((result, index) => `
     <div class="set-event-line">
-      <div class="set-event-summary-clip"><span class="set-event-summary-text"><strong>${escHtml(result.artist)}</strong> is playing in your city! ${escHtml(eventAnnouncementEmote(result))}</span></div>
+      <div class="set-event-summary-clip"><span class="set-event-summary-text"><strong>${escHtml(result.artist)}</strong> is playing in your city! <span class="set-event-emote">${escHtml(eventAnnouncementEmote(result))}</span></span></div>
       <button type="button" class="set-event-link" data-event-index="${index}">${escHtml(result.event.sourceName)} ↗</button>
     </div>
-    <div class="set-event-line"><span class="set-event-detail">${eventSummaryHtml(result)}</span></div>
+    <div class="set-event-line"><div class="set-event-summary-clip"><span class="set-event-summary-text set-event-detail">${eventSummaryHtml(result)}</span></div></div>
     <div class="set-event-separator" aria-hidden="true"></div>
   `).join('') + eventLocationControlHtml(location)
   setEventLookup.querySelectorAll('.set-event-link').forEach(button => {
