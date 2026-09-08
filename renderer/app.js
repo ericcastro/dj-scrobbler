@@ -816,13 +816,16 @@ function formatCompactViews(value) {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
 
+function hasNoSoundCloudMatch(waiting, services) {
+  return !waiting && services.soundcloud?.status === 'unavailable'
+}
+
 function metadataOutlookCopy(waiting, services) {
   const outlook = state.currentSourceStats?.metadataOutlook
-  const soundcloudStatus = services.soundcloud?.status
-  if (!waiting && soundcloudStatus === 'unavailable') {
+  if (hasNoSoundCloudMatch(waiting, services)) {
     return "No SoundCloud match — set79 can't look this set up yet."
   }
-  if (!waiting && soundcloudStatus === 'error') return "set79 couldn't be checked right now."
+  if (!waiting && services.soundcloud?.status === 'error') return "set79 couldn't be checked right now."
   if (waiting) return 'Attempting to get DJ set details from set79…'
   if (outlook?.kind === 'likely') return `Popular recent set (${formatCompactViews(outlook.viewCount)} plays) — metadata is likely to arrive soon.`
   if (outlook?.kind === 'unlikely') return 'Older, low-play set — more metadata is unlikely.'
@@ -840,6 +843,34 @@ function applySetMetadataValue(field, rawValue) {
     removed.field !== field || librarySearchKey(removed.value) !== librarySearchKey(value)
   ))
   state.currentSetMetadata = current
+  tagSavedSetMetadata(state.currentSetUrl, current, { overwrite: true })
+  state.currentEventLookupKey = ''
+  renderSetMetadataHeader()
+  lookupNextDjEvents()
+}
+
+function acceptSetMetadataSuggestions(suggestions) {
+  if (!state.currentSetUrl || !suggestions.length) return
+  const current = mergeSetMetadata(null, state.currentSetMetadata)
+  const accepted = new Set()
+
+  suggestions.forEach(({ field, value }) => {
+    const key = `${field}:${librarySearchKey(value)}`
+    if (field === 'djNames') {
+      current.djNames = normalizedDjNames([...(current.djNames || []), value])
+      accepted.add(key)
+    } else if ((field === 'event' || field === 'venue' || field === 'date') && !current[field]) {
+      current[field] = value
+      accepted.add(key)
+    }
+  })
+
+  if (!accepted.size) return
+  state.metadataRemovedValues = (state.metadataRemovedValues || []).filter(removed => (
+    !accepted.has(`${removed.field}:${librarySearchKey(removed.value)}`)
+  ))
+  state.currentSetMetadata = current
+  state.metadataEditMode = null
   tagSavedSetMetadata(state.currentSetUrl, current, { overwrite: true })
   state.currentEventLookupKey = ''
   renderSetMetadataHeader()
@@ -973,6 +1004,12 @@ function wireSetMetadataActions(suggestions, facts) {
       if (suggestion) applySetMetadataValue(suggestion.field, suggestion.value)
     })
   })
+  setMetadataTags.querySelector('.set-metadata-accept-suggestions')?.addEventListener('click', () => {
+    acceptSetMetadataSuggestions(suggestions)
+  })
+  setMetadataTags.querySelector('.set-metadata-complete')?.addEventListener('click', event => {
+    beginSetMetadataEdit(event.currentTarget, 'djNames')
+  })
 }
 
 function renderSetMetadataHeader() {
@@ -990,7 +1027,11 @@ function renderSetMetadataHeader() {
     ...(metadata.event ? [{ field: 'event', label: 'event', value: metadata.event }] : []),
     ...(metadata.date ? [{ field: 'date', label: 'date', value: metadata.date }] : []),
   ]
-  const editMode = state.metadataEditMode == null ? facts.length === 0 : state.metadataEditMode
+  const waiting = services.set79?.status === 'checking'
+  const noSoundCloudMatch = hasNoSoundCloudMatch(waiting, services)
+  const editMode = state.metadataEditMode == null
+    ? facts.length === 0 && !noSoundCloudMatch
+    : state.metadataEditMode
   const set79Checking = services.set79?.status === 'checking'
   const metadataRefreshing = state.metadataOverwriteOnSet79 || set79Checking
   setMetadataHeader.classList.toggle('is-editing', editMode)
@@ -1031,14 +1072,22 @@ function renderSetMetadataHeader() {
     ...(!metadata.venue ? [{ field: 'venue', label: '+ venue' }] : []),
     ...(!metadata.date ? [{ field: 'date', label: '+ date' }] : []),
   ].map(({ field, label }) => `<button type="button" class="set-metadata-add" data-metadata-field="${field}">${label}</button>`).join('') : ''
+  const recoveryAction = facts.length === 0 && noSoundCloudMatch && !editMode
+    ? suggestions.length
+      ? '<button type="button" class="set-metadata-recovery-action set-metadata-accept-suggestions">accept suggestions</button>'
+      : '<button type="button" class="set-metadata-recovery-action set-metadata-complete">complete metadata</button>'
+    : ''
+  const recoveryCopy = noSoundCloudMatch && !suggestions.length
+    ? `${metadataOutlookCopy(waiting, services)} You can complete the metadata yourself if you like.`
+    : metadataOutlookCopy(waiting, services)
 
   if (facts.length) {
     setMetadataTags.innerHTML = factPills + suggestionPills + addPills
   } else {
-    const waiting = services.set79?.status === 'checking'
     setMetadataTags.innerHTML = `
       <div class="set-metadata-recovery">
-        <span class="set-metadata-empty-detail">${escHtml(metadataOutlookCopy(waiting, services))}</span>
+        <span class="set-metadata-empty-detail">${escHtml(recoveryCopy)}</span>
+        ${recoveryAction}
       </div>
       ${suggestionPills}${addPills}`
   }
@@ -4156,9 +4205,9 @@ function wireEvents() {
 
   btnSetMetadataRefresh.addEventListener('click', autoSetMetadata)
   btnSetMetadataEdit.addEventListener('click', () => {
-    const metadata = state.currentSetMetadata || {}
-    const hasMetadata = !!((metadata.djNames || []).length || metadata.venue || metadata.event || metadata.date)
-    const currentMode = state.metadataEditMode == null ? !hasMetadata : state.metadataEditMode
+    const currentMode = state.metadataEditMode == null
+      ? setMetadataHeader.classList.contains('is-editing')
+      : state.metadataEditMode
     state.metadataEditMode = !currentMode
     renderSetMetadataHeader()
   })

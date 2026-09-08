@@ -1788,8 +1788,9 @@ button.set-metadata-pill {
 .set-metadata-recovery {
   flex: 1 0 100%;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -1798,6 +1799,25 @@ button.set-metadata-pill {
   font-size: 12px;
   line-height: 1.45;
   opacity: .82;
+}
+
+.set-metadata-recovery-action {
+  flex: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent2);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.set-metadata-recovery-action:hover,
+.set-metadata-recovery-action:focus-visible {
+  color: var(--text);
+  outline: 0;
 }
 
 .set-metadata-add,
