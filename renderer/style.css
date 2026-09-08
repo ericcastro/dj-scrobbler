@@ -1920,7 +1920,8 @@ button.set-metadata-pill {
 .set-event-location-cta,
 .set-event-link,
 .set-event-change-location,
-.set-event-dismiss {
+.set-event-dismiss,
+.set-event-dismiss-undo {
   border: 0;
   padding: 0;
   color: var(--accent2);
@@ -1941,7 +1942,9 @@ button.set-metadata-pill {
 .set-event-change-location:hover,
 .set-event-change-location:focus-visible,
 .set-event-dismiss:hover,
-.set-event-dismiss:focus-visible { color: var(--text); }
+.set-event-dismiss:focus-visible,
+.set-event-dismiss-undo:hover,
+.set-event-dismiss-undo:focus-visible { color: var(--text); }
 
 .set-event-line {
   display: flex;
@@ -1989,6 +1992,16 @@ button.set-metadata-pill {
   color: var(--text2);
   opacity: .48;
   text-decoration: none;
+}
+
+.set-event-dismissed-notice {
+  color: var(--text2);
+  opacity: .86;
+}
+
+.set-event-dismiss-undo {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .set-event-dismiss:hover,
@@ -2067,10 +2080,18 @@ button.set-metadata-pill {
   background: var(--accent2);
   animation: set-availability-pulse 1s ease-in-out infinite alternate;
 }
+.set-availability-pill.status-checking {
+  animation: set-availability-breathe 1.35s ease-in-out infinite alternate;
+}
 .set-availability-pill.status-unavailable { opacity: .55; }
 
 @keyframes set-availability-pulse {
   from { opacity: .35; }
+  to { opacity: 1; }
+}
+
+@keyframes set-availability-breathe {
+  from { opacity: .45; }
   to { opacity: 1; }
 }
 
@@ -3507,7 +3528,9 @@ body.compact-layout #scrobble-badge.dim::after {
 @media (prefers-reduced-motion: reduce) {
   #np-artwork.is-loading::after,
   .track-art-loading::after,
-  .set-event-activity-dot { animation: none; }
+  .set-event-activity-dot,
+  .set-availability-pill.status-checking,
+  .set-availability-pill.status-checking .set-availability-dot { animation: none; }
 }
 
 .track-info {

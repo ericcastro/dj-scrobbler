@@ -39,6 +39,7 @@ const state = {
   currentEventLookup: null, // async next-gig state for DJs in the metadata pills
   currentEventLookupKey: '',
   currentEventLookupRequest: 0,
+  eventSuggestionsDismissedNotice: false,
   pendingResumeTime: null, // seconds to seek to after first playback-progress tick
 }
 
@@ -520,6 +521,7 @@ function renderEventLocationSettings() {
 function setEventSuggestionsEnabled(enabled) {
   if (!state.store.settings) state.store.settings = {}
   state.store.settings.eventSuggestionsEnabled = !!enabled
+  if (enabled) state.eventSuggestionsDismissedNotice = false
   state.currentEventLookupRequest++
   state.currentEventLookupKey = ''
   state.currentEventLookup = null
@@ -527,6 +529,11 @@ function setEventSuggestionsEnabled(enabled) {
   renderEventLocationSettings()
   renderSetMetadataHeader()
   if (enabled) lookupNextDjEvents({ force: true })
+}
+
+function dismissEventSuggestions() {
+  state.eventSuggestionsDismissedNotice = true
+  setEventSuggestionsEnabled(false)
 }
 
 function openEventLocationSettings() {
@@ -590,8 +597,14 @@ async function saveEventLocation() {
 
 function renderNextDjEvents() {
   if (!eventSuggestionsEnabled()) {
-    setEventLookup.innerHTML = ''
-    setEventLookup.classList.add('hidden')
+    if (!state.eventSuggestionsDismissedNotice) {
+      setEventLookup.innerHTML = ''
+      setEventLookup.classList.add('hidden')
+      return
+    }
+    setEventLookup.classList.remove('hidden')
+    setEventLookup.innerHTML = `<div class="set-event-dismissed-notice">You will not be informed about events in your city anymore. You can re-enable suggesting events from Settings anytime. <button type="button" class="set-event-dismiss-undo">undo</button></div>`
+    setEventLookup.querySelector('.set-event-dismiss-undo')?.addEventListener('click', () => setEventSuggestionsEnabled(true))
     return
   }
   setEventLookup.classList.remove('hidden')
@@ -676,7 +689,7 @@ function eventSummaryHtml(result) {
 
 function wireEventLocationChange() {
   setEventLookup.querySelector('.set-event-change-location')?.addEventListener('click', changeEventLocation)
-  setEventLookup.querySelector('.set-event-dismiss')?.addEventListener('click', () => setEventSuggestionsEnabled(false))
+  setEventLookup.querySelector('.set-event-dismiss')?.addEventListener('click', dismissEventSuggestions)
 }
 
 async function lookupNextDjEvents({ force = false } = {}) {
@@ -978,11 +991,15 @@ function renderSetMetadataHeader() {
     ...(metadata.date ? [{ field: 'date', label: 'date', value: metadata.date }] : []),
   ]
   const editMode = state.metadataEditMode == null ? facts.length === 0 : state.metadataEditMode
+  const set79Checking = services.set79?.status === 'checking'
+  const metadataRefreshing = state.metadataOverwriteOnSet79 || set79Checking
   setMetadataHeader.classList.toggle('is-editing', editMode)
   btnSetMetadataEdit.textContent = editMode ? 'done' : 'edit'
   btnSetMetadataEdit.setAttribute('aria-pressed', String(editMode))
+  btnSetMetadataRefresh.classList.toggle('is-refreshing', metadataRefreshing)
+  btnSetMetadataRefresh.setAttribute('aria-busy', String(metadataRefreshing))
   if (!state.metadataOverwriteOnSet79) {
-    btnSetMetadataRefresh.disabled = !services.set79 || services.set79.status === 'checking'
+    btnSetMetadataRefresh.disabled = !services.set79 || set79Checking
   }
 
   const factPills = facts.map(({ field, label, value }, index) => editMode ? `
@@ -1122,9 +1139,8 @@ async function autoSetMetadata() {
     await window.api.autoSetMetadata()
   } finally {
     state.metadataOverwriteOnSet79 = false
-    btnSetMetadataRefresh.classList.remove('is-refreshing')
     if (state.currentSetUrl === sourceUrl) {
-      btnSetMetadataRefresh.disabled = false
+      renderSetMetadataHeader()
     }
   }
 }
@@ -2028,6 +2044,7 @@ function wireMainEvents() {
       state.currentTracklistOptions = []
       state.metadataEditMode = null
       state.metadataOverwriteOnSet79 = false
+      state.eventSuggestionsDismissedNotice = false
     }
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
@@ -3359,6 +3376,7 @@ function loadSet(item, resume) {
     state.currentTracklistProviderName = null
     state.currentTracklistProviderFooter = null
     state.currentTracklistOptions = []
+    state.eventSuggestionsDismissedNotice = false
     state.currentSetMetadata = savedMetadataForUrl(item.url)
     state.metadataRemovedValues = savedIgnoredMetadataValuesForUrl(item.url)
     state.currentSourceStats = null
@@ -3768,6 +3786,7 @@ function resetNowPlaying() {
   state.currentEventLookup = null
   state.currentEventLookupKey = ''
   state.currentEventLookupRequest++
+  state.eventSuggestionsDismissedNotice = false
   state.playbackCurrentTime = 0
   state.playbackDuration    = 0
   updatePlaybackProgress(0, 0)

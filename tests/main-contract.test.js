@@ -246,6 +246,18 @@ test('private lookup caches never round-trip through ordinary renderer persisten
   assert.match(fn, /delete rendererStore\.tracklistCache/)
   assert.match(fn, /delete rendererStore\.tracklistPreferences/)
   assert.match(fn, /delete rendererStore\.artworkCache/)
+  assert.match(fn, /delete rendererStore\.eventLookupCache/)
+})
+
+test('event lookups are cached privately until the next local day', () => {
+  assert.match(mainJs, /const EVENT_LOOKUP_CACHE_VERSION = 1/)
+  assert.match(mainJs, /function nextLocalDayStart\(now = Date\.now\(\)\)/)
+  assert.match(mainJs, /function getCachedEventLookup\(location, djNames\)/)
+  assert.match(mainJs, /function writeCachedEventLookup\(location, djNames, results\)/)
+  const handler = mainJs.slice(mainJs.indexOf("ipcMain.handle('event-lookup'"), mainJs.indexOf("ipcMain.handle('register-webview-role'"))
+  assert.ok(handler.indexOf('getCachedEventLookup(location, djNames)') < handler.indexOf('plugins.lookupNextEvents'))
+  assert.match(handler, /writeCachedEventLookup\(location, djNames, results\)/)
+  assert.match(mainJs, /if \(existing\.eventLookupCache\) next\.eventLookupCache = existing\.eventLookupCache/)
 })
 
 test('cached normalized metadata backfills older saved sets for the Library', () => {

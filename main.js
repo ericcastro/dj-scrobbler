@@ -72,6 +72,8 @@ function log(...args) {
 }
 const DEVELOPER_MODE = process.argv.includes('--developer')
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
+const EVENT_LOOKUP_CACHE_VERSION = 1
+const MAX_EVENT_LOOKUP_CACHE_ENTRIES = 300
 const ARTWORK_CACHE_VERSION = 1
 const ARTWORK_CACHE_HIT_TTL_MS = 365 * 24 * 60 * 60 * 1000
 const ARTWORK_CACHE_MISS_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -185,6 +187,7 @@ function readStoreForRenderer() {
   delete rendererStore.tracklistCache
   delete rendererStore.tracklistPreferences
   delete rendererStore.artworkCache
+  delete rendererStore.eventLookupCache
   return rendererStore
 }
 
@@ -322,6 +325,75 @@ function writeCachedTracklist({ sourceUrl, providerId, tracklistUrl, title, thum
   pruneTracklistCache(store.tracklistCache, now)
   writeStore(store)
   log(`[cache] stored tracklist tracks=${tracks.length} provider=${providerId} source=${sourceUrl}`)
+}
+
+function eventLookupCacheKey(location, djNames) {
+  const city = String(location?.city || '').trim().toLowerCase()
+  const countryCode = String(location?.countryCode || '').trim().toUpperCase()
+  const names = [...new Set((djNames || [])
+    .map(name => String(name).trim().toLowerCase())
+    .filter(Boolean))]
+    .sort()
+  return crypto.createHash('sha1').update(`${city}:${countryCode}:${names.join('|')}`).digest('hex')
+}
+
+function nextLocalDayStart(now = Date.now()) {
+  const date = new Date(now)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime()
+}
+
+function isUsableCachedEventLookup(entry, now = Date.now()) {
+  return entry &&
+    entry.version === EVENT_LOOKUP_CACHE_VERSION &&
+    entry.expiresAt > now &&
+    Array.isArray(entry.results)
+}
+
+function pruneEventLookupCache(cache, now = Date.now()) {
+  for (const [key, entry] of Object.entries(cache)) {
+    if (!isUsableCachedEventLookup(entry, now)) delete cache[key]
+  }
+  const entries = Object.entries(cache)
+  if (entries.length <= MAX_EVENT_LOOKUP_CACHE_ENTRIES) return
+  entries
+    .sort(([, left], [, right]) => (right.cachedAt || 0) - (left.cachedAt || 0))
+    .slice(MAX_EVENT_LOOKUP_CACHE_ENTRIES)
+    .forEach(([key]) => delete cache[key])
+}
+
+function getCachedEventLookup(location, djNames) {
+  const store = readStore()
+  const cache = store.eventLookupCache || {}
+  const key = eventLookupCacheKey(location, djNames)
+  const now = Date.now()
+  const entry = cache[key]
+  if (isUsableCachedEventLookup(entry, now)) return entry.results
+
+  if (entry) {
+    delete cache[key]
+    store.eventLookupCache = cache
+    pruneEventLookupCache(cache, now)
+    writeStore(store)
+    log(`[cache] expired event lookup city=${location.city}`)
+  }
+  return null
+}
+
+function writeCachedEventLookup(location, djNames, results) {
+  if (!Array.isArray(results)) return
+  const store = readStore()
+  if (!store.eventLookupCache || typeof store.eventLookupCache !== 'object') store.eventLookupCache = {}
+
+  const now = Date.now()
+  store.eventLookupCache[eventLookupCacheKey(location, djNames)] = {
+    version: EVENT_LOOKUP_CACHE_VERSION,
+    cachedAt: now,
+    expiresAt: nextLocalDayStart(now),
+    results,
+  }
+  pruneEventLookupCache(store.eventLookupCache, now)
+  writeStore(store)
+  log(`[cache] stored event lookup city=${location.city} artists=${djNames.length}`)
 }
 
 function artworkCacheKey(track) {
@@ -2496,6 +2568,7 @@ ipcMain.handle('store-set', (_event, data) => {
   if (existing.tracklistCache) next.tracklistCache = existing.tracklistCache
   if (existing.tracklistPreferences) next.tracklistPreferences = existing.tracklistPreferences
   if (existing.artworkCache) next.artworkCache = existing.artworkCache
+  if (existing.eventLookupCache) next.eventLookupCache = existing.eventLookupCache
   writeStore(next)
   syncCurrentStatsMetadataFromStore(next)
 })
@@ -2529,6 +2602,12 @@ ipcMain.handle('event-lookup', async (_event, value) => {
   const djNames = Array.isArray(value?.djNames)
     ? value.djNames.map(name => String(name).trim().slice(0, 120)).filter(Boolean).slice(0, 8)
     : []
+  if (!djNames.length) return { sourceUrl, requestId, location, results: [] }
+  const cachedResults = getCachedEventLookup(location, djNames)
+  if (cachedResults) {
+    log(`[cache] hit event lookup city=${location.city} artists=${djNames.length}`)
+    return { sourceUrl, requestId, location, results: cachedResults }
+  }
   const results = await plugins.lookupNextEvents({
     djNames,
     location,
@@ -2541,6 +2620,7 @@ ipcMain.handle('event-lookup', async (_event, value) => {
       }
     },
   })
+  writeCachedEventLookup(location, djNames, results)
   return { sourceUrl, requestId, location, results }
 })
 

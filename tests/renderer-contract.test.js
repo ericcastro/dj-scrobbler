@@ -464,10 +464,16 @@ test('local event suggestions can be dismissed from the header and re-enabled in
   assert.match(appJs, /state\.store\.settings\?\.eventSuggestionsEnabled !== false/)
   assert.match(appJs, /function setEventSuggestionsEnabled\(enabled\)/)
   assert.match(appJs, /class="set-event-dismiss"><span aria-hidden="true">×<\/span> stop suggesting events in my city/)
-  assert.match(appJs, /setEventLookup\.querySelector\('\.set-event-dismiss'\).*setEventSuggestionsEnabled\(false\)/s)
+  assert.match(appJs, /function dismissEventSuggestions\(\)/)
+  assert.match(appJs, /eventSuggestionsDismissedNotice = true/)
+  assert.match(appJs, /setEventLookup\.querySelector\('\.set-event-dismiss'\).*dismissEventSuggestions/s)
+  assert.match(appJs, /You will not be informed about events in your city anymore\./)
+  assert.match(appJs, /class="set-event-dismiss-undo">undo<\/button>/)
+  assert.match(appJs, /setEventSuggestionsEnabled\(true\)/)
   assert.match(appJs, /eventLocationSetup\.classList\.toggle\('hidden', !enabled\)/)
   assert.match(styleCss, /\.set-event-lookup\s*\{[^}]*border-top:\s*1px solid/s)
   assert.match(styleCss, /\.set-event-dismiss\s*\{[^}]*opacity:\s*\.48/s)
+  assert.match(styleCss, /\.set-event-dismiss-undo\s*\{[^}]*text-decoration:\s*underline/s)
 })
 
 test('disabled local event suggestions never start or accept a lookup', () => {
@@ -489,6 +495,8 @@ test('mini-player source strip includes both source and provider checks', () => 
   for (const status of ['checking', 'available', 'unavailable', 'error']) {
     assert.match(styleCss, new RegExp(`status-${status}`), `${status} availability style missing`)
   }
+  assert.match(styleCss, /\.set-availability-pill\.status-checking\s*\{[^}]*animation:\s*set-availability-breathe/s)
+  assert.match(styleCss, /@keyframes set-availability-breathe/)
 })
 
 test('the source strip replaces the old mini-player tracklist attribution', () => {
@@ -594,6 +602,8 @@ test('auto metadata lookup can replace a successful set79 match and edit mode is
   assert.match(appJs, /metadata\.providerId === 'set79'/)
   assert.match(appJs, /replace: replaceFromSet79/)
   assert.match(appJs, /btnSetMetadataRefresh\.classList\.add\('is-refreshing'\)/)
+  assert.match(appJs, /const set79Checking = services\.set79\?\.status === 'checking'/)
+  assert.match(appJs, /btnSetMetadataRefresh\.classList\.toggle\('is-refreshing', metadataRefreshing\)/)
   assert.match(styleCss, /\.set-metadata-refresh\.is-refreshing svg/)
   assert.match(styleCss, /@keyframes set-metadata-spin\s*\{[^}]*rotate\(-360deg\)/s)
   assert.match(styleCss, /\.set-metadata-header\.is-editing\s*\{/)
