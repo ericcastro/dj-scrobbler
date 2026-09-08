@@ -6,7 +6,9 @@ const path = require('node:path')
 
 const { collectSignablePaths } = require('../scripts/afterPack')._test
 
-test('macOS signing inventory is collected inside-out without following symlinks', () => {
+test('macOS signing inventory is collected inside-out without following symlinks', {
+  skip: process.platform !== 'darwin',
+}, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dj-after-pack-'))
   try {
     const framework = path.join(root, 'Example.framework')
