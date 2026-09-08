@@ -1953,6 +1953,16 @@ button.set-metadata-pill {
   cursor: pointer;
 }
 
+.set-event-detail {
+  color: var(--text2);
+  opacity: .48;
+}
+
+.set-event-separator {
+  width: 100%;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
 .set-event-location-cta {
   text-decoration: underline;
   text-underline-offset: 3px;

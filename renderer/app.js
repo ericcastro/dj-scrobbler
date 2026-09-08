@@ -44,6 +44,18 @@ const state = {
   pendingResumeTime: null, // seconds to seek to after first playback-progress tick
 }
 
+const EVENT_KAWAII_EMOTES = [
+  '(っ◔◡◔)っ ❤',
+  '(ﾉ^ヮ^)ﾉ*:・ﾟ✧',
+  '┌[ ◕ ◡ ◕]┘',
+  '【ﾉ◕ヮ◕】ﾉ',
+  '〜(￣▽￣〜)',
+  '♡_♡',
+  '♥ ω ♥',
+  '[〜￣▽￣]〜',
+  '╘[◉▽◉]╕',
+]
+
 // ── DOM refs ────────────────────────────────────────────────────────────────
 
 const webview            = document.getElementById('webview')
@@ -656,9 +668,11 @@ function renderNextDjEvents() {
   }
   setEventLookup.innerHTML = matches.map((result, index) => `
     <div class="set-event-line">
-      <div class="set-event-summary-clip"><span class="set-event-summary-text"><strong>${escHtml(result.artist)}</strong> — ${eventSummaryHtml(result)}</span></div>
+      <div class="set-event-summary-clip"><span class="set-event-summary-text"><strong>${escHtml(result.artist)}</strong> is playing in your city! ${escHtml(eventAnnouncementEmote(result))}</span></div>
       <button type="button" class="set-event-link" data-event-index="${index}">${escHtml(result.event.sourceName)} ↗</button>
     </div>
+    <div class="set-event-line"><span class="set-event-detail">${eventSummaryHtml(result)}</span></div>
+    <div class="set-event-separator" aria-hidden="true"></div>
   `).join('') + eventLocationControlHtml(location)
   setEventLookup.querySelectorAll('.set-event-link').forEach(button => {
     button.addEventListener('click', () => {
@@ -691,6 +705,13 @@ function eventSummaryHtml(result) {
   const title = compactEventTitle(event.title, result.artist, event.venue)
   const lead = [escHtml(event.dateLabel), ...(title ? [escHtml(title)] : [])].join(' · ')
   return `${lead} <span class="set-event-venue">@ ${escHtml(event.venue)}</span>`
+}
+
+function eventAnnouncementEmote(result) {
+  const identity = [result?.artist, result?.event?.url, result?.event?.dateLabel].join('|')
+  let hash = 0
+  for (const character of identity) hash = ((hash * 31) + character.codePointAt(0)) >>> 0
+  return EVENT_KAWAII_EMOTES[hash % EVENT_KAWAII_EMOTES.length]
 }
 
 function wireEventLocationChange() {
