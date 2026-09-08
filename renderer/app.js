@@ -843,10 +843,10 @@ function automaticEventLookupsBlocked() {
 function metadataOutlookCopy(waiting, services) {
   const outlook = state.currentSourceStats?.metadataOutlook
   if (automaticSetLookupsSuppressed(services)) {
-    return 'This seems too short to be a DJ set. Cowardly refusing to look up any additional info on it.'
+    return 'Media seems too short to be a DJ set. Refusing to look up any additional info.'
   }
   if (hasNoSoundCloudMatch(waiting, services)) {
-    return "No SoundCloud match — set79 can't look this set up yet."
+    return "Not enough sources of metadata for this DJ set yet."
   }
   if (!waiting && services.soundcloud?.status === 'error') return "set79 couldn't be checked right now."
   if (waiting) return 'Attempting to get DJ set details from set79…'
@@ -1054,7 +1054,7 @@ function renderSetMetadataHeader() {
   const noSoundCloudMatch = hasNoSoundCloudMatch(waiting, services)
   const automaticLookupsSuppressed = automaticSetLookupsSuppressed(services)
   const editMode = state.metadataEditMode == null
-    ? facts.length === 0 && !noSoundCloudMatch && !automaticLookupsSuppressed
+    ? facts.length === 0 && (!noSoundCloudMatch || suggestions.length > 0) && !automaticLookupsSuppressed
     : state.metadataEditMode
   const set79Checking = services.set79?.status === 'checking'
   const metadataRefreshing = state.metadataOverwriteOnSet79 || set79Checking
@@ -1100,17 +1100,16 @@ function renderSetMetadataHeader() {
     ? '<button type="button" class="set-metadata-recovery-action set-metadata-accept-suggestions">accept suggestions</button>'
     : ''
   const recoveryAction = facts.length === 0 && noSoundCloudMatch && !editMode && !suggestions.length
-    ? '<button type="button" class="set-metadata-recovery-action set-metadata-complete">complete metadata</button>'
+    ? '<button type="button" class="set-metadata-recovery-action set-metadata-complete">add metadata</button>'
     : ''
   const recoveryCopy = noSoundCloudMatch && !suggestions.length
-    ? `${metadataOutlookCopy(waiting, services)} You can complete the metadata yourself if you like.`
+    ? `${metadataOutlookCopy(waiting, services)} You can add metadata yourself if you like.`
     : metadataOutlookCopy(waiting, services)
 
   const recoveryRow = !facts.length || acceptSuggestionsAction
     ? `
       <div class="set-metadata-recovery">
-        <span class="set-metadata-empty-detail">${escHtml(recoveryCopy)}</span>
-        ${acceptSuggestionsAction || recoveryAction}
+        <span class="set-metadata-empty-detail">${escHtml(recoveryCopy)}${acceptSuggestionsAction || recoveryAction ? ` ${acceptSuggestionsAction || recoveryAction}` : ''}</span>
       </div>
     `
     : ''

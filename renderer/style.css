@@ -1794,8 +1794,6 @@ button.set-metadata-pill {
   flex: 1 0 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
   min-width: 0;
 }
 
@@ -1807,7 +1805,6 @@ button.set-metadata-pill {
 }
 
 .set-metadata-recovery-action {
-  flex: none;
   border: 0;
   padding: 0;
   color: var(--accent2);
