@@ -14,11 +14,14 @@ It searches for a matching tracklist, follows the currently playing track, and s
 
 - Search YouTube for DJ sets directly inside the app.
 - Save favorite sets and browse listening history across sessions.
-- Match sets to tracklists from 1001Tracklists automatically.
+- Search 1001Tracklists and set79 in parallel, preferring an exact 1001Tracklists match.
 - Show the active tracklist in sync with playback, highlighting the current track.
+- Enrich identified tracks with artwork when a provider has none.
 - Connect a Last.fm account and scrobble each individual track as it plays.
 - Keep the DJ set title as the album in Last.fm, so listening history retains context.
 - Resume interrupted sets from where you left off.
+- Edit set metadata and browse favorites by DJ, event, or venue.
+- Track local listening totals and show upcoming DJ events near a saved location.
 - Three visual themes: Neon Night, Signal Teal, Sunset Deck.
 
 ## Why
@@ -54,14 +57,15 @@ and installs it in place with one click.
 
 ## How It Works
 
-DJ Scrobbler has two plugin layers:
+DJ Scrobbler has three plugin layers:
 
 - **Source plugins** understand playable set URLs (currently YouTube).
-- **Tracklist plugins** know how to find and monitor tracklist pages (currently 1001Tracklists).
+- **Tracklist plugins** find and extract tracklists (currently 1001Tracklists and set79).
+- **Event plugins** find upcoming appearances for tagged DJs (currently Resident Advisor and Shotgun).
 
-When you open a DJ set, the app loads an in-app YouTube player, searches 1001Tracklists for a matching tracklist, and begins polling the active track from the player timeline. As tracks change, DJ Scrobbler updates Now Playing and scrobbles to Last.fm once the track has played long enough.
+When you open a DJ set, the app starts its own YouTube player immediately and searches both tracklist providers. An exact 1001Tracklists match wins; set79 is a best-effort fallback based on title and duration. The app maps the player's current time onto provider cue points, updates Now Playing, records listening stats, and scrobbles to Last.fm once a track has genuinely played long enough.
 
-Tracklist lookups are cached locally for 7 days, so repeat plays skip the network round-trip.
+Tracklists, provider preferences, set metadata, and artwork results are cached locally. User-facing history, favorites, edits, settings, and listening statistics remain local to the machine.
 
 For a deeper breakdown, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 

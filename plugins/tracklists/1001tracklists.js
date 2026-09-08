@@ -258,22 +258,8 @@ module.exports = {
     return []
   },
 
-  // Dormant v0.4 playback fields. v0.5 keeps them here as reference only while
-  // playback moves to the app-owned YouTube player.
-  playerConfig: {
-    finderScript: 'getYTPlayer(ytPlayer.idPlayer).player.g',
-    selectors: ['#playerWidget', 'iframe[src*="youtube"]', 'iframe[src*="youtube-nocookie"]'],
-  },
-
-  autoplayDelay: 3000,
-  autoplayScript: `
-    if (typeof ytPlayer !== 'undefined' && ytPlayer.idPlayer) {
-      try { getYTPlayer(ytPlayer.idPlayer).player.playVideo() } catch(e) {}
-    }
-  `,
-
   // Extracts the full tracklist from the #tlTab DOM.
-  // Returns normalized-ish provider track objects; v0.5 uses cueSeconds for
+  // Returns normalized-ish provider track objects; the app uses cueSeconds for
   // app-owned seeking/highlighting instead of 1001tl's playPosition handlers.
   tracklistExtractScript: `(() => {
     const rows = Array.from(document.querySelectorAll('.tlpItem'))
@@ -311,51 +297,6 @@ module.exports = {
       const providerTrackId = row.id || '1001tl-row-' + index
       return { providerTrackId, trackNum, trackNumText, isWWith, isMashupComponent, noTimestamp, isId, artist, title, raw: rawName, hasTimestamp, cueSeconds, cueDisplay, artUrl, onclickStr }
     }).filter(t => t.raw || t.hasTimestamp || t.onclickStr)
-  })()`,
-
-  nowPlayingScript: `(() => {
-    const row = document.getElementsByClassName('cPlay')[0]
-    if (!row) return null
-    const isId     = !!row.querySelector('.trackValue.redTxt')
-    const nameMeta   = row.querySelector('meta[itemprop="name"]')
-    const artistMeta = row.querySelector('meta[itemprop="byArtist"]')
-    // ID tracks often have no nameMeta — allow them through with a synthetic raw key
-    if (!nameMeta && !isId) return null
-    const fullName = nameMeta ? (nameMeta.getAttribute('content') || '') : ''
-    const artist   = artistMeta ? (artistMeta.getAttribute('content') || '') : ''
-    const prefix   = artist ? artist + ' - ' : ''
-    const title    = prefix && fullName.startsWith(prefix)
-      ? fullName.substring(prefix.length) : fullName
-    const trackNumEl = row.querySelector('.fontXL')
-    const trackNum   = trackNumEl ? parseInt(trackNumEl.textContent.trim()) : null
-    const pauseBtn   = document.getElementById('playerWidgetPause')
-    const isPlaying  = pauseBtn ? pauseBtn.classList.contains('fa-pause') : true
-    // Give ID tracks a unique raw key so emitNowPlaying fires when entering one
-    const raw = fullName || (isId ? ('__id__:' + (trackNum ?? '?')) : '')
-    return { artist, title, raw, trackNum, isPlaying, isId, source: '1001tl' }
-  })()`,
-
-  // Returns { currentTime, duration } from the embedded YouTube player.
-  // Used to track playback position for resume even when the tracklist has no
-  // per-track timestamps (e.g. Boiler Room sets where .cPlay is never assigned).
-  // 1001tl's wrapper exposes getCurrentTime/getDuration directly; the raw
-  // IFrame API object is at .player.g — we check both layers for robustness.
-  progressScript: `(() => {
-    try {
-      if (typeof ytPlayer === 'undefined' || !ytPlayer.idPlayer || typeof getYTPlayer !== 'function') return null
-      const _w = getYTPlayer(ytPlayer.idPlayer)
-      if (!_w || !_w.player) return null
-      const _pl = (typeof _w.player.getCurrentTime === 'function')
-        ? _w.player
-        : (_w.player.g && typeof _w.player.g.getCurrentTime === 'function')
-          ? _w.player.g
-          : null
-      if (!_pl) return null
-      const cur = _pl.getCurrentTime()
-      const dur = typeof _pl.getDuration === 'function' ? _pl.getDuration() : null
-      if (typeof cur !== 'number' || !dur || dur <= 0) return null
-      return { currentTime: cur, duration: dur }
-    } catch(e) { return null }
   })()`,
 
   // Shown in the "no tracklist found" UI so the user can submit one.

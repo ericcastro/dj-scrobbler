@@ -325,8 +325,8 @@ module.exports = {
   name: 'set79',
   supportedSources: ['youtube', 'soundcloud'],
 
-  // Offered as an opt-in second try rather than a primary provider: matching a
-  // YouTube set to its SoundCloud upload by title is a guess, not a lookup.
+  // Used only as a fallback rather than a primary provider: matching a YouTube
+  // set to its SoundCloud upload by title is a guess, not an exact-ID lookup.
   experimental: true,
 
   // Only accept a search hit that genuinely resembles the set being played —
@@ -362,34 +362,8 @@ module.exports = {
     return results
   },
 
-  // set79 embeds SoundCloud's own player widget. Unused while playback is
-  // app-owned (YouTube), kept as reference for the SoundCloud source path.
-  playerConfig: {
-    selectors: ['iframe[src*="soundcloud.com/player"]', 'iframe[src*="soundcloud"]'],
-  },
-
-  autoplayDelay: 0,
-  autoplayScript: null,
-
   tracklistExtractScript: TRACKLIST_EXTRACT_SCRIPT,
   metadataExtractScript: METADATA_EXTRACT_SCRIPT,
-
-  nowPlayingScript: `(() => {
-    const activeRow = document.querySelector('.track-row.active')
-    if (!activeRow) return null
-    const ariaLabel = activeRow.getAttribute('aria-label') || ''
-    const match = ariaLabel.match(/Track (\\d+): (.+?) at \\d/)
-    if (!match) return null
-    const trackNum = parseInt(match[1])
-    const raw = match[2]
-    // set79 names read "Title - Artist"
-    const dashIdx = raw.lastIndexOf(' - ')
-    return {
-      artist: dashIdx > 0 ? raw.substring(dashIdx + 3).trim() : '',
-      title:  dashIdx > 0 ? raw.substring(0, dashIdx).trim() : raw,
-      raw, trackNum, isPlaying: true, source: 'set79',
-    }
-  })()`,
 
   // Copy for the "no tracklist found" UI when this provider is offered as a
   // second try after the source's primary provider came up empty.

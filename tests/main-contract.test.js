@@ -56,6 +56,23 @@ test('store-set handler always re-injects lfmSession to prevent renderer from wi
   assert.match(mainJs, /lfmSession.*store\.settings/)
 })
 
+test('the primary store uses atomic JSON replacement', () => {
+  const writer = mainJs.slice(mainJs.indexOf('function writeStore'), mainJs.indexOf('function backfillSavedMetadataFromCache'))
+  assert.match(mainJs, /require\(['"]\.\/lib\/atomic-json['"]\)/)
+  assert.match(writer, /writeJsonAtomic\(getStorePath\(\), data\)/)
+})
+
+test('cached metadata backfill respects values removed by the user', () => {
+  const backfill = mainJs.slice(
+    mainJs.indexOf('function backfillSavedMetadataFromCache'),
+    mainJs.indexOf('function readStoreForRenderer')
+  )
+  assert.match(mainJs, /isMetadataValueIgnored/)
+  for (const field of ['djNames', 'venue', 'event', 'date']) {
+    assert.match(backfill, new RegExp(`isMetadataValueIgnored\\(item\\.metadataIgnoredValues, '${field}'`))
+  }
+})
+
 test('update-utils is loaded from lib subdirectory', () => {
   assert.match(mainJs, /require\(['"]\.\/lib\/update-utils['"]\)/)
 })

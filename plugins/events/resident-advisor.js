@@ -1,4 +1,10 @@
-const { dateKey, normalize, normalizeEvent, normalizeWords } = require('../../lib/event-lookup-core')
+const {
+  countryMatches,
+  dateKey,
+  normalize,
+  normalizeEvent,
+  normalizeWords,
+} = require('../../lib/event-lookup-core')
 const { fetchText } = require('../../lib/event-http')
 
 const SOURCE = {
@@ -43,17 +49,11 @@ const EVENTS_QUERY = `
   }
 `
 
-function countryCodesMatch(left, right) {
-  const aliases = { GB: 'UK', UK: 'UK' }
-  return (aliases[String(left || '').toUpperCase()] || String(left || '').toUpperCase()) ===
-    (aliases[String(right || '').toUpperCase()] || String(right || '').toUpperCase())
-}
-
 function selectArea(areas, city, countryCode, countryName = '') {
   return areas.find(area =>
     normalize(area.name) === normalize(city) && (
       countryCode
-        ? countryCodesMatch(area.country?.urlCode, countryCode)
+        ? countryMatches(area.country?.urlCode, countryCode)
         : normalize(area.country?.name) === normalize(countryName)
     ),
   ) || null
@@ -97,7 +97,7 @@ class ResidentAdvisorClient {
     const data = await this.query(SEARCH_QUERY, { term: name })
     const key = normalizeWords(name)
     const artists = (data.search || []).filter(item => item.searchType === 'ARTIST')
-    return artists.find(item => normalizeWords(item.value) === key) || artists[0] || null
+    return artists.find(item => normalizeWords(item.value) === key) || null
   }
 
   async artistEvents(artistId, today) {

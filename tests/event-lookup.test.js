@@ -1,9 +1,16 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { artistMatches, earliestEvent, formatDateLabel, locationMatches } = require('../lib/event-lookup-core')
+const {
+  artistMatches,
+  countryMatches,
+  earliestEvent,
+  formatDateLabel,
+  locationMatches,
+} = require('../lib/event-lookup-core')
+const { withinDeadline } = require('../lib/shotgun-browser')
 const { lookupNextEvents } = require('../plugins/events')
-const { selectArea } = require('../plugins/events/resident-advisor')
+const { ResidentAdvisorClient, selectArea } = require('../plugins/events/resident-advisor')
 const { createShotgunSource } = require('../plugins/events/shotgun')
 
 const PARIS = {
@@ -30,6 +37,22 @@ test('event matching is exact for artist and configured city', () => {
   assert.equal(artistMatches(['Cloudy Bay'], 'Cloudy'), false)
   assert.equal(locationMatches({ city: 'Paris', country: 'France' }, { city: 'Paris', country: 'France', countryCode: 'FR' }), true)
   assert.equal(locationMatches({ city: 'Paris', country: 'United States' }, { city: 'Paris', country: 'France', countryCode: 'FR' }), false)
+  assert.equal(locationMatches({ city: 'Paris 11e', country: 'France' }, { city: 'Paris', country: 'France', countryCode: 'FR' }), false)
+  assert.equal(locationMatches({ city: null, country: 'France' }, { city: 'Paris', country: 'France', countryCode: 'FR' }), false)
+  assert.equal(locationMatches({ city: 'London', country: 'UK' }, { city: 'London', country: 'United Kingdom', countryCode: 'GB' }), true)
+  assert.equal(countryMatches('USA', 'US'), true)
+})
+
+test('Resident Advisor never substitutes a fuzzy artist result', async () => {
+  const client = new ResidentAdvisorClient()
+  client.query = async () => ({
+    search: [
+      { id: 'wrong', value: 'Cloudy Bay', searchType: 'ARTIST' },
+      { id: 'event', value: 'Cloudy', searchType: 'EVENT' },
+    ],
+  })
+
+  assert.equal(await client.searchArtist('Cloudy'), null)
 })
 
 test('Shotgun normalizes structured MusicEvent results and filters other cities', async () => {
@@ -75,6 +98,14 @@ test('multi-source lookup returns one earliest event per DJ and keeps source pri
   assert.equal(progress.at(-1).completed, 4)
   assert.equal(progress.at(-1).total, 4)
   assert.ok(progress.some(update => update.artist === 'Cloudy' && update.activeSourceNames.length === 2))
+})
+
+test('Shotgun browser operations cannot outlive the lookup deadline', async () => {
+  assert.equal(await withinDeadline(Promise.resolve('ok'), Date.now() + 100), 'ok')
+  await assert.rejects(
+    withinDeadline(new Promise(() => {}), Date.now() + 10),
+    /timed out/
+  )
 })
 
 function shotgunEvent(title, artist, city, startDate) {

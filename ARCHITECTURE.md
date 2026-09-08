@@ -3,8 +3,9 @@
 ## Overview
 
 DJ Scrobbler is an Electron app that hosts an app-owned YouTube player in a `<webview>`,
-intercepts navigation to DJ set pages, finds a matching tracklist on 1001Tracklists,
-and scrobbles the currently-playing track to Last.fm in real time.
+searches independent tracklist providers in parallel, maps cue points onto the player's
+timeline, and scrobbles the currently-playing track to Last.fm in real time. It also keeps
+local listening statistics, set metadata, a browsable library, and nearby event suggestions.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -25,10 +26,9 @@ and scrobbles the currently-playing track to Last.fm in real time.
 │    │  └──────────────┬───────────────┘  │                          │
 │    │                 │ meta             │                          │
 │    │  ┌──────────────▼───────────────┐  │                          │
-│    │  │  Tracklist Plugin            │  │                          │
-│    │  │  findTracklists (+ scoring)  │  │                          │
-│    │  │  nowPlayingScript            │  │                          │
-│    │  │  autoplayScript              │  │                          │
+│    │  │  Tracklist Plugins           │  │                          │
+│    │  │  parallel lookup + scoring   │  │                          │
+│    │  │  extraction + metadata       │  │                          │
 │    │  └──────────────┬───────────────┘  │                          │
 │    │                 │ IPC events       │                          │
 │    └─────────────────┼──────────────────┘                          │
@@ -51,7 +51,7 @@ and scrobbles the currently-playing track to Last.fm in real time.
 │                            │        │                             │
 │  main.js                   │◄──────►│  renderer/index.html        │
 │  plugins/                  │  IPC   │  renderer/app.js            │
-│  lib/update-utils.js       │        │  renderer/style.css         │
+│  lib/ + plugins/           │        │  renderer/style.css         │
 │  Last.fm API calls         │        │                             │
 │  File I/O (store)          │        │  window.api  (contextBridge)│
 └────────────────────────────┘        └─────────────────────────────┘
@@ -60,8 +60,8 @@ and scrobbles the currently-playing track to Last.fm in real time.
                                        │   <webview> tag         │
                                        │   (isolated renderer)   │
                                        │                         │
-                                       │   youtube.com           │
-                                       │   1001tracklists.com    │
+                                       │   YouTube browsing      │
+                                       │   + app-owned player    │
                                        └─────────────────────────┘
 ```
 
@@ -71,7 +71,7 @@ IPC channels used:
 |------------------|---------------------------------------------|----------------------------------------------|
 | renderer → main  | `store-get`                                 | Load persisted state                         |
 | renderer → main  | `store-set`                                 | Persist state                                |
-| renderer → main  | `stats-get` / `stats-set`                   | Load stats / legacy compatibility save       |
+| renderer → main  | `stats-get`                                 | Load authoritative listening totals           |
 | renderer → main  | `player-toggle`                             | Play / pause the active webview              |
 | renderer → main  | `player-seek`                               | Seek to a position in seconds                |
 | renderer → main  | `player-goto-track`                         | Seek to a specific track cue point           |
@@ -84,15 +84,23 @@ IPC channels used:
 | renderer → main  | `get-platform`                              | `darwin` / `win32` / `linux`                 |
 | renderer → main  | `set-theme`                                 | Persist theme, update dock icon + titlebar   |
 | renderer → main  | `tracklist-cache-clear`                     | Wipe the tracklist cache                     |
+| renderer → main  | `tracklist-refresh` / `tracklist-select-provider` | Refresh or switch tracklist source      |
+| renderer → main  | `set-metadata-auto`                         | Refresh set79 metadata                       |
+| renderer → main  | `event-location-resolve` / `event-lookup`   | Validate location and find upcoming events   |
 | renderer → main  | `updates-check` / `updates-download` / `updates-install` | Update lifecycle             |
 | renderer → main  | `updates-notifications-disabled-set`        | Suppress update toasts                       |
 | renderer → main  | `get-recent-logs`                           | Retrieve last 30 debug log lines             |
 | renderer → main  | `is-developer`                              | Whether app was launched with `--developer`  |
 | renderer → main  | `set-display-fullscreen`                    | Toggle theater / fullscreen video mode       |
-| renderer → main  | `window-drag-start/move/end`                | Custom frameless drag (Linux)                |
+| renderer → main  | `window-drag-start/move/end`                | Drag app-defined blank surfaces              |
 | renderer → main  | `open-external`                             | Open a URL in the system browser             |
 | main → renderer  | `now-playing`                               | Track changed                                |
 | main → renderer  | `tracklist-loaded`                          | Tracklist page loaded                        |
+| main → renderer  | `tracklist-data` / `tracklist-options`      | Extracted rows and usable provider choices   |
+| main → renderer  | `set-metadata` / `source-metadata`          | Set details and source popularity/date       |
+| main → renderer  | `set-availability` / `event-lookup-progress` | Provider status and event lookup progress  |
+| main → renderer  | `playback-progress` / `track-artwork`       | Player timeline and artwork enrichment       |
+| main → renderer  | `stats-updated`                             | Throttled authoritative listening totals      |
 | main → renderer  | `wv-status`                                 | `loading` / `no-tracklist` / `hide-overlay`  |
 | main → renderer  | `lfm-status`                                | `ok` / `error` / `unconfigured`              |
 | main → renderer  | `update-status`                             | Update check / download / ready state        |
@@ -107,9 +115,12 @@ plugins/
 ├── sources/
 │   ├── youtube.js         ← YouTube source plugin (active)
 │   └── soundcloud.js      ← SoundCloud source plugin (dormant)
-└── tracklists/
-    ├── 1001tracklists.js  ← 1001Tracklists provider plugin (active)
-    └── set79.js           ← set79 provider plugin (active, opt-in)
+├── tracklists/
+│   ├── 1001tracklists.js  ← 1001Tracklists provider plugin (active)
+│   └── set79.js           ← set79 provider plugin (automatic fallback)
+└── events/
+    ├── resident-advisor.js ← exact artist/city event lookup
+    └── shotgun.js          ← browser-backed event lookup
 ```
 
 ### Routing
@@ -117,19 +128,18 @@ plugins/
 Source and tracklist plugins are decoupled. The registry maps source → tracklist:
 
 ```
-ROUTING            youtube ──► 1001tracklists       searched automatically
-ALTERNATE_ROUTING  youtube ──► [set79]              searched only on request
+ROUTING                     youtube ──► 1001tracklists  primary, exact-ID capable
+AUTOMATIC_FALLBACK_ROUTING  youtube ──► [set79]         starts in parallel
+ALTERNATE_ROUTING           youtube ──► [set79]         remains manually retryable
 ```
 
-`ROUTING` is the provider searched when a set is opened. `ALTERNATE_ROUTING`
-lists providers the user can reach with a button press from the "no tracklist"
-panel — they match on weaker signals (set79 matches by title, not by media ID),
-so they never run unprompted.
+`ROUTING` identifies the preferred provider. Automatic fallbacks start beside it, but a
+usable primary result always wins. set79 matches across YouTube and SoundCloud using title
+and duration evidence, so it is selected only when the primary has no usable result.
+`ALTERNATE_ROUTING` keeps unsuccessful providers reachable for an explicit retry.
 
-Once an alternate has produced a tracklist for a set, its cache entry is
-restored automatically on reopen — but only *after* the primary provider has
-been retried and missed again, so a set is never permanently pinned to the
-alternate.
+Usable provider results are cached separately and can be switched in the renderer. A saved
+provider preference controls presentation without preventing the primary from being checked.
 
 Adding a new source (e.g. Mixcloud) requires:
 1. `plugins/sources/mixcloud.js` implementing the source interface
@@ -159,9 +169,10 @@ Adding a new source (e.g. Mixcloud) requires:
   matchUrl(url): boolean,             // is this URL a tracklist page?
   findTracklists(meta): [{ url, title }], // search for matching tracklists
   tracklistExtractScript: string,     // JS evaluated on the tracklist page
-  nowPlayingScript: string,           // JS evaluated in webview every 500ms
-  autoplayScript: string|null,        // JS run once after tracklist loads
-  autoplayDelay: number,              // ms to wait before running autoplayScript
+  metadataExtractScript?: string,     // optional normalized set metadata
+  normalizeTracklist?(tracks): tracks,
+  sourceUrlForTracklistUrl?(url): string|null,
+  candidateInfoExtractScript?: string,// optional evidence such as duration
   minMatchScore?: number,             // min titleSimilarity to accept (default 1)
   footerLabel?: string,               // "found an error? <label>" under the list
   contributeInfo?: { label, note, url(sourceUrl) },  // submit-a-tracklist offer
@@ -178,89 +189,42 @@ own.
 
 ---
 
-## Navigation Flow
-
-### YouTube → 1001Tracklists
+## Navigation and Lookup Flow
 
 ```
-User clicks a video link on youtube.com
+User selects a YouTube watch URL
         │
-        ▼
- [interceptScript] capture-phase DOM listener fires
- preventDefault() + stopImmediatePropagation()
- console.log('__INTERCEPT__youtube__<url>')
+        ├── app-owned YouTube embed starts immediately
+        │      └── one serialized 500 ms poll reports time, duration and play state
         │
-        ▼
- main: wvContents 'console-message' event
- source.parseIntercept(msg) → watch URL
-        │
-        ▼
- handleSourceUrl(youtube, watchUrl, wvContents)
-   └── check tracklist cache (7-day TTL)
-         ├── cache hit  → load cached tracklist URL directly
-         └── cache miss → youtube.getMeta(url) → oEmbed API → { title, channel }
-                        → 1001tl.findTracklists(meta) → POST search → [{ url, title }]
-                        → titleSimilarity score each result (Jaccard word overlap)
-                        → store best match in cache
-                        → wvContents.loadURL(best match)
-        │
-        ▼
- 1001tracklists page loads
- main: 'did-finish-load'
-   └── send 'tracklist-loaded' → renderer shows set info
-   └── startMonitoring(wvContents, 1001tlPlugin)
-   └── setTimeout → autoplayScript (ytPlayer.playVideo)
+        └── source metadata lookup
+               ├── 1001Tracklists primary ─┐
+               └── set79 fallback ─────────┴── run in parallel
+                                                │
+                           exact primary wins ──┤
+                       otherwise usable fallback
+                                                │
+                                                ▼
+                        hidden provider page extracts rows + metadata
+                                                │
+                                                ▼
+                     renderer receives tracklist, provider choices and status
 ```
 
-### No tracklist → set79 (opt-in)
-
-When the routed provider finds nothing, the panel below the player offers the
-source's alternates instead of the "create one yourself" link. Only one offer
-is on screen at a time, and the contribute link is what is left once every
-alternate has been tried:
-
-```
-1001tracklists search returns nothing
-        │
-        ▼
- send 'tracklist-loaded' { isFallback: true, alternateProviders: [set79] }
- renderer: "You can also try fetching a tracklist from set79.com"
-           [ Try set79.com instead (experimental) ]
-        │
-        ▼ user presses the button
- renderer: window.api.tryTracklistProvider('set79')
- main: tryTracklistProvider → runTracklistLookup(set79, currentSourceMeta, …)
-        │
-        ▼
- set79 /search { query: <YouTube title> }  → url_identity (SoundCloud path)
- https://set79.com/tracklist/<identity>    → tracklistExtractScript
-        │
-        ▼
- send 'tracklist-data' → renderer renders the set79 tracklist
- (playback never stops — only the tracklist half of the state is rebuilt)
-```
-
-A miss re-sends the fallback with `alternateProviders: []`, which brings the
-1001Tracklists contribute button back.
+Playback does not depend on either provider. Cached provider results can be displayed without
+a network round trip, while explicit refresh bypasses the caches. Providers that return usable
+results stay available as switchable choices. If none succeeds, the fallback panel offers a
+manual retry and then the 1001Tracklists contribution link.
 
 ---
 
 ## Now-Playing & Scrobbling
 
-```
-setInterval 500ms
-   └── wvContents.executeJavaScript(tlPlugin.nowPlayingScript)
-          │
-          ▼ returns { artist, title, raw, trackNum, isPlaying }
-          │
-   emitNowPlaying(data)
-   ├── raw unchanged?  → skip (de-duplicate)
-   ├── previous track played ≥ 30s?  → lfmScrobble(artist, title, startedAt)
-   ├── lastNowPlaying = data.raw
-   ├── trackStartedAt = Date.now()
-   ├── lfmUpdateNowPlaying(artist, title)   → track.updateNowPlaying
-   └── send 'now-playing' → renderer updates footer
-```
+The main process polls only the app-owned player and maps its current time to the extracted cue
+timeline. Polls are serialized and generation-scoped, so a slow response from an old player
+cannot update a newer set. The shared playback sampler accepts adjacent forward progress and
+rejects pauses, seeks, stalls, and long gaps; that validated duration drives both local stats
+and the 30-second Last.fm threshold. Track changes update Last.fm Now Playing and the renderer.
 
 ### Last.fm Auth Flow
 
@@ -285,8 +249,8 @@ Two JSON files under `app.getPath('userData')`:
 
 ```json
 {
-  "favorites":  [{ "title": "...", "url": "...", "thumbnailUrl": "...", "source": "1001tl" }],
-  "history":    [{ "title": "...", "url": "...", "source": "...", "playedAt": 1234567890 }],
+  "favorites":  [{ "title": "...", "url": "...", "djNames": ["..."], "event": "..." }],
+  "history":    [{ "title": "...", "url": "...", "playedAt": 1234567890, "progressTime": 123 }],
   "searchQueries": ["bicep live", "charlotte de witte"],
   "tracklistCache": {
     "<key>": {
@@ -299,19 +263,24 @@ Two JSON files under `app.getPath('userData')`:
       "expiresAt": 1234567890
     }
   },
+  "tracklistPreferences": { "<source URL>": "set79" },
+  "artworkCache": { "<artist/title key>": { "url": "...", "cachedAt": 1234567890 } },
   "settings": {
     "lfmSession":           { "key": "...", "name": "..." },
     "theme":                "neon-night",
     "windowBounds":         { "x": 0, "y": 0, "width": 1400, "height": 900 },
     "activeSidebarPanel":   "favorites",
-    "resumeMode":           "ask",
+    "resumeBehavior":       "ask",
+    "eventLocation":        { "city": "Paris", "country": "France", "countryCode": "FR" },
     "updateNotificationsDisabled": false
   }
 }
 ```
 
-`lfmSession` is always re-injected by the main process `store-set` handler before writing,
-so the renderer can never accidentally wipe it.
+`lfmSession` and the main-owned caches are always re-injected by the `store-set` handler,
+so ordinary renderer persistence cannot accidentally wipe private or internal state. User
+metadata removals are stored as exact-value exclusions so cache backfill does not undo edits.
+The store and stats files are both replaced atomically.
 
 The tracklist cache has a 7-day TTL and is capped at 200 entries (oldest pruned first).
 
@@ -325,7 +294,7 @@ with multiple DJs gives each DJ full credit for the set's listening time.
 Version 1 lifetime totals are retained as unattributed legacy values during migration because
 the old format does not contain enough information to reconstruct historical set or DJ totals.
 Writes are debounced, atomic, and flushed on pause, set changes, monitor shutdown, and app quit.
-`stats-set` remains a compatibility no-op until the renderer's existing live counter is removed.
+The renderer receives throttled snapshots for display and never mutates the persisted model.
 
 ---
 
@@ -337,7 +306,7 @@ The main window uses a different titlebar strategy per platform:
 |----------|---------------------------------------------------|
 | macOS    | `titleBarStyle: 'hiddenInset'` (native traffic lights, inset) |
 | Windows  | `titleBarStyle: 'hidden'` + `titleBarOverlay` (native Win32 buttons, theme-coloured) |
-| Linux    | `frame: false` (custom drag region via `window-drag-*` IPC) |
+| Linux    | `frame: true` (native window-manager title bar and controls) |
 
 On Windows, the overlay colours update in real time when the user switches themes via
 `mainWindow.setTitleBarOverlay()`. Each theme defines a `color` and `symbolColor` in
@@ -396,7 +365,7 @@ DJ_DEBUG_LOAD_URL=https://www.youtube.com/watch?v=... npm start
 Releases are triggered by pushing a version tag:
 
 ```sh
-git tag v0.5.3 && git push origin v0.5.3
+git tag v0.6.0 && git push origin v0.6.0
 ```
 
 GitHub Actions builds macOS, Windows, and Linux packages and publishes them to GitHub Releases.
@@ -410,25 +379,29 @@ dj-scrobbler/
 ├── main.js                 ← Main process: window, webview wiring, IPC, Last.fm, updates
 ├── preload.js              ← contextBridge — exposes window.api to renderer
 ├── lib/
-│   └── update-utils.js     ← Version comparison + update payload normalisation
+│   ├── listening-stats.js  ← versioned listening model + playback sampler
+│   ├── event-lookup-core.js← shared exact artist/location/event matching
+│   ├── deezer-artwork.js   ← conservative artwork lookup and matching
+│   └── update-utils.js     ← version comparison + update payload normalisation
 ├── plugins/
 │   ├── index.js            ← Registry, routing, titleSimilarity
 │   ├── sources/
 │   │   ├── youtube.js      ← YouTube source plugin (active)
 │   │   └── soundcloud.js   ← SoundCloud source plugin (dormant)
-│   └── tracklists/
-│       ├── 1001tracklists.js ← 1001Tracklists plugin (search + monitor)
-│       └── set79.js          ← set79 plugin (opt-in alternate for YouTube)
+│   ├── tracklists/
+│   │   ├── 1001tracklists.js ← primary exact-ID tracklist provider
+│   │   └── set79.js          ← title/duration-scored automatic fallback
+│   └── events/
+│       ├── resident-advisor.js
+│       └── shotgun.js
 ├── renderer/
 │   ├── index.html          ← App shell HTML
 │   ├── app.js              ← All UI logic (state, events, IPC listeners)
 │   └── style.css           ← Dark-theme styles (three colour themes)
 └── tests/
     ├── run-tests.js          ← Test runner (collects *.test.js)
-    ├── renderer-contract.test.js ← DOM/CSS/app.js contract tests
-    ├── main-contract.test.js     ← main.js contract tests (IPC, titlebar, store)
-    ├── update-utils.test.js      ← Update payload and version comparison
-    ├── youtube-source.test.js    ← YouTube source plugin
-    ├── tracklists-1001.test.js   ← 1001Tracklists plugin
-    └── set79-tracklist.test.js   ← set79 plugin
+    ├── listening-stats.test.js   ← sampling, attribution and migration
+    ├── event-lookup.test.js      ← multi-source exact matching
+    ├── renderer-contract.test.js ← DOM/CSS/app.js integration contracts
+    └── main-contract.test.js     ← main-process integration contracts
 ```

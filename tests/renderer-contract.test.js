@@ -49,6 +49,15 @@ test('critical player controls have matching markup and styles', () => {
   }
 })
 
+test('CSS custom properties are defined or supplied by renderer code', () => {
+  const definitions = new Set([...styleCss.matchAll(/--([\w-]+)\s*:/g)].map(match => match[1]))
+  const references = new Set([...styleCss.matchAll(/var\(--([\w-]+)/g)].map(match => match[1]))
+  const rendererSupplied = new Set(['marquee-dist', 'scroll-fade-size'])
+  const missing = [...references].filter(name => !definitions.has(name) && !rendererSupplied.has(name))
+
+  assert.deepEqual(missing, [])
+})
+
 test('search autocomplete uses row-level suggestion selection', () => {
   assert.match(appJs, /searchDropdown\.addEventListener\('mousedown'/)
   assert.match(appJs, /closest\('\.search-dropdown-item'\)/)
@@ -60,6 +69,14 @@ test('keyboard player shortcuts preview on keydown and commit on keyup', () => {
   assert.match(appJs, /document\.addEventListener\('keyup',\s*handlePlayerShortcutKeyup\)/)
   assert.match(appJs, /previewRelativeSeek\(-5\)/)
   assert.match(appJs, /commitKeyboardSeek\(\)/)
+})
+
+test('listening totals have one owner and reach the renderer as snapshots', () => {
+  assert.match(preloadJs, /'stats-updated'/)
+  assert.match(appJs, /window\.api\.on\('stats-updated', \(stats\) =>/)
+  assert.doesNotMatch(preloadJs, /setStats:/)
+  assert.doesNotMatch(appJs, /state\.stats\.totalListenedSeconds\s*=/)
+  assert.doesNotMatch(appJs, /state\.stats\.totalTracksListened\s*=/)
 })
 
 test('sidebar panel state is persisted by switchSidebarPanel but not by applySidebarPanel', () => {
@@ -406,7 +423,7 @@ test('metadata edit mode removes persisted values and offers immediate restorati
   assert.match(appJs, /tagSavedSetMetadata\(state\.currentSetUrl, current, \{ overwrite: true, replace: true \}\)/)
   assert.match(appJs, /state\.metadataRemovedValues/)
   assert.match(appJs, /A just-removed value is always a useful suggestion/)
-  assert.match(appJs, /if \(!url \|\| \(!replace && !Object\.keys\(metadataPatch\)\.length\)\) return/)
+  assert.match(appJs, /next\.metadataIgnoredValues = ignoredValues/)
 })
 
 test('location settings and the next-gig metadata row are wired into the app', () => {
@@ -581,6 +598,17 @@ test('auto metadata lookup can replace a successful set79 match and edit mode is
   assert.match(styleCss, /@keyframes set-metadata-spin\s*\{[^}]*rotate\(-360deg\)/s)
   assert.match(styleCss, /\.set-metadata-header\.is-editing\s*\{/)
   assert.match(indexHtml, /<span>auto<\/span>/)
+})
+
+test('manual metadata removals survive cache backfill and can be explicitly reset', () => {
+  assert.match(appJs, /function normalizedIgnoredMetadataValues\(values\)/)
+  assert.match(appJs, /next\.metadataIgnoredValues = ignoredValues/)
+  assert.match(appJs, /savedIgnoredMetadataValuesForUrl\(item\.url\)/)
+  assert.match(appJs, /if \(isNewSet\) state\.metadataRemovedValues = savedIgnoredMetadataValuesForUrl\(url\)/)
+  assert.match(appJs, /metadataIgnoredValues: normalizedIgnoredMetadataValues\(state\.metadataRemovedValues\)/)
+  const refresh = appJs.slice(appJs.indexOf('async function autoSetMetadata'), appJs.indexOf('function openAboutDialog'))
+  assert.ok(refresh.indexOf('state.metadataRemovedValues = []') < refresh.indexOf('window.api.autoSetMetadata()'))
+  assert.match(refresh, /tagSavedSetMetadata\(sourceUrl, state\.currentSetMetadata/)
 })
 
 test('Last.fm remains the first settings section', () => {

@@ -24,7 +24,7 @@ const EVENTS     = events.EVENTS
 
 // Parked for the v0.5 player refactor: the SoundCloud *source* still needs the
 // app-owned player work before it can participate in playback. Its tracklist
-// provider is already live — set79 serves YouTube as an opt-in alternate, and
+// provider is already live — set79 serves YouTube as an automatic fallback, and
 // handles a SoundCloud permalink without a search when that source wakes up.
 const DORMANT_INTEGRATIONS = {
   sources: [soundcloudDormant],

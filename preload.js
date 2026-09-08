@@ -4,7 +4,6 @@ contextBridge.exposeInMainWorld('api', {
   getStore:     ()      => ipcRenderer.invoke('store-get'),
   setStore:     (data)  => ipcRenderer.invoke('store-set', data),
   getStats:     ()      => ipcRenderer.invoke('stats-get'),
-  setStats:     (data)  => ipcRenderer.invoke('stats-set', data),
   getSources:   ()      => ipcRenderer.invoke('get-sources'),
   getRecentLogs: ()     => ipcRenderer.invoke('get-recent-logs'),
   appRestart:    ()     => ipcRenderer.invoke('app-restart'),
@@ -47,7 +46,7 @@ contextBridge.exposeInMainWorld('api', {
   lookupNextEvents: (payload) => ipcRenderer.invoke('event-lookup', payload),
 
   on: (channel, callback) => {
-    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'source-metadata', 'set-availability', 'event-lookup-progress',
+    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'source-metadata', 'set-availability', 'event-lookup-progress', 'stats-updated',
                      'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
                      'fallback-progress', 'tl-progress', 'update-status']
     if (!allowed.includes(channel)) return

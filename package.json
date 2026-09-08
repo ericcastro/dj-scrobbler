@@ -1,7 +1,7 @@
 {
   "name": "dj-scrobbler",
   "productName": "DJ Scrobbler",
-  "version": "0.5.8",
+  "version": "0.6.0",
   "description": "Scrobble tracks from DJ sets on YouTube",
   "author": "Eric Castro <errrick@gmail.com>",
   "license": "MIT",
@@ -20,7 +20,7 @@
   "build": {
     "appId": "com.djscrobbler.app",
     "productName": "DJ Scrobbler",
-    "copyright": "Copyright © 2025 Eric Castro",
+    "copyright": "Copyright © 2025–2026 Eric Castro",
     "directories": {
       "buildResources": "build-resources",
       "output": "dist"

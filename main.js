@@ -16,8 +16,13 @@ const {
 const macUpdater = require('./lib/mac-updater')
 const { wireYouTubePlayerUi, isYouTubePlayerUrl } = require('./lib/youtube-player-ui')
 const { startPrimaryWithFallback } = require('./lib/parallel-tracklist-lookup')
-const { hasSetMetadata, normalizeSetMetadata } = require('./lib/set-metadata')
+const {
+  hasSetMetadata,
+  isMetadataValueIgnored,
+  normalizeSetMetadata,
+} = require('./lib/set-metadata')
 const { classifyMetadataOutlook } = require('./lib/metadata-outlook')
+const { writeJsonAtomic } = require('./lib/atomic-json')
 const {
   migrateStats,
   recordListening,
@@ -132,7 +137,7 @@ function readStore() {
 }
 
 function writeStore(data) {
-  fs.writeFileSync(getStorePath(), JSON.stringify(data, null, 2))
+  writeJsonAtomic(getStorePath(), data)
 }
 
 function backfillSavedMetadataFromCache(store) {
@@ -155,11 +160,14 @@ function backfillSavedMetadataFromCache(store) {
     store[key] = store[key].map(item => {
       const metadata = cachedMetadataBySource.get(item.url)
       if (!metadata) return item
+      const availableDjNames = metadata.djNames.filter(name => (
+        !isMetadataValueIgnored(item.metadataIgnoredValues, 'djNames', name)
+      ))
       const patch = {
-        ...(!Array.isArray(item.djNames) || !item.djNames.length ? { djNames: metadata.djNames } : {}),
-        ...(!item.venue && metadata.venue ? { venue: metadata.venue } : {}),
-        ...(!item.event && metadata.event ? { event: metadata.event } : {}),
-        ...(!item.date && metadata.date ? { date: metadata.date } : {}),
+        ...(!Array.isArray(item.djNames) || !item.djNames.length ? { djNames: availableDjNames } : {}),
+        ...(!item.venue && metadata.venue && !isMetadataValueIgnored(item.metadataIgnoredValues, 'venue', metadata.venue) ? { venue: metadata.venue } : {}),
+        ...(!item.event && metadata.event && !isMetadataValueIgnored(item.metadataIgnoredValues, 'event', metadata.event) ? { event: metadata.event } : {}),
+        ...(!item.date && metadata.date && !isMetadataValueIgnored(item.metadataIgnoredValues, 'date', metadata.date) ? { date: metadata.date } : {}),
       }
       if (!patch.djNames?.length) delete patch.djNames
       if (!Object.keys(patch).length) return item
@@ -207,6 +215,15 @@ function readStats() {
   return statsForRenderer(loadStats())
 }
 
+let statsRendererUpdateTimer = null
+function scheduleStatsRendererUpdate() {
+  if (statsRendererUpdateTimer) return
+  statsRendererUpdateTimer = setTimeout(() => {
+    statsRendererUpdateTimer = null
+    if (!mainWindow?.isDestroyed()) mainWindow.webContents.send('stats-updated', readStats())
+  }, 1000)
+}
+
 function persistStatsNow() {
   if (listeningStatsWriteTimer) {
     clearTimeout(listeningStatsWriteTimer)
@@ -214,13 +231,10 @@ function persistStatsNow() {
   }
   if (!listeningStatsDirty || !listeningStats) return
   const statsPath = getStatsPath()
-  const temporaryPath = `${statsPath}.${process.pid}.tmp`
   try {
-    fs.writeFileSync(temporaryPath, JSON.stringify(listeningStats, null, 2))
-    fs.renameSync(temporaryPath, statsPath)
+    writeJsonAtomic(statsPath, listeningStats)
     listeningStatsDirty = false
   } catch (error) {
-    try { fs.unlinkSync(temporaryPath) } catch {}
     log(`[stats] persist failed: ${error?.message || error}`)
   }
 }
@@ -530,6 +544,7 @@ function lfmScrobble(artist, title, startedAt, album) {
 // ── App-owned playback + timeline tracking ───────────────────────────────────
 
 let monitorInterval      = null
+let monitorGeneration    = 0
 let lastNowPlaying       = null
 let lastTrackData        = null
 let trackStartedAt       = null
@@ -546,7 +561,6 @@ let triedProviders       = new Set()   // Providers already searched for this se
 let isYouTubePlayerMode  = false
 let isTracklistLookupPending = false
 let lastPlayerPlaying    = null
-let lastPlaybackTickAt   = null
 let currentTrackPlayedMs = 0
 let activeTrackKey       = null
 let statsPlaybackSample  = null
@@ -571,15 +585,8 @@ function youtubePlayerUrl(videoId) {
 }
 
 function thumbnailForSourceUrl(sourceUrl) {
-  if (!sourceUrl) return null
-  try {
-    const u = new URL(sourceUrl)
-    let videoId = null
-    if (u.hostname.includes('youtube.com')) videoId = u.searchParams.get('v')
-    else if (u.hostname === 'youtu.be')     videoId = u.pathname.slice(1).split('?')[0]
-    if (videoId) return `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
-  } catch {}
-  return null
+  const videoId = extractVideoId(sourceUrl)
+  return videoId ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` : null
 }
 
 function resetTimelineState() {
@@ -587,7 +594,6 @@ function resetTimelineState() {
   lastTrackData        = null
   trackStartedAt       = null
   lastPlayerPlaying    = null
-  lastPlaybackTickAt   = null
   currentTrackPlayedMs = 0
   activeTrackKey       = null
 }
@@ -639,7 +645,9 @@ function updateListeningStats(poll, now) {
   // Adjacent 500 ms polls should move together. The sampler rejects seeks,
   // stalled playheads, and long gaps caused by suspend or an unresponsive webview.
   const sampled = samplePlayback(previous, poll, now, descriptor?.sourceUrl)
+  let listenedMs = 0
   if (descriptor && sampled.interval) {
+    listenedMs = sampled.interval.endedAtMs - sampled.interval.startedAtMs
     recordListening(
       loadStats(),
       descriptor,
@@ -647,10 +655,12 @@ function updateListeningStats(poll, now) {
       sampled.interval.endedAtMs
     )
     markStatsDirty()
+    scheduleStatsRendererUpdate()
   }
   statsPlaybackSample = sampled.current
 
   if (previous?.isPlaying && !poll.isPlaying) persistStatsNow()
+  return listenedMs
 }
 
 function recordStatsTrackTransition(track, now) {
@@ -658,7 +668,10 @@ function recordStatsTrackTransition(track, now) {
   if (!Number.isFinite(trackNum)) return
   if (lastStatsTrackNum !== null && trackNum === lastStatsTrackNum + 1) {
     const descriptor = currentStatsSet()
-    if (descriptor && recordTrack(loadStats(), descriptor, now)) markStatsDirty()
+    if (descriptor && recordTrack(loadStats(), descriptor, now)) {
+      markStatsDirty()
+      scheduleStatsRendererUpdate()
+    }
   }
   lastStatsTrackNum = trackNum
 }
@@ -670,6 +683,7 @@ function scrobbleLastTrackIfReady() {
 }
 
 function stopMonitoring({ finalize = true } = {}) {
+  monitorGeneration++
   if (monitorInterval) { clearInterval(monitorInterval); monitorInterval = null }
   if (finalize) scrobbleLastTrackIfReady()
   resetStatsPlayback({ flush: true })
@@ -816,13 +830,6 @@ function keyForTrack(track) {
   return track?.providerTrackId || track?.raw || String(track?.trackNum || '')
 }
 
-function updatePlayAccumulator(now) {
-  if (lastPlaybackTickAt && lastPlayerPlaying === true && lastTrackData) {
-    currentTrackPlayedMs += Math.max(0, now - lastPlaybackTickAt)
-  }
-  lastPlaybackTickAt = now
-}
-
 function emitPlayerStateOnly(poll) {
   if (poll.isPlaying === lastPlayerPlaying) return
   lastPlayerPlaying = poll.isPlaying
@@ -882,8 +889,8 @@ function emitTimelineTrack(track, poll, now = Date.now()) {
 
 function handlePlaybackPoll(poll) {
   const now = Date.now()
-  updatePlayAccumulator(now)
-  updateListeningStats(poll, now)
+  const listenedMs = updateListeningStats(poll, now)
+  if (lastTrackData) currentTrackPlayedMs += listenedMs
 
   if (poll.duration > 0) {
     // Keep the source duration on the lookup metadata as soon as the app-owned
@@ -956,7 +963,9 @@ const YT_POLL_SCRIPT = `
 
 function startYouTubePlayerMonitoring(wvContents) {
   stopMonitoring({ finalize: false })
+  const generation = monitorGeneration
   setTimeout(() => {
+    if (generation !== monitorGeneration || wvContents.isDestroyed()) return
     wvContents.executeJavaScript(YT_PLAY_SCRIPT).catch(() => {})
     const settings = readStore().settings || {}
     const volume = Math.max(0, Math.min(100, Math.round(Number(settings.playerVolume ?? 80) || 0)))
@@ -970,11 +979,18 @@ function startYouTubePlayerMonitoring(wvContents) {
       })()
     `).catch(() => {})
   }, 1000)
+  let pollPending = false
   monitorInterval = setInterval(async () => {
+    if (pollPending) return
+    pollPending = true
     try {
       const poll = await wvContents.executeJavaScript(YT_POLL_SCRIPT)
-      if (poll) handlePlaybackPoll(poll)
-    } catch {}
+      if (generation === monitorGeneration && poll) handlePlaybackPoll(poll)
+    } catch {
+      // Navigation and shutdown routinely invalidate an in-flight poll.
+    } finally {
+      pollPending = false
+    }
   }, 500)
 }
 
@@ -2470,10 +2486,6 @@ app.on('window-all-closed', () => {
 
 ipcMain.handle('store-get',  () => readStoreForRenderer())
 ipcMain.handle('stats-get',  () => readStats())
-// Kept as a compatibility no-op while the renderer still maintains its live
-// lifetime display. Persisted stats are owned by the main-process player poll,
-// so a legacy whole-object save cannot erase daily set and DJ attribution.
-ipcMain.handle('stats-set',  () => readStats())
 ipcMain.handle('store-set', (_event, data) => {
   const existing = readStore()
   const next = { ...data }

@@ -35,7 +35,7 @@ const state = {
   currentSetAvailability: null, // per-service lookup state and explicit source URLs
   metadataEditMode: null, // null follows the default: open only when the set has no metadata
   metadataOverwriteOnSet79: false,
-  metadataRemovedValues: [], // current-set edits kept as restoration suggestions until reapplied/refreshed
+  metadataRemovedValues: [], // persisted per-value exclusions, also shown as restoration suggestions
   currentEventLookup: null, // async next-gig state for DJs in the metadata pills
   currentEventLookupKey: '',
   currentEventLookupRequest: 0,
@@ -1115,6 +1115,7 @@ async function autoSetMetadata() {
   btnSetMetadataRefresh.classList.add('is-refreshing')
   state.metadataOverwriteOnSet79 = true
   state.metadataRemovedValues = []
+  tagSavedSetMetadata(sourceUrl, state.currentSetMetadata, { overwrite: true, replace: true })
   state.currentEventLookupKey = ''
   state.currentEventLookup = null
   try {
@@ -1647,9 +1648,6 @@ function cycleVideoMode() {
 
 // ── Lifetime listening stats ──────────────────────────────────────────────────
 
-let _listenTickLastTime  = null  // previous currentTime value, for delta accumulation
-let _lastSeenTrackNum    = null  // for organic (sequential +1) track counting
-
 function formatListenTime(seconds) {
   const s = Math.max(0, Math.floor(seconds || 0))
   const h = Math.floor(s / 3600)
@@ -2022,19 +2020,20 @@ function wireMainEvents() {
     document.body.classList.remove('is-browsing')
     hasEverPlayed = true
     updateViewTabs()
-    if (url !== state.currentSetUrl) {
+    const isNewSet = url !== state.currentSetUrl
+    if (isNewSet) {
       state.currentSetMetadata = null
       state.currentSourceStats = null
       state.currentSetAvailability = null
       state.currentTracklistOptions = []
       state.metadataEditMode = null
       state.metadataOverwriteOnSet79 = false
-      state.metadataRemovedValues = []
     }
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
     state.currentSetUrl        = url
     state.currentSetMetadata   = state.currentSetMetadata || savedMetadataForUrl(url)
+    if (isNewSet) state.metadataRemovedValues = savedIgnoredMetadataValuesForUrl(url)
     state.currentSourceStats   = {
       publishedAt: sourcePublishedAt || null,
       viewCount: sourceViewCount ?? null,
@@ -2145,15 +2144,12 @@ function wireMainEvents() {
     if (data.trackNum && state.currentSetUrl && data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
       updateSetProgress(state.currentSetUrl, data.trackNum, data.cueSeconds)
     }
-    // Count organic track progressions: sequential +1 advances only, not manual jumps
-    if (data.trackNum && data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
-      if (_lastSeenTrackNum !== null && data.trackNum === _lastSeenTrackNum + 1) {
-        state.stats.totalTracksListened = (state.stats.totalTracksListened || 0) + 1
-        updateListenTimeSep()
-      }
-      _lastSeenTrackNum = data.trackNum
-    }
     refreshScrobbleBadge()
+  })
+
+  window.api.on('stats-updated', (stats) => {
+    state.stats = stats
+    updateListenTimeSep()
   })
 
   window.api.on('lfm-status', (status) => {
@@ -2167,31 +2163,6 @@ function wireMainEvents() {
     state.playbackCurrentTime = currentTime || 0
     state.playbackDuration = duration || 0
     updatePlaybackProgress()
-
-    // Accumulate lifetime listening time while actually playing (not paused)
-    if (document.body.classList.contains('is-track-playing')) {
-      if (_listenTickLastTime !== null) {
-        const delta = currentTime - _listenTickLastTime
-        // Accept only forward deltas up to ~5 s (rejects seeks and pauses)
-        if (delta > 0 && delta < 5) {
-          state.stats.totalListenedSeconds = (state.stats.totalListenedSeconds || 0) + delta
-          // Record today as a listening day (deduplicated)
-          const today = new Date().toISOString().slice(0, 10)
-          if (!state.stats.listenDays) state.stats.listenDays = []
-          if (!state.stats.listenDays.includes(today)) {
-            state.stats.listenDays.push(today)
-          }
-          // Record the very first listen date
-          if (!state.stats.firstListenDate) {
-            state.stats.firstListenDate = today
-          }
-          updateListenTimeSep()
-        }
-      }
-      _listenTickLastTime = currentTime
-    } else {
-      _listenTickLastTime = null
-    }
 
     if (!state.currentSetUrl) return
     // On first valid tick after a resume load, seek to the saved position then clear
@@ -2640,15 +2611,39 @@ function savedSetMetadata(metadata) {
   }
 }
 
+function normalizedIgnoredMetadataValues(values) {
+  if (!Array.isArray(values)) return []
+  const seen = new Set()
+  return values.flatMap(entry => {
+    const field = entry?.field
+    const value = normalizedMetadataText(entry?.value)
+    if (!['djNames', 'venue', 'event', 'date'].includes(field) || !value) return []
+    const key = `${field}:${librarySearchKey(value)}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{ field, label: field === 'djNames' ? 'DJ' : field, value }]
+  }).slice(0, 32)
+}
+
+function savedItemForUrl(url) {
+  return state.store.history.find(item => item.url === url) || state.store.favorites.find(item => item.url === url)
+}
+
 function savedMetadataForUrl(url) {
-  const saved = state.store.history.find(item => item.url === url) || state.store.favorites.find(item => item.url === url)
+  const saved = savedItemForUrl(url)
   const metadata = savedSetMetadata(saved)
   return Object.keys(metadata).length ? { sourceUrl: url, providerId: null, ...metadata } : null
 }
 
+function savedIgnoredMetadataValuesForUrl(url) {
+  return normalizedIgnoredMetadataValues(savedItemForUrl(url)?.metadataIgnoredValues)
+}
+
 function tagSavedSetMetadata(url, metadata, { overwrite = false, replace = false } = {}) {
   const metadataPatch = savedSetMetadata(metadata)
-  if (!url || (!replace && !Object.keys(metadataPatch).length)) return
+  const ignoredValues = normalizedIgnoredMetadataValues(state.metadataRemovedValues)
+    .map(({ field, value }) => ({ field, value }))
+  if (!url) return
   let changed = false
   ;['history', 'favorites'].forEach(key => {
     state.store[key] = state.store[key].map(item => {
@@ -2665,6 +2660,8 @@ function tagSavedSetMetadata(url, metadata, { overwrite = false, replace = false
         const missing = !normalizedMetadataText(next[field])
         if (overwrite || missing) next[field] = value
       }
+      if (ignoredValues.length) next.metadataIgnoredValues = ignoredValues
+      else delete next.metadataIgnoredValues
       if (JSON.stringify(next) === JSON.stringify(item)) return item
       changed = true
       return next
@@ -3148,6 +3145,7 @@ function addToHistory(item) {
     venue: existing.venue,
     event: existing.event,
     date: existing.date,
+    metadataIgnoredValues: existing.metadataIgnoredValues,
   } : {}
   state.store.history = state.store.history.filter(h => h.url !== item.url)
   state.store.history.unshift({ ...preserved, ...item, playedAt: Date.now() })
@@ -3335,7 +3333,6 @@ function updateFallbackProgress(url, pct, currentTime) {
     _fallbackPersistTimer = setTimeout(() => {
       _fallbackPersistTimer = null
       persist()
-      persistStats()
       renderHistory()
       renderFavorites()
     }, 10_000)
@@ -3344,7 +3341,6 @@ function updateFallbackProgress(url, pct, currentTime) {
 
 function loadSet(item, resume) {
   hasEverPlayed = true
-  _lastSeenTrackNum = null  // reset organic track counter for the new set
   state.pendingResumeTime = resume
     ? (item.progressTime ?? item.lastTrackCueSeconds ?? null)
     : null
@@ -3364,7 +3360,7 @@ function loadSet(item, resume) {
     state.currentTracklistProviderFooter = null
     state.currentTracklistOptions = []
     state.currentSetMetadata = savedMetadataForUrl(item.url)
-    state.metadataRemovedValues = []
+    state.metadataRemovedValues = savedIgnoredMetadataValuesForUrl(item.url)
     state.currentSourceStats = null
     state.currentSetAvailability = {
       sourceUrl: item.url,
@@ -3748,10 +3744,6 @@ function persist() {
   window.api.setStore(state.store)
 }
 
-function persistStats() {
-  window.api.setStats(state.stats)
-}
-
 // ── Now-playing reset ─────────────────────────────────────────────────────────
 
 function resetNowPlaying() {
@@ -4022,6 +4014,8 @@ function wireEvents() {
         tracklistUrl:     state.currentTracklistUrl || histEntry?.tracklistUrl || undefined,
         tracklistProvider: state.currentTracklistProvider || histEntry?.tracklistProvider || undefined,
         ...metadata,
+        metadataIgnoredValues: normalizedIgnoredMetadataValues(state.metadataRemovedValues)
+          .map(({ field, value }) => ({ field, value })),
         trackCount:       state.currentTracks.length || histEntry?.trackCount || undefined,
         progressTrackNum: histEntry?.progressTrackNum || undefined,
         lastTrackCueSeconds: histEntry?.lastTrackCueSeconds ?? undefined,
@@ -4321,7 +4315,7 @@ function wireEvents() {
       _seekPersistTimer = null
       needsPersist = true
     }
-    if (needsPersist) { persist(); persistStats() }
+    if (needsPersist) persist()
   })
 
   wireSidebarResize()

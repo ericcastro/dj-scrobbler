@@ -21,17 +21,37 @@
  *   Team ID consistency and crash even after our re-signing.
  */
 
-const { execSync } = require('child_process')
+const { execFileSync } = require('child_process')
 const path = require('path')
 const fs = require('fs')
 
 function sign(target) {
-  if (!fs.existsSync(target)) return
-  try {
-    execSync(`codesign --force --sign - --timestamp=none "${target}"`, { stdio: 'pipe' })
-    console.log(`[afterPack]   signed: ${path.basename(target)}`)
-  } catch (e) {
-    console.warn(`[afterPack]   warning: ${path.basename(target)}: ${e.stderr?.toString().trim() || e.message}`)
+  execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', target], { stdio: 'pipe' })
+  console.log(`[afterPack]   signed: ${path.basename(target)}`)
+}
+
+function collectSignablePaths(root) {
+  const binaries = []
+  const bundles = []
+  function walk(directory) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name)
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) {
+        walk(target)
+        if (/\.(?:app|framework|xpc)$/.test(entry.name)) bundles.push(target)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const mode = fs.statSync(target).mode
+      if ((mode & 0o111) || /\.(?:dylib|so)$/.test(entry.name)) binaries.push(target)
+    }
+  }
+  walk(root)
+  const deepestFirst = (left, right) => right.split(path.sep).length - left.split(path.sep).length
+  return {
+    binaries: binaries.sort(deepestFirst),
+    bundles: bundles.sort(deepestFirst),
   }
 }
 
@@ -42,45 +62,18 @@ exports.default = async function afterPack(context) {
     context.appOutDir,
     `${context.packager.appInfo.productName}.app`
   )
-  const contents    = path.join(appPath, 'Contents')
-  const frameworks  = path.join(contents, 'Frameworks')
-  const macOS       = path.join(contents, 'MacOS')
-
   console.log(`\n[afterPack] ad-hoc signing ${appPath}\n`)
 
-  // 1. Sign all .dylib and .so files
-  try {
-    execSync(`find "${appPath}" -type f \\( -name "*.dylib" -o -name "*.so" \\)`, { encoding: 'utf8' })
-      .trim().split('\n').filter(Boolean)
-      .forEach(sign)
-  } catch {}
-
-  // 2. Sign all files inside Electron Framework's Helpers directory
-  const helpersDir = path.join(frameworks, 'Electron Framework.framework', 'Versions', 'A', 'Helpers')
-  try {
-    execSync(`find "${helpersDir}" -type f`, { encoding: 'utf8' })
-      .trim().split('\n').filter(Boolean)
-      .forEach(sign)
-  } catch {}
-
-  // 3. Sign the Electron Framework binary directly (versioned path)
-  sign(path.join(frameworks, 'Electron Framework.framework', 'Versions', 'A', 'Electron Framework'))
-
-  // 4. Sign the Electron Framework bundle (must come after the binary)
-  sign(path.join(frameworks, 'Electron Framework.framework'))
-
-  // 5. Sign each Helper .app
-  try {
-    execSync(`find "${frameworks}" -maxdepth 1 -name "*.app" -type d`, { encoding: 'utf8' })
-      .trim().split('\n').filter(Boolean)
-      .forEach(sign)
-  } catch {}
-
-  // 6. Sign the main executable
-  sign(path.join(macOS, context.packager.appInfo.productName))
-
-  // 7. Sign the outer app bundle last
+  // A dynamic walk covers framework helpers such as Squirrel's ShipIt and
+  // remains correct when Electron changes its nested component inventory.
+  const { binaries, bundles } = collectSignablePaths(appPath)
+  binaries.forEach(sign)
+  bundles.forEach(sign)
   sign(appPath)
 
-  console.log('\n[afterPack] done\n')
+  // A failed seal means the bundle may not launch; do not publish it silently.
+  execFileSync('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], { stdio: 'pipe' })
+  console.log('\n[afterPack] signature verified\n')
 }
+
+exports._test = { collectSignablePaths }
