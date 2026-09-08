@@ -1953,10 +1953,15 @@ button.set-metadata-pill {
   cursor: pointer;
 }
 
-.set-event-detail,
-.set-event-emote {
+.set-event-detail {
   color: var(--text2);
   opacity: .48;
+  font-size: 12px;
+  line-height: 1.25;
+}
+.set-event-emote {
+  color: var(--text2);
+  opacity: .78;
 }
 
 .set-event-separator {
@@ -1985,6 +1990,10 @@ button.set-metadata-pill {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+}
+
+.set-event-detail-line {
+  margin-top: -3px;
 }
 
 .set-event-summary-clip {
@@ -2055,7 +2064,7 @@ button.set-metadata-pill {
   color: var(--text2);
   font: inherit;
   font-size: 10px;
-  opacity: .72;
+  opacity: .48;
   white-space: normal;
 }
 

@@ -665,7 +665,7 @@ function renderNextDjEvents() {
       <div class="set-event-summary-clip"><span class="set-event-summary-text"><strong>${escHtml(result.artist)}</strong> is playing in your city! <span class="set-event-emote">${escHtml(eventAnnouncementEmote(result))}</span></span></div>
       <button type="button" class="set-event-link" data-event-index="${index}">${escHtml(result.event.sourceName)} ↗</button>
     </div>
-    <div class="set-event-line"><div class="set-event-summary-clip"><span class="set-event-summary-text set-event-detail">${eventSummaryHtml(result)}</span></div></div>
+    <div class="set-event-line set-event-detail-line"><div class="set-event-summary-clip"><span class="set-event-summary-text set-event-detail">${eventSummaryHtml(result)}</span></div></div>
     <div class="set-event-separator" aria-hidden="true"></div>
   `).join('') + eventLocationControlHtml(location)
   setEventLookup.querySelectorAll('.set-event-link').forEach(button => {
@@ -2239,7 +2239,7 @@ function wireMainEvents() {
     // Player-only events carry play/pause state, not track metadata.
     if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
       npTrackText.textContent = data.isId ? 'ID' : (data.title || data.raw || '—')
-      npArtist.textContent   = data.isId ? '—' : (data.artist || '—')
+      npArtist.textContent   = data.isId ? 'ID' : (data.artist || '—')
       npArtistSeparator.classList.toggle('hidden', !npArtist.textContent || npArtist.textContent === '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
       setNpArtwork(data.isId ? null : data.artUrl, data.isId ? 'missing' : data.artworkStatus)
