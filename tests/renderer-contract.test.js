@@ -498,7 +498,7 @@ test('local event suggestions can be dismissed from the header and re-enabled in
   assert.match(appJs, /function eventSuggestionsEnabled\(\)/)
   assert.match(appJs, /state\.store\.settings\?\.eventSuggestionsEnabled !== false/)
   assert.match(appJs, /function setEventSuggestionsEnabled\(enabled\)/)
-  assert.match(appJs, /class="set-event-dismiss"><span aria-hidden="true">×<\/span> stop suggesting events in my city/)
+  assert.match(appJs, /class="set-event-dismiss"><span aria-hidden="true">×<\/span> stop suggesting events/)
   assert.match(appJs, /function dismissEventSuggestions\(\)/)
   assert.match(appJs, /eventSuggestionsDismissedNotice = true/)
   assert.match(appJs, /setEventLookup\.querySelector\('\.set-event-dismiss'\).*dismissEventSuggestions/s)

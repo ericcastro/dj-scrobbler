@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.6.1] - 2026-09-09
+
+### Added
+
+- Cache event lookups privately until the next local day to avoid repeat network checks.
+- Show upcoming local DJ events as compact announcements with source links and rotating understated emotes.
+
+### Changed
+
+- Refine the metadata editor with title-based suggestions, one-click acceptance, clearer recovery wording, and manual entry paths.
+- Make lookup and event-source status more legible with loading animation, reduced-motion support, and compact source pills.
+- Polish event announcement hierarchy, location controls, and sidebar selected-state behavior.
+
+### Fixed
+
+- Skip automatic tracklist, metadata, and event lookups for confirmed videos under ten minutes; **Auto** remains an explicit override.
+- Keep useful metadata suggestions visible after a no-match response.
+- Restore `ID - ID` in the mini-player for unidentified tracks.
+- Prevent short-video duration detection from racing ahead of cached metadata and triggering event lookups.
+
+### Verification
+
+- 224 automated tests pass locally.
+
 ## [0.6.0] - 2026-09-08
 
 ### Added

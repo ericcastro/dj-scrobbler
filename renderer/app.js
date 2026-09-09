@@ -568,7 +568,7 @@ function changeEventLocation() {
 function eventLocationControlHtml(location) {
   return `<span class="set-event-location-control">
     <span>location: ${escHtml(location.city)}, ${escHtml(location.country)} <button type="button" class="set-event-change-location">change</button></span>
-    <button type="button" class="set-event-dismiss"><span aria-hidden="true">×</span> stop suggesting events in my city</button>
+    <button type="button" class="set-event-dismiss"><span aria-hidden="true">×</span> stop suggesting events</button>
   </span>`
 }
 
