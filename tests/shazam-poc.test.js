@@ -5,6 +5,8 @@ const {
   appendRecognitionTimeline,
   buildFrameAudioCaptureScript,
   chooseSamplePoints,
+  chooseTracklistMoments,
+  compareRecognition,
   fingerprintFloat32,
   normalizeRecognitionResponse,
   recognitionPayload,
@@ -15,6 +17,37 @@ test('sample points avoid the intro and outro while covering the set', () => {
   assert.deepEqual(chooseSamplePoints(5_400), [972, 2124, 3276, 4428])
   assert.deepEqual(chooseSamplePoints(8), [])
   assert.deepEqual(chooseSamplePoints(120, { count: 1 }), [60])
+})
+
+test('tracklist validation moments use identified rows with room before the next cue', () => {
+  const moments = chooseTracklistMoments([
+    { trackNum: 1, artist: 'DJ A', title: 'Intro', cueSeconds: 0 },
+    { trackNum: 2, artist: 'DJ B', title: 'Known One', cueSeconds: 60 },
+    { trackNum: 3, artist: '', title: '', cueSeconds: 120, isId: true },
+    { trackNum: 4, artist: 'DJ C', title: 'Known Two', cueSeconds: 180 },
+    { trackNum: 5, artist: 'DJ D', title: 'ID', cueSeconds: 240 },
+    { trackNum: 6, artist: 'DJ E', title: 'Known Three', cueSeconds: 300 },
+  ], 400, { count: 5, clipSeconds: 10 })
+
+  assert.deepEqual(moments.map(moment => moment.expected.title), ['Known One', 'Known Two', 'Known Three'])
+  assert.ok(moments.every(moment => moment.playbackTimestamp > moment.cueSeconds))
+  assert.ok(moments.every(moment => moment.playbackTimestamp + 13 <= moment.nextCueSeconds))
+})
+
+test('published and recognized tracks are compared without overclaiming disagreements', () => {
+  assert.equal(compareRecognition(
+    { artist: 'TRIPTYKH', title: 'Unholy' },
+    { matched: true, artist: 'triptykh', title: 'Unholy' }
+  ).classification, 'exact')
+  assert.equal(compareRecognition(
+    { artist: 'Marlon Hoffstadt & KI/KI', title: 'Losing Control (Extended Mix)' },
+    { matched: true, artist: 'Marlon Hoffstadt', title: 'Losing Control' }
+  ).classification, 'near')
+  assert.equal(compareRecognition(
+    { artist: 'Published Artist', title: 'Published Track' },
+    { matched: true, artist: 'Someone Else', title: 'Another Song' }
+  ).classification, 'different')
+  assert.equal(compareRecognition({}, { matched: false }).classification, 'no-match')
 })
 
 test('PCM fingerprinting stays in memory and releases the WASM signature', () => {

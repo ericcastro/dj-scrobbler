@@ -151,6 +151,15 @@ test('the developer POC samples a saved YouTube favorite independently of trackl
   assert.match(mainJs, /Run Shazam Audio Capture POC/)
 })
 
+test('cross-set Shazam validation compares cached identified tracklist moments', () => {
+  assert.match(mainJs, /function savedTracklistValidationSets/)
+  assert.match(mainJs, /isUsableCachedTracklist\(entry\)/)
+  assert.match(mainJs, /chooseTracklistMoments\(target\.tracks, ready\.poll\.duration/)
+  assert.match(mainJs, /compareRecognition\(moment\.expected, recognized\.result\)/)
+  assert.match(mainJs, /shazam-validation-results\.json/)
+  assert.match(mainJs, /Validate Shazam Against Saved Tracklists/)
+})
+
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
   assert.match(mainJs, /ipcMain\.handle\('tracklist-try-provider'/)
   assert.match(mainJs, /async function tryTracklistProvider\(providerId\)/)

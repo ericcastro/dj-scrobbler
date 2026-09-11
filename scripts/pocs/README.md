@@ -29,6 +29,19 @@ Electron's DJ Scrobbler user-data directory. It contains capture diagnostics,
 set playback timestamps, normalized matches, and a de-duplicated recognition
 timeline; captured PCM is never written to disk.
 
+For the larger cross-check against published tracklists, run:
+
+```sh
+npm run poc:shazam:validate
+```
+
+This selects five saved sets with cached tracklists from different DJs where
+possible, then captures five safely spaced identified tracks from each set. Its
+`shazam-validation-results.json` report records the published expectation and
+Shazam result independently and classifies them as exact, near, related,
+different, or no-match. A disagreement is evidence to inspect, not a capture
+failure.
+
 The capture request is granted only to the armed player webContents and keeps
 local audio output enabled. It never requests microphone input. The Shazam
 endpoint used by this experiment is reverse-engineered and unsupported, so a

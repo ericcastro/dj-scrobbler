@@ -41,6 +41,8 @@ const {
   appendRecognitionTimeline,
   buildFrameAudioCaptureScript,
   chooseSamplePoints,
+  chooseTracklistMoments,
+  compareRecognition,
   recognizeFloat32,
 } = require('./lib/shazam-poc')
 
@@ -79,9 +81,12 @@ function log(...args) {
 }
 const DEVELOPER_MODE = process.argv.includes('--developer')
 const AUTO_SHAZAM_POC = process.argv.includes('--shazam-poc')
+const AUTO_SHAZAM_VALIDATION = process.argv.includes('--shazam-validation')
 const SHAZAM_POC_CLIP_SECONDS = 10
 const SHAZAM_POC_SAMPLE_COUNT = 4
 const SHAZAM_POC_SEEK_SETTLE_MS = 4000
+const SHAZAM_VALIDATION_SET_COUNT = 5
+const SHAZAM_VALIDATION_MOMENT_COUNT = 5
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MIN_AUTOMATIC_SET_DURATION_SECONDS = 10 * 60
 const EVENT_LOOKUP_CACHE_VERSION = 1
@@ -1313,6 +1318,217 @@ async function runShazamPoc() {
       return run
     } finally {
       await restorePlayerAfterShazamPoc(original, targetUrl)
+    }
+  })().finally(() => {
+    shazamPocRun = null
+  })
+
+  return shazamPocRun
+}
+
+function countIdentifiedTracks(tracks) {
+  return (Array.isArray(tracks) ? tracks : []).filter(track => (
+    Number.isFinite(Number(track?.cueSeconds)) &&
+    String(track?.artist || '').trim() &&
+    String(track?.title || '').trim() &&
+    String(track.title).trim().toLocaleLowerCase() !== 'id' &&
+    !track.isId &&
+    !track.isWWith &&
+    !track.isMashupComponent &&
+    !track.noTimestamp
+  )).length
+}
+
+function savedTracklistValidationSets(store, count = SHAZAM_VALIDATION_SET_COUNT) {
+  const cacheEntries = Object.values(store.tracklistCache || {}).filter(entry => isUsableCachedTracklist(entry))
+  const candidates = (Array.isArray(store.favorites) ? store.favorites : []).flatMap(favorite => {
+    if (!extractVideoId(favorite?.url)) return []
+    const matching = cacheEntries.filter(entry => entry.sourceUrl === favorite.url)
+    if (!matching.length) return []
+    const preferredProvider = store.tracklistPreferences?.[favorite.url]
+    matching.sort((left, right) => {
+      const leftPreferred = left.providerId === preferredProvider ? 1 : 0
+      const rightPreferred = right.providerId === preferredProvider ? 1 : 0
+      if (leftPreferred !== rightPreferred) return rightPreferred - leftPreferred
+      const leftPrimary = left.providerId === '1001tracklists' ? 1 : 0
+      const rightPrimary = right.providerId === '1001tracklists' ? 1 : 0
+      if (leftPrimary !== rightPrimary) return rightPrimary - leftPrimary
+      return countIdentifiedTracks(right.tracks) - countIdentifiedTracks(left.tracks)
+    })
+    const tracklist = matching[0]
+    const identifiedTrackCount = countIdentifiedTracks(tracklist.tracks)
+    if (identifiedTrackCount < SHAZAM_VALIDATION_MOMENT_COUNT) return []
+    return [{
+      title: favorite.title || tracklist.title || favorite.url,
+      url: favorite.url,
+      djNames: normalizeSetMetadata(favorite).djNames,
+      providerId: tracklist.providerId,
+      tracklistUrl: tracklist.tracklistUrl,
+      tracks: tracklist.tracks,
+      identifiedTrackCount,
+    }]
+  }).sort((left, right) => right.identifiedTrackCount - left.identifiedTrackCount)
+
+  // Prefer different saved DJs so the validation covers more than one artist's
+  // catalog. Sets with missing DJ metadata remain eligible as a fallback.
+  const selected = []
+  const usedDjs = new Set()
+  for (const candidate of candidates) {
+    const keys = candidate.djNames.map(name => name.toLocaleLowerCase())
+    if (keys.length && keys.every(key => usedDjs.has(key))) continue
+    selected.push(candidate)
+    keys.forEach(key => usedDjs.add(key))
+    if (selected.length === count) return selected
+  }
+  for (const candidate of candidates) {
+    if (!selected.includes(candidate)) selected.push(candidate)
+    if (selected.length === count) break
+  }
+  return selected
+}
+
+function shazamValidationResultPath() {
+  return path.join(app.getPath('userData'), 'shazam-validation-results.json')
+}
+
+function validationSummary(validation) {
+  const samples = validation.sets.flatMap(set => set.samples)
+  const classifications = ['exact', 'near', 'related', 'different', 'no-match']
+  return {
+    sets: validation.sets.length,
+    samples: samples.length,
+    captureErrors: samples.filter(sample => sample.error).length,
+    recognized: samples.filter(sample => sample.recognition?.matched).length,
+    ...Object.fromEntries(classifications.map(classification => [
+      classification,
+      samples.filter(sample => sample.comparison?.classification === classification).length,
+    ])),
+  }
+}
+
+async function runShazamValidation() {
+  if (!DEVELOPER_MODE) throw new Error('Shazam validation is available only in developer mode.')
+  if (shazamPocRun) return shazamPocRun
+
+  shazamPocRun = (async () => {
+    const store = readStore()
+    const targets = savedTracklistValidationSets(store)
+    if (targets.length < SHAZAM_VALIDATION_SET_COUNT) {
+      throw new Error(`Only ${targets.length} saved sets have enough cached, identified tracklist rows.`)
+    }
+    const originalContents = playerWvContents
+    const originalPoll = originalContents && !originalContents.isDestroyed()
+      ? await originalContents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+      : null
+    const original = { sourceUrl: currentSourceUrl, poll: originalPoll }
+    let finalTargetUrl = targets[0].url
+    const validation = {
+      version: 1,
+      startedAt: new Date().toISOString(),
+      configuration: {
+        setCount: SHAZAM_VALIDATION_SET_COUNT,
+        momentsPerSet: SHAZAM_VALIDATION_MOMENT_COUNT,
+        clipSeconds: SHAZAM_POC_CLIP_SECONDS,
+      },
+      sets: [],
+      summary: null,
+    }
+    const endpointCountry = /^[A-Z]{2}$/.test(store.settings?.eventLocation?.countryCode)
+      ? store.settings.eventLocation.countryCode
+      : 'GB'
+
+    try {
+      log(`[shazam-validation] START sets=${targets.length} momentsPerSet=${SHAZAM_VALIDATION_MOMENT_COUNT}`)
+      for (let setIndex = 0; setIndex < targets.length; setIndex++) {
+        const target = targets[setIndex]
+        finalTargetUrl = target.url
+        const setResult = {
+          title: target.title,
+          url: target.url,
+          providerId: target.providerId,
+          tracklistUrl: target.tracklistUrl,
+          samples: [],
+        }
+        validation.sets.push(setResult)
+        log(`[shazam-validation] SET ${setIndex + 1}/${targets.length} title="${target.title}" provider=${target.providerId}`)
+
+        if (currentSourceUrl !== target.url) {
+          loadSourceUrl(target.url).catch(error => log('[shazam-validation] source lookup continued with error', error?.message || error))
+        }
+        let ready
+        try {
+          ready = await waitForYouTubePlayer({ sourceUrl: target.url, timeoutMs: 45_000 })
+        } catch (error) {
+          setResult.error = error?.message || String(error)
+          log(`[shazam-validation:error] set="${target.title}" ${setResult.error}`)
+          writeJsonAtomic(shazamValidationResultPath(), validation)
+          continue
+        }
+        setResult.durationSeconds = ready.poll.duration
+        const moments = chooseTracklistMoments(target.tracks, ready.poll.duration, {
+          count: SHAZAM_VALIDATION_MOMENT_COUNT,
+          clipSeconds: SHAZAM_POC_CLIP_SECONDS,
+        })
+        setResult.moments = moments
+        if (moments.length < SHAZAM_VALIDATION_MOMENT_COUNT) {
+          setResult.error = `Only ${moments.length} safe identified moments were available.`
+          log(`[shazam-validation:error] set="${target.title}" ${setResult.error}`)
+          writeJsonAtomic(shazamValidationResultPath(), validation)
+          continue
+        }
+
+        for (let momentIndex = 0; momentIndex < moments.length; momentIndex++) {
+          const moment = moments[momentIndex]
+          const sample = {
+            requestedPlaybackTimestamp: moment.playbackTimestamp,
+            cueSeconds: moment.cueSeconds,
+            nextCueSeconds: moment.nextCueSeconds,
+            expected: moment.expected,
+          }
+          setResult.samples.push(sample)
+          try {
+            log(`[shazam-validation] SAMPLE ${momentIndex + 1}/${moments.length} playback=${moment.playbackTimestamp.toFixed(1)}s expected="${moment.expected.artist} — ${moment.expected.title}"`)
+            await seekYouTubePlayerForPoc(ready.contents, moment.playbackTimestamp)
+            const { capture, samples } = await captureYouTubeAudioForPoc(ready.contents)
+            sample.playbackStartedAt = capture.playbackStartedAt
+            sample.playbackEndedAt = capture.playbackEndedAt
+            sample.playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
+              ? (capture.playbackStartedAt + capture.playbackEndedAt) / 2
+              : moment.playbackTimestamp + SHAZAM_POC_CLIP_SECONDS / 2
+            sample.capture = {
+              inputSampleRate: capture.inputSampleRate,
+              inputChannels: capture.inputChannels,
+              sampleRate: capture.sampleRate,
+              frameCount: capture.frameCount,
+              peak: capture.peak,
+              rms: capture.rms,
+              audioTrackLabel: capture.audioTrackLabel,
+            }
+            const recognized = await recognizeFloat32(samples, capture.sampleRate, { endpointCountry })
+            sample.fingerprint = recognized.fingerprint
+            sample.recognition = recognized.result
+            sample.comparison = compareRecognition(moment.expected, recognized.result)
+            const actual = recognized.result.matched
+              ? `${recognized.result.artist} — ${recognized.result.title}`
+              : 'no-match'
+            log(`[shazam-validation:result] comparison=${sample.comparison.classification} expected="${moment.expected.artist} — ${moment.expected.title}" actual="${actual}"`)
+          } catch (error) {
+            sample.error = error?.name === 'AbortError'
+              ? 'Recognition request timed out.'
+              : (error?.message || String(error))
+            log(`[shazam-validation:error] playback=${moment.playbackTimestamp.toFixed(1)}s ${sample.error}`)
+          }
+          validation.summary = validationSummary(validation)
+          writeJsonAtomic(shazamValidationResultPath(), validation)
+        }
+      }
+      validation.finishedAt = new Date().toISOString()
+      validation.summary = validationSummary(validation)
+      writeJsonAtomic(shazamValidationResultPath(), validation)
+      log(`[shazam-validation] DONE ${JSON.stringify(validation.summary)} results=${shazamValidationResultPath()}`)
+      return validation
+    } finally {
+      await restorePlayerAfterShazamPoc(original, finalTargetUrl)
     }
   })().finally(() => {
     shazamPocRun = null
@@ -2644,6 +2860,10 @@ function buildMenu() {
             label: 'Run Shazam Audio Capture POC',
             click: () => runShazamPoc().catch(error => log('[shazam-poc] FAILED', error?.stack || error?.message || error)),
           },
+          {
+            label: 'Validate Shazam Against Saved Tracklists',
+            click: () => runShazamValidation().catch(error => log('[shazam-validation] FAILED', error?.stack || error?.message || error)),
+          },
         ] : []),
       ],
     },
@@ -2821,7 +3041,9 @@ function createWindow() {
   installShazamPocCaptureHandler(mainWindow.webContents.session)
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.once('did-finish-load', () => {
-    if (AUTO_SHAZAM_POC) {
+    if (AUTO_SHAZAM_VALIDATION) {
+      setTimeout(() => runShazamValidation().catch(error => log('[shazam-validation] FAILED', error?.stack || error?.message || error)), 1500)
+    } else if (AUTO_SHAZAM_POC) {
       setTimeout(() => runShazamPoc().catch(error => log('[shazam-poc] FAILED', error?.stack || error?.message || error)), 1500)
     }
     if (AUTO_UPDATE_TEST) {
