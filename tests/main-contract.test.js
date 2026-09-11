@@ -170,7 +170,7 @@ test('empty published tracklists activate jittered automatic recognition without
   assert.match(mainJs, /randomSampleIntervalSeconds\(Math\.random/)
   assert.match(mainJs, /setImmediate\(\(\) => runAutomaticRecognitionCycle\(automaticRecognition, 'start'\)/)
   assert.match(mainJs, /runAutomaticRecognitionCycle\(session, 'unidentified-seek'\)/)
-  assert.match(mainJs, /error\?\.statusCode === 429 \|\| error\?\.statusCode === 403/)
+  assert.match(mainJs, /applyRecognitionServiceBackoff\(session, error\)/)
 })
 
 test('automatic matches scrobble while unidentified regions remain excluded', () => {
@@ -202,6 +202,13 @@ test('automatic recognition observations are a private bounded cache', () => {
   assert.match(mainJs, /if \(existing\.trackRecognitionEdits\) next\.trackRecognitionEdits = existing\.trackRecognitionEdits/)
 })
 
+test('a reopened automatic session can bridge only its most recent cached track', () => {
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS = 3 \* 60/)
+  assert.match(mainJs, /const latestCachedTrack = \[\.\.\.cachedTimeline\]\.reverse\(\)\.find/)
+  assert.match(mainJs, /cachedTrackAgeSeconds <= AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS/)
+  assert.match(mainJs, /continuesPreviousSession: true/)
+})
+
 test('automatic and one-shot recognition edits are exposed without weakening source scoping', () => {
   assert.match(mainJs, /function editRecognizedTrack\(payload\)/)
   assert.match(mainJs, /applyRecognitionDecision\(session\.observations, track, action, correction\)/)
@@ -212,6 +219,28 @@ test('automatic and one-shot recognition edits are exposed without weakening sou
   assert.match(mainJs, /ipcMain\.handle\('track-recognition-edit'/)
   assert.match(mainJs, /function manualIdentifyTrack\(payload\)/)
   assert.match(mainJs, /ipcMain\.handle\('track-manual-identify'/)
+})
+
+test('published unresolved rows use confidence sampling and retry after expiry', () => {
+  assert.match(mainJs, /PUBLISHED_UNIDENTIFIED_RETRY_MS = 24 \* 60 \* 60 \* 1000/)
+  assert.match(mainJs, /function startPublishedTrackRecognition/)
+  assert.match(mainJs, /function maybeRetryPublishedUnidentifiedTrack/)
+  assert.match(mainJs, /automaticRetryAt/)
+  const targeted = mainJs.slice(
+    mainJs.indexOf('async function runTargetedRecognitionCycle'),
+    mainJs.indexOf('async function startPublishedTrackRecognition'),
+  )
+  assert.match(targeted, /targetedRecognitionDecision\(session\.observations/)
+  assert.match(targeted, /captureDurationWithinSegment/)
+  assert.match(targeted, /applyRecognitionServiceBackoff\(session, error\)/)
+  assert.match(targeted, /lfmScrobble\(match\.artist, match\.title/)
+})
+
+test('main process helpers have unique function names', () => {
+  const names = [...mainJs.matchAll(/^(?:async )?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)]
+    .map(match => match[1])
+  const duplicates = names.filter((name, index) => names.indexOf(name) !== index)
+  assert.deepEqual([...new Set(duplicates)], [])
 })
 
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
@@ -305,6 +334,7 @@ test('missing identified artwork is enriched only after tracklist rows reach the
     'artwork lookup must never block initial tracklist rendering')
   assert.match(mainJs, /tracks\.filter\(track => track\.artworkStatus === 'loading'\)/)
   assert.match(mainJs, /ARTWORK_LOOKUP_CONCURRENCY = 2/)
+  assert.match(mainJs, /previous\?\.artworkStatus && previous\.artworkStatus !== 'error'/)
 })
 
 test('now-playing events carry artwork identity for the mini player', () => {
@@ -316,8 +346,9 @@ test('now-playing events carry artwork identity for the mini player', () => {
 })
 
 test('Deezer artwork cache is long-lived, bounded, negative-aware, and written once per set', () => {
+  assert.match(mainJs, /ARTWORK_CACHE_VERSION = 2/)
   assert.match(mainJs, /ARTWORK_CACHE_HIT_TTL_MS = 365 \* 24 \* 60 \* 60 \* 1000/)
-  assert.match(mainJs, /ARTWORK_CACHE_MISS_TTL_MS = 30 \* 24 \* 60 \* 60 \* 1000/)
+  assert.match(mainJs, /ARTWORK_CACHE_MISS_TTL_MS = 24 \* 60 \* 60 \* 1000/)
   assert.match(mainJs, /MAX_ARTWORK_CACHE_ENTRIES = 6000/)
   assert.match(mainJs, /artUrl: cached\.artUrl \|\| ''/)
   assert.match(mainJs, /writeArtworkCacheUpdates\(updates\)/)
@@ -446,11 +477,15 @@ test('tracklist provider preferences are persisted separately from tracklist cac
   assert.match(mainJs, /store\.tracklistPreferences = \{\}/)
 })
 
-test('Automatic is a selectable local tracklist source without background sampling beside published lists', () => {
+test('Shazam is a selectable local tracklist source with a scoped reset', () => {
   assert.match(mainJs, /function registerAutomaticTracklistOption\(/)
   assert.match(mainJs, /providerId === AUTOMATIC_RECOGNITION_PROVIDER\.id/)
   assert.match(mainJs, /if \(preferredProviderId === AUTOMATIC_RECOGNITION_PROVIDER\.id\)/)
   assert.match(mainJs, /if \(currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER\.id\)/)
+  assert.match(mainJs, /name: 'Shazam'/)
+  assert.match(mainJs, /function clearAutomaticRecognitionObservations\(sourceUrl\)/)
+  assert.match(mainJs, /function resetAutomaticRecognition\(\)/)
+  assert.match(mainJs, /ipcMain\.handle\('tracklist-reset-automatic'/)
 })
 
 test('every tracklist provider declares the host its links point at', () => {

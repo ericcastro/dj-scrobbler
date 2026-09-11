@@ -56,6 +56,15 @@ const {
   segmentAtTime,
   upsertRecognitionObservation,
 } = require('./lib/recognition-timeline')
+const {
+  captureDurationWithinSegment,
+  manualIdentificationPatch,
+  publishedRecognitionEditPatch,
+  publishedRecognitionMatchPatch,
+  recognitionRateLimitBackoffMs,
+  targetedRecognitionDecision,
+  validatedRecognitionCorrection,
+} = require('./lib/recognition-session-policy')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -107,6 +116,13 @@ const AUTOMATIC_RECOGNITION_CLIP_SECONDS = 10
 const AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 9_500
 const AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000
 const AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS = 2_500
+const AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS = 60
+const PUBLISHED_UNIDENTIFIED_RETRY_MS = 24 * 60 * 60 * 1000
+// The first fresh sample after reopening can be separated from the final
+// cached sample by more than the normal 60-second confidence window. Only
+// bridge that restart seam while the player is still plausibly in the same
+// track; later repeats must earn normal independent confirmation.
+const AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS = 3 * 60
 const AUTOMATIC_RECOGNITION_CACHE_VERSION = 1
 const MAX_AUTOMATIC_RECOGNITION_CACHE_ENTRIES = 100
 const TRACK_RECOGNITION_EDIT_CACHE_VERSION = 1
@@ -115,9 +131,14 @@ const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MIN_AUTOMATIC_SET_DURATION_SECONDS = 10 * 60
 const EVENT_LOOKUP_CACHE_VERSION = 1
 const MAX_EVENT_LOOKUP_CACHE_ENTRIES = 300
-const ARTWORK_CACHE_VERSION = 1
+// v2 retries false negatives created before Deezer's collaborative-credit
+// fallback search existed. Positive covers remain cheap to repopulate.
+const ARTWORK_CACHE_VERSION = 2
 const ARTWORK_CACHE_HIT_TTL_MS = 365 * 24 * 60 * 60 * 1000
-const ARTWORK_CACHE_MISS_TTL_MS = 30 * 24 * 60 * 60 * 1000
+// A missing cover is not a durable fact: artwork may be added or a later
+// search may find a better catalog match. Recheck negative results daily while
+// keeping successful artwork cached for a year.
+const ARTWORK_CACHE_MISS_TTL_MS = 24 * 60 * 60 * 1000
 const MAX_ARTWORK_CACHE_ENTRIES = 6000
 const ARTWORK_LOOKUP_CONCURRENCY = 2
 const ARTWORK_LOOKUP_GAP_MS = 250
@@ -726,13 +747,15 @@ let currentArtworkToken  = 0
 let artworkCacheGeneration = 0
 let automaticRecognition = null
 let automaticRecognitionGeneration = 0
+let targetedRecognition = null
+let targetedRecognitionGeneration = 0
 let lastAutomaticRecognitionState = ''
-let standaloneRecognitionBusy = false
-let lastStandaloneRecognitionAt = 0
+let lastRecognitionRequestAt = 0
 
 const AUTOMATIC_RECOGNITION_PROVIDER = {
   id: 'shazam',
-  name: 'Automatic',
+  // Keep the stable `shazam` id: it is also the persisted provider preference.
+  name: 'Shazam',
   footerLabel: null,
 }
 
@@ -1023,7 +1046,7 @@ function emitTimelineTrack(track, poll, now = Date.now()) {
     isPlaying: poll.isPlaying,
     isId: !!track.isId,
     autoRecognized: !!track.autoRecognized,
-    scrobbledOnConfirmation: !!(
+    scrobbledOnConfirmation: !!track.scrobbledOnConfirmation || !!(
       automaticRecognition?.scrobbledTrackIds?.has(track.providerTrackId)
     ),
     isRecognitionUnidentified: !!track.isRecognitionUnidentified,
@@ -1065,6 +1088,7 @@ function emitTimelineTrack(track, poll, now = Date.now()) {
 function handlePlaybackPoll(poll) {
   const now = Date.now()
   handleAutomaticRecognitionPlayback(poll)
+  handleTargetedRecognitionPlayback(poll)
   const listenedMs = updateListeningStats(poll, now)
   if (lastTrackData) currentTrackPlayedMs += listenedMs
 
@@ -1085,6 +1109,7 @@ function handlePlaybackPoll(poll) {
     return
   }
 
+  maybeRetryPublishedUnidentifiedTrack(activeTrack, poll)
   emitTimelineTrack(activeTrack, poll, now)
 }
 
@@ -1304,11 +1329,27 @@ function writeAutomaticRecognitionObservations(sourceUrl, observations, setEndSe
   writeStore(store)
 }
 
+function clearAutomaticRecognitionObservations(sourceUrl) {
+  if (!sourceUrl) return false
+  const store = readStore()
+  const cache = { ...(store.automaticRecognitionCache || {}) }
+  const cacheKey = automaticRecognitionCacheKey(sourceUrl)
+  if (!cache[cacheKey]) return false
+  delete cache[cacheKey]
+  store.automaticRecognitionCache = cache
+  writeStore(store)
+  return true
+}
+
 function sendAutomaticRecognitionState(patch = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  const session = automaticRecognition
+  // A published tracklist can temporarily run the same digital-recognition
+  // cadence for one unresolved row. The renderer treats both paths as one
+  // small, unobtrusive "identifying" state.
+  const session = automaticRecognition || targetedRecognition
   const payload = {
     active: !!session,
+    mode: session ? (session === targetedRecognition ? 'targeted' : 'timeline') : null,
     phase: session?.phase || 'inactive',
     recognizing: session?.phase === 'recognizing',
     inUnidentified: !!session?.inUnidentified,
@@ -1339,7 +1380,9 @@ function refreshAutomaticRecognitionTimeline(session = automaticRecognition) {
     if (track.isRecognitionCandidate) return track
     if (track.artUrl || !isArtworkLookupCandidate(track)) return track
     const previous = previousTracks.get(track.providerTrackId)
-    if (previous?.artworkStatus) {
+    // Network errors are deliberately not cached. Let the next timeline
+    // refresh retry them instead of pinning Shazam rows to an error state.
+    if (previous?.artworkStatus && previous.artworkStatus !== 'error') {
       return { ...track, artUrl: previous.artUrl || '', artworkStatus: previous.artworkStatus }
     }
     const prepared = prepareTracksForArtwork([track])[0]
@@ -1372,13 +1415,14 @@ function refreshAutomaticRecognitionTimeline(session = automaticRecognition) {
   }
 }
 
-function stopAutomaticRecognition(reason = 'stopped') {
+function stopAutomaticRecognition(reason = 'stopped', { stopTargeted = true } = {}) {
   const session = automaticRecognition
   automaticRecognitionGeneration++
   automaticRecognition = null
   if (session?.timer) clearTimeout(session.timer)
   if (session?.seekTimer) clearTimeout(session.seekTimer)
   if (session) log(`[recognition] stopped reason=${reason}`)
+  if (stopTargeted && targetedRecognition) stopTargetedRecognition(reason)
   lastAutomaticRecognitionState = ''
   sendAutomaticRecognitionState({ active: false, phase: 'inactive', reason })
 }
@@ -1393,6 +1437,21 @@ function nextAutomaticRecognitionIntervalMs() {
     minSeconds: AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS,
     maxSeconds: AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS,
   }) * 1000
+}
+
+function clearRecognitionServiceBackoff(session) {
+  session.rateLimitFailures = 0
+  session.backoffUntil = 0
+}
+
+function applyRecognitionServiceBackoff(session, error) {
+  const failures = (session.rateLimitFailures || 0) + 1
+  const backoffMs = recognitionRateLimitBackoffMs(error?.statusCode, failures)
+  if (!backoffMs) return false
+  session.rateLimitFailures = failures
+  session.backoffUntil = Date.now() + backoffMs
+  log(`[recognition] service throttled status=${error.statusCode}; backing off ${Math.round(backoffMs / 1000)}s`)
+  return true
 }
 
 function scheduleNextAutomaticRecognition(session, { fromRequestStart = false } = {}) {
@@ -1429,7 +1488,7 @@ async function runAutomaticRecognitionCycle(session, reason) {
 
 async function requestAutomaticRecognition(reason = 'interval') {
   const session = automaticRecognition
-  if (!session || session.generation !== automaticRecognitionGeneration || session.busy) return false
+  if (!session || session.generation !== automaticRecognitionGeneration || session.busy || session.polling) return false
   const now = Date.now()
   if (now - session.lastRequestAt < AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS) {
     log(`[recognition] request skipped reason=${reason} cooldown=true`)
@@ -1438,7 +1497,10 @@ async function requestAutomaticRecognition(reason = 'interval') {
 
   const contents = playerWvContents
   if (!contents || contents.isDestroyed() || session.sourceUrl !== currentSourceUrl) return false
+  session.polling = true
   const before = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+  session.polling = false
+  if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
   if (!before?.isPlaying) {
     session.phase = 'paused'
     sendAutomaticRecognitionState()
@@ -1448,6 +1510,7 @@ async function requestAutomaticRecognition(reason = 'interval') {
   session.busy = true
   session.phase = 'recognizing'
   session.lastRequestAt = now
+  lastRecognitionRequestAt = now
   session.nextSampleAt = null
   sendAutomaticRecognitionState({ reason })
   log(`[recognition] sample start reason=${reason} playback=${Number(before.currentTime).toFixed(1)}s`)
@@ -1466,6 +1529,19 @@ async function requestAutomaticRecognition(reason = 'interval') {
     })
     if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
 
+    const resumeContinuation = session.resumeContinuation
+    if (resumeContinuation) {
+      if (playbackTimestamp > resumeContinuation.expiresAtPlayback) {
+        session.resumeContinuation = null
+      } else if (recognized.result.matched) {
+        session.resumeContinuation = null
+        if (recognitionKey(recognized.result) === resumeContinuation.key) {
+          recognized.result = { ...recognized.result, continuesPreviousSession: true }
+          log(`[recognition] resumed cached track continuation playback=${playbackTimestamp.toFixed(1)}s`)
+        }
+      }
+    }
+
     recognized.result = carryForwardRecognitionDecision(
       session.observations,
       playbackTimestamp,
@@ -1473,8 +1549,7 @@ async function requestAutomaticRecognition(reason = 'interval') {
       { preserveDeleted: reason !== 'manual-identify' },
     )
 
-    session.rateLimitFailures = 0
-    session.backoffUntil = 0
+    clearRecognitionServiceBackoff(session)
 
     upsertRecognitionObservation(session.observations, {
       playbackTimestamp,
@@ -1521,12 +1596,7 @@ async function requestAutomaticRecognition(reason = 'interval') {
   } catch (error) {
     // Capture/network failures are not timeline evidence. Only a valid Shazam
     // no-match response creates or extends an unresolved region.
-    if (error?.statusCode === 429 || error?.statusCode === 403) {
-      session.rateLimitFailures = (session.rateLimitFailures || 0) + 1
-      const backoffMs = Math.min(15 * 60_000, 2 * 60_000 * (2 ** (session.rateLimitFailures - 1)))
-      session.backoffUntil = Date.now() + backoffMs
-      log(`[recognition] service throttled status=${error.statusCode}; backing off ${Math.round(backoffMs / 1000)}s`)
-    }
+    applyRecognitionServiceBackoff(session, error)
     log(`[recognition] sample failed reason=${reason}: ${error?.name === 'AbortError' ? 'request timed out' : (error?.message || error)}`)
     sendAutomaticRecognitionState({ error: error?.message || String(error) })
     return false
@@ -1556,6 +1626,30 @@ async function startAutomaticRecognition() {
   }
   if (generation !== automaticRecognitionGeneration || sourceUrl !== currentSourceUrl) return false
 
+  const cachedTimeline = buildRecognitionTimeline(observations, {
+    sampleIntervalSeconds: DEFAULT_SAMPLE_INTERVAL_SECONDS,
+    longGapSeconds: DEFAULT_LONG_GAP_SECONDS,
+  })
+  const latestCachedTrack = [...cachedTimeline].reverse().find(track => (
+    !track.isId && !track.isRecognitionCandidate && track.key &&
+    Number.isFinite(Number(track.observedEndSeconds))
+  ))
+  const resumedAtSeconds = Math.max(0, Number(player.poll.currentTime) || 0)
+  const cachedTrackAgeSeconds = latestCachedTrack
+    ? resumedAtSeconds - Number(latestCachedTrack.observedEndSeconds)
+    : Infinity
+  const resumeContinuation = latestCachedTrack &&
+    cachedTrackAgeSeconds >= 0 &&
+    cachedTrackAgeSeconds <= AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS
+    ? {
+        key: latestCachedTrack.key,
+        expiresAtPlayback: Math.min(
+          Number(latestCachedTrack.observedEndSeconds) + AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS,
+          resumedAtSeconds + AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS,
+        ),
+      }
+    : null
+
   automaticRecognition = {
     generation,
     sourceUrl,
@@ -1564,6 +1658,7 @@ async function startAutomaticRecognition() {
     setEndSeconds: player.poll.isEnded ? player.poll.duration : cachedRecognition.setEndSeconds,
     atEnd: !!player.poll.isEnded,
     candidate: null,
+    resumeContinuation,
     scrobbledTrackIds: new Set(),
     lastCandidateNowPlayingKey: null,
     sessionStartSeconds: observations.length
@@ -1577,6 +1672,7 @@ async function startAutomaticRecognition() {
     rateLimitFailures: 0,
     backoffUntil: 0,
     busy: false,
+    polling: false,
     phase: player.poll.isEnded ? 'complete' : (player.poll.isPlaying ? 'listening' : 'paused'),
     inUnidentified: observations.length === 0,
     fromCache: observations.length > 0,
@@ -1606,6 +1702,18 @@ async function startAutomaticRecognition() {
       .catch(error => log('[recognition] initial sample failed', error?.message || error)))
   }
   return true
+}
+
+async function resetAutomaticRecognition() {
+  if (
+    !currentSourceUrl ||
+    !isYouTubePlayerMode ||
+    currentTracklistProvider !== AUTOMATIC_RECOGNITION_PROVIDER.id
+  ) return false
+  const sourceUrl = currentSourceUrl
+  const cleared = clearAutomaticRecognitionObservations(sourceUrl)
+  log(`[recognition] reset source=${sourceUrl} clearedCachedObservations=${cleared}`)
+  return startAutomaticRecognition()
 }
 
 function handleAutomaticRecognitionPlayback(poll) {
@@ -1704,74 +1812,6 @@ function queueCurrentTrackArtwork(providerTrackId) {
     .catch(error => log(`[artwork] manual recognition failed: ${error?.message || error}`)))
 }
 
-function validatedRecognitionCorrection(value) {
-  const artist = String(value?.artist || '').trim().slice(0, 300)
-  const title = String(value?.title || '').trim().slice(0, 500)
-  if (!artist || !title) throw new Error('Artist and title are required.')
-  return { artist, title }
-}
-
-function publishedRecognitionPatch(track, action, correction = null) {
-  if (action === 'wrong') {
-    const { artist, title } = validatedRecognitionCorrection(correction)
-    return {
-      artist,
-      title,
-      raw: `${artist} - ${title}`,
-      isId: false,
-      autoRecognized: false,
-      wasAutoRecognized: true,
-      manualIdentified: true,
-      userConfirmed: true,
-      userCorrected: true,
-      recognitionSource: 'manual',
-      recognition: null,
-      artUrl: '',
-      artworkStatus: 'missing',
-    }
-  }
-  if (action === 'delete') {
-    return {
-      artist: '',
-      title: 'ID — ID',
-      raw: 'ID - ID',
-      isId: true,
-      isRecognitionUnidentified: false,
-      isLongRecognitionGap: false,
-      autoRecognized: false,
-      wasAutoRecognized: false,
-      manualIdentified: false,
-      userConfirmed: false,
-      recognitionSource: null,
-      recognition: null,
-      artUrl: '',
-      artworkStatus: 'missing',
-    }
-  }
-  throw new Error('Unknown recognition action.')
-}
-
-function publishedManualIdentificationPatch(correction) {
-  const { artist, title } = validatedRecognitionCorrection(correction)
-  return {
-    artist,
-    title,
-    raw: `${artist} - ${title}`,
-    isId: false,
-    isRecognitionUnidentified: false,
-    isLongRecognitionGap: false,
-    autoRecognized: false,
-    wasAutoRecognized: false,
-    manualIdentified: true,
-    userConfirmed: true,
-    userCorrected: true,
-    recognitionSource: 'manual',
-    recognition: null,
-    artUrl: '',
-    artworkStatus: 'missing',
-  }
-}
-
 function editRecognizedTrack(payload) {
   const action = String(payload?.action || '')
   if (!['wrong', 'delete'].includes(action)) throw new Error('Unknown recognition action.')
@@ -1791,7 +1831,7 @@ function editRecognizedTrack(payload) {
     return true
   }
 
-  const patch = publishedRecognitionPatch(track, action, payload?.correction)
+  const patch = publishedRecognitionEditPatch(action, payload?.correction)
   currentTracks = currentTracks.map(item => item.providerTrackId === track.providerTrackId
     ? { ...item, ...patch }
     : item
@@ -1832,7 +1872,7 @@ function manualIdentifyTrack(payload) {
     return true
   }
 
-  const patch = publishedManualIdentificationPatch(correction)
+  const patch = manualIdentificationPatch(correction)
   currentTracks = currentTracks.map(item => item.providerTrackId === track.providerTrackId
     ? { ...item, ...patch }
     : item
@@ -1844,67 +1884,263 @@ function manualIdentifyTrack(payload) {
   return true
 }
 
-async function identifyPublishedTrack(track) {
-  const now = Date.now()
-  if (standaloneRecognitionBusy) return { status: 'busy' }
-  const remainingMs = AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS - (now - lastStandaloneRecognitionAt)
-  if (remainingMs > 0) return { status: 'cooldown', retryAfterSeconds: Math.ceil(remainingMs / 1000) }
-  const contents = playerWvContents
-  if (!contents || contents.isDestroyed()) return { status: 'unavailable' }
-  const sourceUrl = currentSourceUrl
-  const providerId = currentTracklistProvider
-  const providerTrackId = track.providerTrackId
+function nextPublishedTrackCue(track) {
+  const index = currentTracks.findIndex(item => item.providerTrackId === track?.providerTrackId)
+  if (index < 0) return null
+  return currentTracks.slice(index + 1).find(item => (
+    isTimelineTrack(item) && Number(item.cueSeconds) > Number(track.cueSeconds)
+  ))?.cueSeconds ?? null
+}
 
-  standaloneRecognitionBusy = true
-  lastStandaloneRecognitionAt = now
+function isCurrentTargetedRecognition(session) {
+  return !!session &&
+    session === targetedRecognition &&
+    session.generation === targetedRecognitionGeneration &&
+    session.sourceUrl === currentSourceUrl &&
+    session.providerId === currentTracklistProvider &&
+    currentTracks.some(track => track.providerTrackId === session.providerTrackId && track.isId)
+}
+
+function setPublishedUnidentifiedRetry(track, retryAt = Date.now() + PUBLISHED_UNIDENTIFIED_RETRY_MS) {
+  if (!track?.providerTrackId || !currentSourceUrl || !currentTracklistProvider) return
+  const patch = { automaticRetryAt: retryAt }
+  currentTracks = currentTracks.map(item => item.providerTrackId === track.providerTrackId
+    ? { ...item, ...patch }
+    : item
+  )
+  writeTrackRecognitionEdit(currentSourceUrl, currentTracklistProvider, track.providerTrackId, patch)
+  emitCurrentTracklistData()
+}
+
+function stopTargetedRecognition(reason = 'stopped', { scheduleRetry = true } = {}) {
+  const session = targetedRecognition
+  targetedRecognitionGeneration++
+  targetedRecognition = null
+  if (session?.timer) clearTimeout(session.timer)
+  if (session && scheduleRetry && session.sourceUrl === currentSourceUrl && session.providerId === currentTracklistProvider) {
+    const track = currentTracks.find(item => item.providerTrackId === session.providerTrackId)
+    if (track?.isId) setPublishedUnidentifiedRetry(track)
+  }
+  if (session) log(`[recognition] targeted stop reason=${reason}`)
+  lastAutomaticRecognitionState = ''
+  sendAutomaticRecognitionState({ active: false, phase: 'inactive', reason })
+}
+
+function scheduleTargetedRecognition(session) {
+  if (!isCurrentTargetedRecognition(session)) return
+  if (session.timer) clearTimeout(session.timer)
+  const target = Math.max(
+    Date.now() + nextAutomaticRecognitionIntervalMs(),
+    session.backoffUntil || 0,
+  )
+  session.nextSampleAt = target
+  sendAutomaticRecognitionState()
+  session.timer = setTimeout(() => {
+    session.timer = null
+    runTargetedRecognitionCycle(session, 'interval')
+      .catch(error => log(`[recognition] targeted interval failed: ${error?.message || error}`))
+  }, target - Date.now())
+}
+
+async function runTargetedRecognitionCycle(session, reason = 'interval') {
+  if (!isCurrentTargetedRecognition(session) || session.busy || session.polling) return false
+  const contents = playerWvContents
+  if (!contents || contents.isDestroyed()) return false
+  session.polling = true
+  const before = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+  session.polling = false
+  if (!isCurrentTargetedRecognition(session)) return false
+  if (before?.isEnded) {
+    stopTargetedRecognition('set-ended')
+    return false
+  }
+  if (!before?.isPlaying) {
+    session.phase = 'paused'
+    sendAutomaticRecognitionState()
+    return false
+  }
+  if (Number.isFinite(session.endSeconds) && Number(before.currentTime) >= session.endSeconds) {
+    stopTargetedRecognition('segment-ended')
+    return false
+  }
+  const captureSeconds = captureDurationWithinSegment(
+    Number(before.currentTime),
+    session.endSeconds,
+    { desiredSeconds: AUTOMATIC_RECOGNITION_CLIP_SECONDS },
+  )
+  if (!captureSeconds) {
+    stopTargetedRecognition('segment-too-short')
+    return false
+  }
+  const now = Date.now()
+  const remainingMs = AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS - (now - session.lastRequestAt)
+  if (remainingMs > 0) {
+    session.nextSampleAt = now + remainingMs
+    session.timer = setTimeout(() => runTargetedRecognitionCycle(session, reason), remainingMs)
+    return false
+  }
+
+  session.busy = true
+  session.phase = 'recognizing'
+  session.lastRequestAt = now
+  lastRecognitionRequestAt = now
+  session.nextSampleAt = null
+  sendAutomaticRecognitionState({ reason })
   try {
-    await playerSeek(track.cueSeconds, { recognizeUnidentified: false })
-    await delay(AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS)
-    const poll = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
-    if (!poll?.isPlaying) return { status: 'paused' }
-    const { capture, samples } = await captureYouTubePlayerAudio(contents, AUTOMATIC_RECOGNITION_CLIP_SECONDS)
+    const { capture, samples } = await captureYouTubePlayerAudio(contents, captureSeconds)
+    if (!isCurrentTargetedRecognition(session)) return false
+    if (
+      Number.isFinite(session.endSeconds) &&
+      Number.isFinite(capture.playbackEndedAt) &&
+      capture.playbackEndedAt > session.endSeconds
+    ) {
+      log(`[recognition] targeted sample crossed segment boundary end=${session.endSeconds.toFixed(1)}s; discarding`)
+      stopTargetedRecognition('segment-ended')
+      return false
+    }
     const recognized = await recognizeFloat32(samples, capture.sampleRate, {
       endpointCountry: endpointCountryForRecognition(),
     })
-    if (!recognized.result.matched) return { status: 'no-match' }
-    if (sourceUrl !== currentSourceUrl || providerId !== currentTracklistProvider) return { status: 'stale' }
-
-    const result = recognized.result
-    const patch = {
-      artist: result.artist,
-      title: result.title,
-      raw: `${result.artist} - ${result.title}`,
-      isId: false,
-      isRecognitionUnidentified: false,
-      autoRecognized: true,
-      wasAutoRecognized: true,
-      userConfirmed: false,
-      recognitionSource: 'shazam',
-      recognition: {
-        shazamTrackId: result.shazamTrackId || null,
-        shazamUrl: result.shazamUrl || null,
-        genre: result.genre || null,
-        matchCount: result.matchCount ?? null,
-        recognizedAt: result.recognizedAt || null,
-      },
-      artUrl: result.artUrl || '',
-      artworkStatus: result.artUrl ? 'ready' : 'missing',
+    if (!isCurrentTargetedRecognition(session)) return false
+    const playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
+      ? (capture.playbackStartedAt + capture.playbackEndedAt) / 2
+      : Number(before.currentTime) + captureSeconds / 2
+    upsertRecognitionObservation(session.observations, {
+      playbackTimestamp,
+      capturedAt: new Date().toISOString(),
+      recognition: recognized.result,
+    })
+    clearRecognitionServiceBackoff(session)
+    const decision = targetedRecognitionDecision(session.observations, playbackTimestamp, {
+      confirmationWindowSeconds: AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS,
+    })
+    if (decision.confirmed) {
+      const match = decision.confirmed.recognition
+      const patch = publishedRecognitionMatchPatch(match)
+      currentTracks = currentTracks.map(item => item.providerTrackId === session.providerTrackId ? { ...item, ...patch } : item)
+      writeTrackRecognitionEdit(session.sourceUrl, session.providerId, session.providerTrackId, patch)
+      emitCurrentTracklistData()
+      if (!match.artUrl) queueCurrentTrackArtwork(session.providerTrackId)
+      const inferredStartedAt = Date.now() - Math.max(
+        0,
+        (playbackTimestamp - decision.confirmed.firstTime) * 1000,
+      )
+      lfmUpdateNowPlaying(match.artist, match.title)
+      lfmScrobble(match.artist, match.title, inferredStartedAt, currentSetTitle)
+      log(`[recognition] targeted confirmed provider=${session.providerId} track="${match.artist} - ${match.title}" confirmedAt=${decision.confirmed.confirmedAt.toFixed(1)}s`)
+      stopTargetedRecognition('confirmed', { scheduleRetry: false })
+      return true
     }
-    currentTracks = currentTracks.map(item => item.providerTrackId === providerTrackId
-      ? { ...item, ...patch }
-      : item
-    )
-    writeTrackRecognitionEdit(sourceUrl, providerId, providerTrackId, patch)
-    emitCurrentTracklistData()
-    if (!result.artUrl) queueCurrentTrackArtwork(providerTrackId)
-    log(`[recognition] manual match provider=${providerId} artist="${result.artist}" title="${result.title}"`)
-    return { status: 'matched', artist: result.artist, title: result.title }
+    if (decision.candidate) {
+      const candidate = decision.candidate.recognition
+      lfmUpdateNowPlaying(candidate.artist, candidate.title)
+      log(`[recognition] targeted still analyzing track="${candidate.artist} - ${candidate.title}" matches=${decision.candidate.count}/${decision.candidate.requiredCount}`)
+    } else {
+      log(`[recognition] targeted no confirmed match playback=${playbackTimestamp.toFixed(1)}s`)
+    }
   } catch (error) {
-    log(`[recognition] manual identification failed: ${error?.message || error}`)
-    return { status: 'error', message: error?.message || String(error) }
+    applyRecognitionServiceBackoff(session, error)
+    log(`[recognition] targeted sample failed: ${error?.message || error}`)
   } finally {
-    standaloneRecognitionBusy = false
+    if (isCurrentTargetedRecognition(session)) {
+      session.busy = false
+      session.phase = 'listening'
+      sendAutomaticRecognitionState()
+      scheduleTargetedRecognition(session)
+    }
   }
+  return false
+}
+
+async function startPublishedTrackRecognition(track, { seek = false, reason = 'manual-retry' } = {}) {
+  const now = Date.now()
+  if (!track?.isId || !Number.isFinite(track.cueSeconds)) return { status: 'unavailable' }
+  const existingSession = targetedRecognition?.providerTrackId === track.providerTrackId && isCurrentTargetedRecognition(targetedRecognition)
+    ? targetedRecognition
+    : null
+  if (existingSession?.busy || existingSession?.polling) return { status: 'busy' }
+  if (!existingSession && targetedRecognition) {
+    stopTargetedRecognition('different-target', { scheduleRetry: true })
+  }
+  const remainingMs = Math.max(
+    AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS - (now - lastRecognitionRequestAt),
+    Number(existingSession?.backoffUntil || 0) - now,
+  )
+  if (remainingMs > 0) return { status: 'cooldown', retryAfterSeconds: Math.ceil(remainingMs / 1000) }
+  const contents = playerWvContents
+  if (!contents || contents.isDestroyed()) return { status: 'unavailable' }
+
+  const session = existingSession || {
+    generation: ++targetedRecognitionGeneration,
+    sourceUrl: currentSourceUrl,
+    providerId: currentTracklistProvider,
+    providerTrackId: track.providerTrackId,
+    endSeconds: nextPublishedTrackCue(track),
+    observations: [],
+    lastRequestAt: 0,
+    nextSampleAt: null,
+    timer: null,
+    busy: false,
+    polling: false,
+    phase: 'listening',
+    inUnidentified: true,
+    rateLimitFailures: 0,
+    backoffUntil: 0,
+  }
+  targetedRecognition = session
+  if (session.timer) {
+    clearTimeout(session.timer)
+    session.timer = null
+  }
+  sendAutomaticRecognitionState({ reason })
+  if (seek) {
+    try {
+      await playerSeek(track.cueSeconds, { recognizeUnidentified: false })
+      if (!isCurrentTargetedRecognition(session)) return { status: 'stale' }
+      await delay(AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS)
+    } catch (error) {
+      if (isCurrentTargetedRecognition(session)) stopTargetedRecognition('seek-failed')
+      throw error
+    }
+  }
+  if (!isCurrentTargetedRecognition(session)) return { status: 'stale' }
+  setImmediate(() => runTargetedRecognitionCycle(session, reason)
+    .catch(error => log(`[recognition] targeted start failed: ${error?.message || error}`)))
+  return { status: 'analyzing' }
+}
+
+function maybeRetryPublishedUnidentifiedTrack(track, poll) {
+  if (
+    currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER.id ||
+    !track?.isId ||
+    !poll?.isPlaying ||
+    targetedRecognition ||
+    Date.now() < Number(track.automaticRetryAt || 0)
+  ) return
+  startPublishedTrackRecognition(track, { seek: false, reason: 'expired-unidentified' })
+    .catch(error => log(`[recognition] expired retry failed: ${error?.message || error}`))
+}
+
+function handleTargetedRecognitionPlayback(poll) {
+  const session = targetedRecognition
+  if (!isCurrentTargetedRecognition(session)) return
+  if (poll?.isEnded) {
+    stopTargetedRecognition('set-ended')
+    return
+  }
+  if (Number.isFinite(session.endSeconds) && Number(poll?.currentTime) >= session.endSeconds) {
+    stopTargetedRecognition('segment-ended')
+    return
+  }
+  if (poll?.isPlaying && !session.busy && session.phase === 'paused') {
+    session.phase = 'listening'
+    runTargetedRecognitionCycle(session, 'resume')
+      .catch(error => log(`[recognition] targeted resume failed: ${error?.message || error}`))
+  }
+}
+
+async function identifyPublishedTrack(track) {
+  return startPublishedTrackRecognition(track, { seek: true, reason: 'manual-retry' })
 }
 
 async function identifyTrackWithRecognition(payload) {
@@ -1921,7 +2157,7 @@ async function identifyTrackWithRecognition(payload) {
   }
 
   const session = automaticRecognition
-  if (!session || session.busy) return { status: session?.busy ? 'busy' : 'unavailable' }
+  if (!session || session.busy || session.polling) return { status: (session?.busy || session?.polling) ? 'busy' : 'unavailable' }
   const now = Date.now()
   const sinceSeek = now - session.lastSeekRequestAt
   const sinceRequest = now - session.lastRequestAt
@@ -2793,7 +3029,8 @@ function registerTracklistOption(provider, result, lookupToken = currentLookupTo
 }
 
 function applyTracklistResult(tlPlugin, result, { persistPreference = false } = {}) {
-  stopAutomaticRecognition('published-tracklist-selected')
+  stopAutomaticRecognition('published-tracklist-selected', { stopTargeted: false })
+  stopTargetedRecognition('published-tracklist-selected', { scheduleRetry: false })
   isTracklistLookupPending = false
   currentTracklistUrl = result.tracklistUrl
   currentTracklistProvider = tlPlugin.id
@@ -2963,16 +3200,16 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
   })
 
   // Keep provider probes alive for availability and source switching, while an
-  // explicitly selected Automatic timeline continues to own this set.
+  // explicitly selected Shazam timeline continues to own this set.
   if (preferredProviderId === AUTOMATIC_RECOGNITION_PROVIDER.id) {
     if (await startAutomaticRecognition()) return
-    log('[recognition] preferred Automatic source could not start; using a published result when available')
+    log('[recognition] preferred Shazam source could not start; using a published result when available')
   }
 
   const choice = await lookups.selected
   if (lookupToken !== currentLookupToken || choice.selected?.result?.stale) return
 
-  // The user can switch to Automatic while these network probes are still
+  // The user can switch to Shazam while these network probes are still
   // settling. Retain their results as options, but do not switch away again.
   if (currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER.id) {
     if (waitForFallback) await Promise.all([lookups.primary, lookups.fallback])
@@ -3150,7 +3387,8 @@ async function handleSourceUrl(source, url, wvContents) {
   }
 
   const lookupToken = ++currentLookupToken
-  stopAutomaticRecognition('source-changed')
+  stopAutomaticRecognition('source-changed', { stopTargeted: false })
+  stopTargetedRecognition('source-changed', { scheduleRetry: false })
   log(`[lookup] START source=${source.id} url=${url} token=${lookupToken}`)
 
   statsSetReady = false
@@ -4141,6 +4379,7 @@ ipcMain.handle('tracklist-cache-clear', () => {
 ipcMain.handle('tracklist-try-provider', (_event, providerId) => tryTracklistProvider(providerId))
 ipcMain.handle('tracklist-select-provider', (_event, providerId) => selectTracklistProvider(providerId))
 ipcMain.handle('tracklist-refresh', () => refreshTracklistLookups())
+ipcMain.handle('tracklist-reset-automatic', () => resetAutomaticRecognition())
 ipcMain.handle('set-metadata-auto', () => autoSetMetadata())
 ipcMain.handle('updates-check', () => checkForUpdates({ manual: true }))
 ipcMain.handle('updates-download', () => downloadUpdate())

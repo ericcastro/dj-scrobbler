@@ -2173,6 +2173,28 @@ button.set-metadata-pill {
   font-size: 10px;
   font-weight: 600;
 }
+.tracklist-provider-reset {
+  border: 0;
+  padding: 2px 3px;
+  color: var(--text2);
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  opacity: .62;
+  cursor: pointer;
+}
+.tracklist-provider-reset:hover,
+.tracklist-provider-reset:focus-visible {
+  color: var(--accent);
+  opacity: 1;
+  outline: none;
+}
+.tracklist-provider-reset:disabled {
+  cursor: wait;
+  opacity: .4;
+}
 .tracklist-provider-pills {
   display: inline-flex;
   align-items: center;
@@ -3517,6 +3539,32 @@ body.compact-layout #scrobble-badge.dim::after {
   font-size: 9px;
 }
 
+/* Confirmed Shazam IDs read as ordinary tracklist rows. Their correction
+   controls appear on hover or when the row receives keyboard focus. */
+.track-auto-actions {
+  max-width: 0;
+  overflow: hidden;
+  margin-right: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: max-width .14s ease, margin-right .14s ease, opacity .12s ease, visibility .12s ease;
+}
+
+.track-item:hover .track-auto-actions,
+.track-item:focus-within .track-auto-actions {
+  max-width: 128px;
+  margin-right: 10px;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.track-item:focus-visible {
+  outline: none;
+  background: var(--bg3);
+}
+
 .track-auto-action[data-action="save"] { color: var(--accent2); }
 .track-auto-action[data-action="delete"]:hover { color: var(--red); }
 .track-identify-btn { color: var(--accent2); }
@@ -3658,7 +3706,7 @@ body.compact-layout #scrobble-badge.dim::after {
 
 .track-item.active .track-cue { color: var(--accent); }
 
-/* Automatic recognition timeline */
+/* Shazam recognition timeline */
 .track-recognition-title-row {
   display: flex;
   align-items: baseline;
@@ -3701,8 +3749,9 @@ body.compact-layout #scrobble-badge.dim::after {
 }
 
 .track-recognition-long-gap {
-  margin-block: 5px;
-  padding-block: 9px;
+  margin-block: 7px;
+  min-height: 68px;
+  padding-block: 16px;
   background: repeating-linear-gradient(
     -45deg,
     color-mix(in srgb, var(--bg3) 62%, transparent) 0 6px,

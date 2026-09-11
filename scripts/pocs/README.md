@@ -45,18 +45,20 @@ failure.
 The capture request is granted only to the armed player webContents and keeps
 local audio output enabled. It never requests microphone input.
 
-The same capture path now activates automatically when both published
-tracklist providers finish without a usable result. It captures ten seconds
-every 30 seconds while playback is running, stores only normalized recognition
-observations, and builds the local timeline without sending recognition-derived
-tracks to Last.fm. Seeking into an unresolved part of that timeline schedules a
+The same capture path powers the selectable Shazam tracklist source when both
+published providers finish without a usable result. It captures up to ten
+seconds at a randomized 10–15-second cadence while playback is running, stores
+only normalized recognition observations, and commits a track after three
+matching samples—or after two matching samples mature for 60 seconds without
+contradiction. Repeated provisional matches update Last.fm's now-playing state;
+committed matches are scrobbled. Seeking into an unresolved region schedules a
 sample after a short settling delay, subject to request and seek cooldowns.
 
 The Shazam endpoint is reverse-engineered and unsupported. Shazam publishes no
-rate-limit contract for it, so the 30-second cadence is an intentionally sparse
-product default rather than a guaranteed service allowance. Endpoint changes,
-blocking, and platform-specific Chromium display-audio behavior remain
-experimental.
+rate-limit contract for it, so the jittered cadence is a product choice rather
+than a guaranteed service allowance. HTTP 403/429 responses trigger exponential
+backoff. Endpoint changes, blocking, and platform-specific Chromium
+display-audio behavior remain experimental.
 
 ## When is this DJ playing next in my city? (v2)
 

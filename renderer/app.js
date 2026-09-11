@@ -379,8 +379,6 @@ async function supportEmailUrl(type) {
   return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
 
-const ID_SUB = "You can help out and complete what's missing!"
-
 // The contribute prompts assume 1001Tracklists' community model. Other
 // providers (set79) have no public edit flow, so they only get an attribution.
 function tracklistProviderName() {
@@ -398,21 +396,6 @@ const CONTRIBUTE_CONFIGS = {
   'no-timestamp': {
     title: 'No timestamp for this track yet',
     sub:   "...so we can't seek to it. You can help adding it!",
-  },
-  'id': {
-    btnLabel: 'manual ID',
-    title:    'Manual ID',
-    sub:      ID_SUB,
-  },
-  'id-title': {
-    btnLabel: 'manual ID',
-    title:    'Manual ID',
-    sub:      ID_SUB,
-  },
-  'id-artist': {
-    btnLabel: 'manual ID',
-    title:    'Manual ID',
-    sub:      ID_SUB,
   },
 }
 
@@ -1180,6 +1163,23 @@ function renderTracklistProviderChoice() {
   const options = state.currentTracklistOptions || []
   const selectedId = state.currentTracklistProvider
   const selected = options.find(option => option.id === selectedId)
+  const shazamResetHtml = selectedId === 'shazam'
+    ? '<button type="button" class="tracklist-provider-reset">reset</button>'
+    : ''
+
+  const wireShazamReset = () => {
+    tracklistProviderChoice.querySelector('.tracklist-provider-reset')?.addEventListener('click', async () => {
+      if (!window.confirm('Reset Shazam tracklist? This removes every Shazam ID saved for this set and starts identifying again from the current position.')) return
+      const button = tracklistProviderChoice.querySelector('.tracklist-provider-reset')
+      if (!button) return
+      button.disabled = true
+      try {
+        await window.api.resetAutomaticTracklist()
+      } finally {
+        button.disabled = false
+      }
+    })
+  }
 
   if (!selected) {
     tracklistProviderChoice.classList.add('hidden')
@@ -1192,7 +1192,9 @@ function renderTracklistProviderChoice() {
     tracklistProviderChoice.innerHTML = `
       <span class="tracklist-provider-label">tracklist source</span>
       <span class="tracklist-provider-value">${escHtml(selected.name)}</span>
+      ${shazamResetHtml}
     `
+    wireShazamReset()
     return
   }
 
@@ -1207,6 +1209,7 @@ function renderTracklistProviderChoice() {
         </button>
       `).join('')}
     </div>
+    ${shazamResetHtml}
   `
 
   tracklistProviderChoice.querySelectorAll('.tracklist-provider-pill').forEach(button => {
@@ -1222,6 +1225,7 @@ function renderTracklistProviderChoice() {
       }
     })
   })
+  wireShazamReset()
 }
 
 async function autoSetMetadata() {
@@ -1591,10 +1595,12 @@ function renderIntroResume() {
   const totalSlots = countResumeSlots()
   const maxHistory = totalSlots - 1 // last slot is always the ghost "browse history" card
 
-  // Only YouTube sets that have meaningful progress (5–94%)
+  // Keep quick inspection clicks out of this queue, but retain sets until they
+  // are genuinely close to completion. Playback time is the authoritative
+  // progress value for automatic tracklists.
   const items = state.store.history.filter(item => {
     const pct = getProgressPct(item)
-    return pct >= 5 && pct < 95 && isYouTubeSourceUrl(item.url)
+    return pct >= 5 && pct < 99 && isYouTubeSourceUrl(item.url)
   }).slice(0, maxHistory)
 
   introResumeSection.classList.toggle('hidden', items.length === 0)
@@ -1950,7 +1956,7 @@ function playbackSegmentData() {
 }
 
 function segmentTitle(track) {
-  if (track.isId) return 'ID - ID'
+  if (track.isId) return 'ID — ID'
   return track.title || track.raw || '?'
 }
 
@@ -2113,11 +2119,13 @@ function isResumeDialogOpen() {
 
 function renderRecognitionStatus() {
   const recognition = state.recognitionState || {}
-  const active = !!recognition.active && state.currentTracklistProvider === 'shazam'
+  const active = !!recognition.active && (
+    state.currentTracklistProvider === 'shazam' || recognition.mode === 'targeted'
+  )
   let message = ''
   if (recognition.phase === 'recognizing') message = 'Identifying this audio…'
-  else if (recognition.phase === 'complete') message = 'Automatic identification complete'
-  else if (recognition.phase === 'paused') message = 'Automatic identification pauses with playback'
+  else if (recognition.phase === 'complete') message = 'Shazam identification complete'
+  else if (recognition.phase === 'paused') message = 'Shazam identification pauses with playback'
   else if (recognition.inUnidentified) message = 'Listening inside an unidentified section…'
   else message = 'Listening for the next track…'
 
@@ -2263,11 +2271,9 @@ function wireMainEvents() {
     state.isIdTrack      = !!data.isId
     // Player-only events carry play/pause state, not track metadata.
     if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
-      npTrackText.textContent = data.isLongRecognitionGap
-        ? 'Unidentified gap'
-        : (data.isId ? 'ID' : (data.title || data.raw || '—'))
+      npTrackText.textContent = data.isId ? 'ID — ID' : (data.title || data.raw || '—')
       npArtist.textContent = data.isLongRecognitionGap
-        ? 'Automatic recognition'
+        ? 'Shazam couldn\'t identify this section'
         : (data.isId ? 'ID' : (data.artist || '—'))
       npArtistSeparator.classList.toggle('hidden', !npArtist.textContent || npArtist.textContent === '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
@@ -2325,15 +2331,19 @@ function wireMainEvents() {
     const count = payload?.isRecognizedTimeline
       ? tracks.filter(track => !track.isId && !track.isWWith && !track.isRecognitionCandidate).length
       : tracks.length
-    state.store.history   = state.store.history.map(item =>
-      item.url === state.currentSetUrl ? { ...item, trackCount: count } : item
-    )
-    state.store.favorites = state.store.favorites.map(item =>
-      item.url === state.currentSetUrl ? { ...item, trackCount: count } : item
-    )
-    persist()
-    renderHistory()
-    renderFavorites()
+    let countChanged = false
+    const updateTrackCount = item => {
+      if (item.url !== state.currentSetUrl || item.trackCount === count) return item
+      countChanged = true
+      return { ...item, trackCount: count }
+    }
+    state.store.history = state.store.history.map(updateTrackCount)
+    state.store.favorites = state.store.favorites.map(updateTrackCount)
+    if (countChanged) {
+      persist()
+      renderHistory()
+      renderFavorites()
+    }
     renderRecognitionStatus()
   })
 
@@ -3425,10 +3435,17 @@ function isYouTubeSourceUrl(url) {
 }
 
 function getProgressPct(item) {
+  // Playback time is authoritative. Automatic timelines intentionally number
+  // both confirmed tracks and unidentified regions, so a row number can exceed
+  // the confirmed-track count and falsely make a resumable set look 99% done.
+  const timePct = Number(item.progressTimePct)
+  if (Number.isFinite(timePct)) {
+    return Math.min(99, Math.max(0, Math.round(timePct)))
+  }
   if (item.progressTrackNum && item.trackCount && item.trackCount >= 2) {
     return Math.min(99, Math.round((item.progressTrackNum / item.trackCount) * 100))
   }
-  return item.progressTimePct || 0
+  return 0
 }
 
 function updateSetProgress(url, trackNum, cueSeconds) {
@@ -3644,11 +3661,11 @@ async function identifyUnknownTrack(track, button) {
   button.textContent = 'identifying…'
   try {
     const result = await window.api.identifyTrack(recognitionTrackPayload(track))
-    if (result?.status === 'matched' || result?.status === 'analyzing') return
+    // Recognition continues at its regular cadence after the initial sample.
+    // A normal no-match is expected during a mix, not an error worth an alert.
+    if (result?.status === 'matched' || result?.status === 'analyzing' || result?.status === 'no-match') return
     if (result?.status === 'cooldown') {
       window.alert(`Please wait ${result.retryAfterSeconds || 'a few'} seconds before trying recognition again.`)
-    } else if (result?.status === 'no-match') {
-      window.alert('No match this time. Try again at another point in the segment.')
     } else if (result?.status === 'paused') {
       window.alert('Playback must be running for recognition.')
     } else if (result?.status !== 'matched') {
@@ -3670,7 +3687,7 @@ async function handleRecognizedTrackAction(track, action, correction = null) {
       window.alert('Artist and title are required.')
       return
     }
-    if (!window.confirm(`Replace this automatic match with “${correction.artist} — ${correction.title}”?`)) return
+    if (!window.confirm(`Replace this Shazam match with “${correction.artist} — ${correction.title}”?`)) return
   } else if (action === 'delete') {
     if (!window.confirm('Remove this ID and return the segment to ID — ID?')) return
   } else {
@@ -3791,6 +3808,7 @@ function createTrackItem(track, compact) {
     (track.isLongRecognitionGap ? ' track-recognition-long-gap' : '')
   li.dataset.trackNum = track.trackNum || ''
   li.dataset.providerTrackId = track.providerTrackId || ''
+  if (track.autoRecognized || track.manualIdentified) li.tabIndex = 0
 
   const numHtml = track.isWWith
     ? `<span class="track-num track-num-with">w/</span>`
@@ -3804,12 +3822,12 @@ function createTrackItem(track, compact) {
 
   const titleText = escHtml(track.title || (track.isId ? 'ID — ID' : track.raw) || '?')
   const artistHtml = track.isRecognitionUnidentified && track.isLongRecognitionGap && !compact
-    ? '<span class="track-artist">automatic recognition found no stable match here</span>'
+    ? '<span class="track-artist">there may be multiple tracks that couldn\'t be identified in this section</span>'
     : ((!track.isId && track.artist && !compact)
         ? `<span class="track-artist">${escHtml(track.artist)}</span>`
         : '')
   const recognitionMarker = track.autoRecognized
-    ? '<span class="track-recognition-marker" title="Identified automatically with Shazam" aria-label="Identified automatically with Shazam">✦ auto</span>'
+    ? '<span class="track-recognition-marker" title="Identified with Shazam" aria-label="Identified with Shazam">✦ AUTO</span>'
     : ''
 
   // An incomplete published row can be retried digitally or completed inline.
@@ -3817,15 +3835,15 @@ function createTrackItem(track, compact) {
   const manualIdentifyHtml = needsIdentify
     ? `<span class="track-manual-actions">
          ${track.isId
-    ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>retry auto ID</button>`
+    ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>retry Shazam id</button>`
     : ''}
-         <button class="inline-track-btn track-manual-id-btn">manual ID</button>
+         <button class="inline-track-btn track-manual-id-btn">manual id</button>
        </span>`
     : ''
   const autoActionsHtml = (track.autoRecognized || track.manualIdentified)
-    ? `<span class="track-auto-actions" aria-label="Automatic track actions">
-         <button class="inline-track-btn track-auto-action" data-action="wrong">wrong ID</button>
-         <button class="inline-track-btn track-auto-action" data-action="delete">remove ID</button>
+    ? `<span class="track-auto-actions" aria-label="Shazam track actions">
+         <button class="inline-track-btn track-auto-action" data-action="wrong">fix id</button>
+         <button class="inline-track-btn track-auto-action" data-action="delete">remove id</button>
        </span>`
     : ''
   const analyzingHtml = track.isRecognitionCandidate

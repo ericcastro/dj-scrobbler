@@ -16,13 +16,11 @@ const match = (playbackTimestamp, artist, title, shazamTrackId, extra = {}) => (
 })
 const miss = playbackTimestamp => ({ playbackTimestamp, recognition: { matched: false } })
 
-test('one or two equal Shazam results remain a muted analysis candidate', () => {
+test('only two equal Shazam results become a muted analysis candidate', () => {
   const one = buildRecognitionTimeline([
     match(10, 'Cloudy', 'Pulse', '1'),
   ], { sessionStartSeconds: 0 })
-  assert.equal(one.length, 1)
-  assert.equal(one[0].isRecognitionCandidate, true)
-  assert.equal(one[0].recognitionCandidateCount, 1)
+  assert.equal(one.length, 0)
 
   const two = buildRecognitionTimeline([
     match(10, 'Cloudy', 'Pulse', '1'),
@@ -71,9 +69,7 @@ test('equal results outside the confidence window never commit', () => {
     match(135, 'DJ A', 'Track A', 'a'),
   ], { sessionStartSeconds: 0 })
 
-  assert.equal(timeline.length, 1)
-  assert.equal(timeline[0].isRecognitionCandidate, true)
-  assert.equal(timeline[0].recognitionCandidateCount, 1)
+  assert.equal(timeline.length, 0)
 })
 
 test('a return to the committed track clears short-lived pollution', () => {
@@ -99,10 +95,21 @@ test('the same fingerprint returning after a long silence must earn confidence a
     match(110, 'DJ A', 'Main', 'a'),
   ], { sessionStartSeconds: 0 })
 
-  assert.equal(timeline.length, 2)
+  assert.equal(timeline.length, 1)
   assert.equal(timeline[0].observedEndSeconds, 34)
-  assert.equal(timeline[1].isRecognitionCandidate, true)
-  assert.equal(timeline[1].recognitionCandidateCount, 1)
+})
+
+test('the first matching sample after a bounded restart seam extends the cached track', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'DJ A', 'Main', 'a'),
+    match(22, 'DJ A', 'Main', 'a'),
+    match(34, 'DJ A', 'Main', 'a'),
+    match(114, 'DJ A', 'Main', 'a', { continuesPreviousSession: true }),
+    match(126, 'DJ A', 'Main', 'a'),
+  ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
+
+  assert.deepEqual(timeline.map(track => track.title), ['Main'])
+  assert.equal(timeline[0].observedEndSeconds, 126)
 })
 
 test('wrong one-off matches do not pollute the committed tracklist', () => {
@@ -116,7 +123,7 @@ test('wrong one-off matches do not pollute the committed tracklist', () => {
   assert.deepEqual(timeline.map(track => track.title), ['Track A'])
 })
 
-test('unresolved time is finalized only after the next confirmed track', () => {
+test('short unresolved time is absorbed into the preceding confirmed track', () => {
   const observations = [
     match(10, 'DJ A', 'Track A', 'a'),
     match(22, 'DJ A', 'Track A', 'a'),
@@ -138,8 +145,9 @@ test('unresolved time is finalized only after the next confirmed track', () => {
     sessionStartSeconds: 0,
     sampleIntervalSeconds: 12,
   })
-  assert.deepEqual(finalized.map(track => track.title), ['Track A', 'ID — ID', 'Track B'])
-  assert.equal(finalized[1].finalized, true)
+  assert.deepEqual(finalized.map(track => track.title), ['Track A', 'Track B'])
+  assert.equal(finalized[0].estimatedEndSeconds, 88)
+  assert.equal(finalized[1].cueSeconds, 88)
 })
 
 test('adjacent confirmed tracks collapse into a shared boundary', () => {
@@ -157,7 +165,7 @@ test('adjacent confirmed tracks collapse into a shared boundary', () => {
   assert.equal(timeline[1].cueSeconds, 40)
 })
 
-test('one failed sample becomes one bounded ID row only after the next confirmation', () => {
+test('a brief failed sample stays with the preceding track after confirmation', () => {
   const observations = [
     match(10, 'DJ A', 'Track A', 'a'),
     match(22, 'DJ A', 'Track A', 'a'),
@@ -172,13 +180,16 @@ test('one failed sample becomes one bounded ID row only after the next confirmat
   }).map(track => track.title), ['Track A', 'Track B'])
 
   observations.push(match(82, 'DJ B', 'Track B', 'b'))
-  assert.deepEqual(buildRecognitionTimeline(observations, {
+  const finalized = buildRecognitionTimeline(observations, {
     sessionStartSeconds: 0,
     sampleIntervalSeconds: 12,
-  }).map(track => track.title), ['Track A', 'ID — ID', 'Track B'])
+  })
+  assert.deepEqual(finalized.map(track => track.title), ['Track A', 'Track B'])
+  assert.equal(finalized[0].estimatedEndSeconds, 52)
+  assert.equal(finalized[1].cueSeconds, 52)
 })
 
-test('the end of the set finalizes a trailing ID or long gap', () => {
+test('the end of the set absorbs short uncertainty and finalizes a long gap', () => {
   const observations = [
     match(10, 'DJ A', 'Track A', 'a'),
     match(22, 'DJ A', 'Track A', 'a'),
@@ -190,14 +201,37 @@ test('the end of the set finalizes a trailing ID or long gap', () => {
     sampleIntervalSeconds: 12,
     setEndSeconds: 85,
   })
-  assert.deepEqual(short.map(track => track.title), ['Track A', 'ID — ID'])
+  assert.deepEqual(short.map(track => track.title), ['Track A'])
+  assert.equal(short[0].estimatedEndSeconds, 85)
 
   const long = buildRecognitionTimeline(observations, {
     sessionStartSeconds: 0,
     sampleIntervalSeconds: 12,
-    setEndSeconds: 150,
+    setEndSeconds: 260,
   })
-  assert.deepEqual(long.map(track => track.title), ['Track A', 'Unidentified gap'])
+  assert.deepEqual(long.map(track => track.title), ['Track A', 'ID — ID'])
+})
+
+test('two minutes is the lower boundary for a standalone unknown segment', () => {
+  const short = buildRecognitionTimeline([
+    match(10, 'DJ A', 'Track A', 'a'),
+    match(22, 'DJ A', 'Track A', 'a'),
+    match(34, 'DJ A', 'Track A', 'a'),
+    match(160, 'DJ B', 'Track B', 'b'),
+    match(172, 'DJ B', 'Track B', 'b'),
+    match(184, 'DJ B', 'Track B', 'b'),
+  ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
+  assert.deepEqual(short.map(track => track.title), ['Track A', 'Track B'])
+
+  const atThreshold = buildRecognitionTimeline([
+    match(10, 'DJ A', 'Track A', 'a'),
+    match(22, 'DJ A', 'Track A', 'a'),
+    match(34, 'DJ A', 'Track A', 'a'),
+    match(166, 'DJ B', 'Track B', 'b'),
+    match(178, 'DJ B', 'Track B', 'b'),
+    match(190, 'DJ B', 'Track B', 'b'),
+  ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
+  assert.deepEqual(atThreshold.map(track => track.title), ['Track A', 'ID — ID', 'Track B'])
 })
 
 test('a completed set with no confirmed match becomes one unresolved region', () => {
