@@ -21,6 +21,19 @@ test('renderer app references only DOM IDs that exist in index.html', () => {
   assert.deepEqual(missing, [])
 })
 
+test('automatic recognition has marked tracks, distinct gaps, and a restrained live footer', () => {
+  assert.match(preloadJs, /'recognition-state'/)
+  assert.match(indexHtml, /id="recognition-status"/)
+  assert.match(indexHtml, /id="recognition-compact-status"/)
+  assert.match(appJs, /track\.autoRecognized\s*\? ' track-auto-recognized'/)
+  assert.match(appJs, /track\.isLongRecognitionGap \? ' track-recognition-long-gap'/)
+  assert.match(appJs, /Identified automatically with Shazam/)
+  assert.match(appJs, /Listening inside an unidentified section/)
+  assert.match(appJs, /Automatic ID · not scrobbled/)
+  assert.match(styleCss, /\.track-recognition-long-gap\s*\{/)
+  assert.match(styleCss, /\.recognition-status\.is-active \.spectrum-bar/)
+})
+
 test('critical player controls have matching markup and styles', () => {
   for (const id of [
     'player-status-overlay',
@@ -558,8 +571,8 @@ test('mini-player keeps artist and track on one line with the set title beneath'
   assert.match(indexHtml, /id="np-title-row"[\s\S]*id="np-title-content"[\s\S]*id="np-tracknum"[\s\S]*id="np-artist"[\s\S]*id="np-artist-separator"[\s\S]*id="np-track"/)
   assert.match(indexHtml, /id="np-info"[\s\S]*id="np-set"[\s\S]*id="np-right"[\s\S]*id="np-source"/)
   assert.match(appJs, /npArtistSeparator\.classList\.toggle\('hidden'/)
-  assert.match(appJs, /npTrackText\.textContent = data\.isId \? 'ID'/)
-  assert.match(appJs, /npArtist\.textContent\s+= data\.isId \? 'ID'/)
+  assert.match(appJs, /npTrackText\.textContent = data\.isLongRecognitionGap[\s\S]*data\.isId \? 'ID'/)
+  assert.match(appJs, /npArtist\.textContent = data\.isLongRecognitionGap[\s\S]*data\.isId \? 'ID'/)
   assert.match(appJs, /wireOverflowMarquee\(npTitleContent, npTitleRow, npTitleRow\)/)
   assert.match(styleCss, /#np-title-row\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis/s)
   assert.match(styleCss, /#np-title-content\s*\{[^}]*width:\s*max-content/s)

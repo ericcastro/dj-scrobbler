@@ -18,7 +18,7 @@ previous player position/state, and exits only when you close the app. The same
 run is also available in developer mode from **View → Run Shazam Audio Capture
 POC**.
 
-Look for `[shazam-poc:capture]`, `[shazam-poc:fingerprint]`, and
+Look for `[recognition:capture]`, `[shazam-poc:fingerprint]`, and
 `[shazam-poc:recognition]` in the terminal. A healthy capture identifies itself
 as `Tab audio`, reports non-zero peak/RMS values, and contains about 160,000 mono
 samples at 16 kHz. `no-match` is a valid recognition outcome, not a capture
@@ -43,10 +43,20 @@ different, or no-match. A disagreement is evidence to inspect, not a capture
 failure.
 
 The capture request is granted only to the armed player webContents and keeps
-local audio output enabled. It never requests microphone input. The Shazam
-endpoint used by this experiment is reverse-engineered and unsupported, so a
-future production implementation will need to account for endpoint changes and
-rate limits.
+local audio output enabled. It never requests microphone input.
+
+The same capture path now activates automatically when both published
+tracklist providers finish without a usable result. It captures ten seconds
+every 30 seconds while playback is running, stores only normalized recognition
+observations, and builds the local timeline without sending recognition-derived
+tracks to Last.fm. Seeking into an unresolved part of that timeline schedules a
+sample after a short settling delay, subject to request and seek cooldowns.
+
+The Shazam endpoint is reverse-engineered and unsupported. Shazam publishes no
+rate-limit contract for it, so the 30-second cadence is an intentionally sparse
+product default rather than a guaranteed service allowance. Endpoint changes,
+blocking, and platform-specific Chromium display-audio behavior remain
+experimental.
 
 ## When is this DJ playing next in my city? (v2)
 

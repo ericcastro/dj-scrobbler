@@ -45,6 +45,13 @@ const {
   compareRecognition,
   recognizeFloat32,
 } = require('./lib/shazam-poc')
+const {
+  DEFAULT_LONG_GAP_SECONDS,
+  DEFAULT_SAMPLE_INTERVAL_SECONDS,
+  buildRecognitionTimeline,
+  segmentAtTime,
+  upsertRecognitionObservation,
+} = require('./lib/recognition-timeline')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -87,6 +94,16 @@ const SHAZAM_POC_SAMPLE_COUNT = 4
 const SHAZAM_POC_SEEK_SETTLE_MS = 4000
 const SHAZAM_VALIDATION_SET_COUNT = 5
 const SHAZAM_VALIDATION_MOMENT_COUNT = 5
+// The unofficial Shazam endpoint does not publish a request-rate contract.
+// One sparse sample per 30 seconds is deliberately conservative and matches
+// the cadence used to validate the capture path without continuously uploading.
+const AUTOMATIC_RECOGNITION_INTERVAL_MS = DEFAULT_SAMPLE_INTERVAL_SECONDS * 1000
+const AUTOMATIC_RECOGNITION_CLIP_SECONDS = 10
+const AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 25_000
+const AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000
+const AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS = 2_500
+const AUTOMATIC_RECOGNITION_CACHE_VERSION = 1
+const MAX_AUTOMATIC_RECOGNITION_CACHE_ENTRIES = 100
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MIN_AUTOMATIC_SET_DURATION_SECONDS = 10 * 60
 const EVENT_LOOKUP_CACHE_VERSION = 1
@@ -119,7 +136,7 @@ let playerWvContents = null
 let browserWvContents = null
 let pendingSourceUrl = null
 const attachedWebviews = new Map()
-let shazamPocCaptureGrant = null
+let playerAudioCaptureGrant = null
 let shazamPocRun = null
 let displayFullscreenBounds = null
 let windowDragStart = null
@@ -207,6 +224,7 @@ function readStoreForRenderer() {
   delete rendererStore.tracklistPreferences
   delete rendererStore.artworkCache
   delete rendererStore.eventLookupCache
+  delete rendererStore.automaticRecognitionCache
   return rendererStore
 }
 
@@ -661,6 +679,15 @@ let lastStatsTrackNum    = null
 let currentLookupToken   = 0
 let currentArtworkToken  = 0
 let artworkCacheGeneration = 0
+let automaticRecognition = null
+let automaticRecognitionGeneration = 0
+let lastAutomaticRecognitionState = ''
+
+const AUTOMATIC_RECOGNITION_PROVIDER = {
+  id: 'shazam',
+  name: 'Automatic ID',
+  footerLabel: null,
+}
 
 function extractVideoId(url) {
   try {
@@ -755,6 +782,7 @@ function updateListeningStats(poll, now) {
 }
 
 function recordStatsTrackTransition(track, now) {
+  if (track?.autoRecognized || track?.isRecognitionUnidentified) return
   const trackNum = Number(track?.trackNum)
   if (!Number.isFinite(trackNum)) return
   if (lastStatsTrackNum !== null && trackNum === lastStatsTrackNum + 1) {
@@ -768,7 +796,7 @@ function recordStatsTrackTransition(track, now) {
 }
 
 function scrobbleLastTrackIfReady() {
-  if (!lastTrackData || lastTrackData.isId || !trackStartedAt) return
+  if (!lastTrackData || lastTrackData.isId || lastTrackData.autoRecognized || !trackStartedAt) return
   if (currentTrackPlayedMs < 30000) return
   lfmScrobble(lastTrackData.artist, lastTrackData.title, trackStartedAt, currentSetTitle)
 }
@@ -946,6 +974,9 @@ function emitTimelineTrack(track, poll, now = Date.now()) {
     trackNum: track.trackNum || null,
     isPlaying: poll.isPlaying,
     isId: !!track.isId,
+    autoRecognized: !!track.autoRecognized,
+    isRecognitionUnidentified: !!track.isRecognitionUnidentified,
+    isLongRecognitionGap: !!track.isLongRecognitionGap,
     source: currentTracklistProvider || 'timeline',
     providerId: currentTracklistProvider,
     providerTrackId: track.providerTrackId || null,
@@ -969,7 +1000,7 @@ function emitTimelineTrack(track, poll, now = Date.now()) {
     lastTrackData  = data
     trackStartedAt = Date.now()
     currentTrackPlayedMs = 0
-    if (!data.isId) lfmUpdateNowPlaying(data.artist, data.title)
+    if (!data.isId && !data.autoRecognized) lfmUpdateNowPlaying(data.artist, data.title)
   } else if (lastTrackData) {
     lastTrackData = { ...lastTrackData, isPlaying: poll.isPlaying, currentTime: poll.currentTime, duration: poll.duration }
   }
@@ -980,6 +1011,7 @@ function emitTimelineTrack(track, poll, now = Date.now()) {
 
 function handlePlaybackPoll(poll) {
   const now = Date.now()
+  handleAutomaticRecognitionPlayback(poll)
   const listenedMs = updateListeningStats(poll, now)
   if (lastTrackData) currentTrackPlayedMs += listenedMs
 
@@ -1101,6 +1133,7 @@ function playerSeek(seconds) {
       return 'not-ready'
     })()
   `).catch(() => {})
+  requestRecognitionAfterUnidentifiedSeek(s)
 }
 
 function delay(ms) {
@@ -1151,27 +1184,282 @@ function decodeCapturedFloat32(capture) {
   return new Float32Array(arrayBuffer)
 }
 
-async function captureYouTubeAudioForPoc(contents, clipSeconds = SHAZAM_POC_CLIP_SECONDS) {
+async function captureYouTubePlayerAudio(contents, clipSeconds = SHAZAM_POC_CLIP_SECONDS) {
   if (!contents || contents.isDestroyed()) throw new Error('The YouTube player webview is unavailable.')
-  shazamPocCaptureGrant = {
+  playerAudioCaptureGrant = {
     webContentsId: contents.id,
     expiresAt: Date.now() + 5_000,
   }
   try {
-    log(`[shazam-poc:capture] requesting ${clipSeconds}s from player webContents=${contents.id}`)
+    log(`[recognition:capture] requesting ${clipSeconds}s from player webContents=${contents.id}`)
     const capture = await contents.executeJavaScript(
       buildFrameAudioCaptureScript({ clipSeconds, sampleRate: 16_000 }),
       true
     )
     if (!capture) throw new Error('The player returned no capture result.')
-    log(`[shazam-poc:capture] frames=${capture.frameCount} input=${capture.inputSampleRate}Hz/${capture.inputChannels}ch output=${capture.sampleRate}Hz peak=${Number(capture.peak).toFixed(5)} rms=${Number(capture.rms).toFixed(5)} track="${capture.audioTrackLabel || ''}"`)
+    log(`[recognition:capture] frames=${capture.frameCount} input=${capture.inputSampleRate}Hz/${capture.inputChannels}ch output=${capture.sampleRate}Hz peak=${Number(capture.peak).toFixed(5)} rms=${Number(capture.rms).toFixed(5)} track="${capture.audioTrackLabel || ''}"`)
     if (!(Number(capture.rms) > 0.00001)) {
       throw new Error('Captured PCM is silent; no recognition request was sent.')
     }
     return { capture, samples: decodeCapturedFloat32(capture) }
   } finally {
-    shazamPocCaptureGrant = null
+    playerAudioCaptureGrant = null
   }
+}
+
+function automaticRecognitionCacheKey(sourceUrl) {
+  return crypto.createHash('sha256').update(String(sourceUrl || '')).digest('hex')
+}
+
+function readAutomaticRecognitionObservations(sourceUrl) {
+  const entry = readStore().automaticRecognitionCache?.[automaticRecognitionCacheKey(sourceUrl)]
+  if (
+    entry?.version !== AUTOMATIC_RECOGNITION_CACHE_VERSION ||
+    entry.sourceUrl !== sourceUrl ||
+    !Array.isArray(entry.observations)
+  ) return []
+  return entry.observations.filter(observation => (
+    Number.isFinite(Number(observation?.playbackTimestamp)) && observation?.recognition
+  ))
+}
+
+function writeAutomaticRecognitionObservations(sourceUrl, observations) {
+  if (!sourceUrl) return
+  const store = readStore()
+  const cache = { ...(store.automaticRecognitionCache || {}) }
+  cache[automaticRecognitionCacheKey(sourceUrl)] = {
+    version: AUTOMATIC_RECOGNITION_CACHE_VERSION,
+    sourceUrl,
+    observations,
+    updatedAt: Date.now(),
+  }
+  const keys = Object.keys(cache).sort((left, right) => (
+    Number(cache[right]?.updatedAt || 0) - Number(cache[left]?.updatedAt || 0)
+  ))
+  keys.slice(MAX_AUTOMATIC_RECOGNITION_CACHE_ENTRIES).forEach(key => delete cache[key])
+  store.automaticRecognitionCache = cache
+  writeStore(store)
+}
+
+function sendAutomaticRecognitionState(patch = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const session = automaticRecognition
+  const payload = {
+    active: !!session,
+    phase: session?.phase || 'inactive',
+    recognizing: session?.phase === 'recognizing',
+    inUnidentified: !!session?.inUnidentified,
+    intervalSeconds: DEFAULT_SAMPLE_INTERVAL_SECONDS,
+    nextSampleAt: session?.nextSampleAt || null,
+    ...patch,
+  }
+  const serialized = JSON.stringify(payload)
+  if (serialized === lastAutomaticRecognitionState) return
+  lastAutomaticRecognitionState = serialized
+  mainWindow.webContents.send('recognition-state', payload)
+}
+
+function refreshAutomaticRecognitionTimeline(session = automaticRecognition) {
+  if (!session || session.generation !== automaticRecognitionGeneration) return
+  const timeline = buildRecognitionTimeline(session.observations, {
+    sampleIntervalSeconds: DEFAULT_SAMPLE_INTERVAL_SECONDS,
+    longGapSeconds: DEFAULT_LONG_GAP_SECONDS,
+    sessionStartSeconds: session.sessionStartSeconds,
+  })
+  session.timeline = timeline
+  currentTracks = timeline
+  mainWindow.webContents.send('tracklist-data', {
+    providerId: AUTOMATIC_RECOGNITION_PROVIDER.id,
+    url: null,
+    tracks: currentTracks,
+    fromCache: session.fromCache,
+    isRecognizedTimeline: true,
+  })
+  session.fromCache = false
+}
+
+function stopAutomaticRecognition(reason = 'stopped') {
+  const session = automaticRecognition
+  automaticRecognitionGeneration++
+  automaticRecognition = null
+  if (session?.interval) clearInterval(session.interval)
+  if (session?.seekTimer) clearTimeout(session.seekTimer)
+  if (session) log(`[recognition] stopped reason=${reason}`)
+  lastAutomaticRecognitionState = ''
+  sendAutomaticRecognitionState({ active: false, phase: 'inactive', reason })
+}
+
+function endpointCountryForRecognition() {
+  const countryCode = readStore().settings?.eventLocation?.countryCode
+  return /^[A-Z]{2}$/.test(countryCode) ? countryCode : 'GB'
+}
+
+async function requestAutomaticRecognition(reason = 'interval') {
+  const session = automaticRecognition
+  if (!session || session.generation !== automaticRecognitionGeneration || session.busy) return false
+  const now = Date.now()
+  if (now - session.lastRequestAt < AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS) {
+    log(`[recognition] request skipped reason=${reason} cooldown=true`)
+    return false
+  }
+
+  const contents = playerWvContents
+  if (!contents || contents.isDestroyed() || session.sourceUrl !== currentSourceUrl) return false
+  const before = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+  if (!before?.isPlaying) {
+    session.phase = 'paused'
+    sendAutomaticRecognitionState()
+    return false
+  }
+
+  session.busy = true
+  session.phase = 'recognizing'
+  session.lastRequestAt = now
+  session.nextSampleAt = now + AUTOMATIC_RECOGNITION_INTERVAL_MS
+  sendAutomaticRecognitionState({ reason })
+  log(`[recognition] sample start reason=${reason} playback=${Number(before.currentTime).toFixed(1)}s`)
+
+  try {
+    const { capture, samples } = await captureYouTubePlayerAudio(contents, AUTOMATIC_RECOGNITION_CLIP_SECONDS)
+    if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
+    const playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
+      ? (capture.playbackStartedAt + capture.playbackEndedAt) / 2
+      : Number(before.currentTime) + AUTOMATIC_RECOGNITION_CLIP_SECONDS / 2
+    const recognized = await recognizeFloat32(samples, capture.sampleRate, {
+      endpointCountry: endpointCountryForRecognition(),
+    })
+    if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
+
+    upsertRecognitionObservation(session.observations, {
+      playbackTimestamp,
+      capturedAt: new Date().toISOString(),
+      recognition: recognized.result,
+    })
+    writeAutomaticRecognitionObservations(session.sourceUrl, session.observations)
+    refreshAutomaticRecognitionTimeline(session)
+    if (recognized.result.matched) {
+      log(`[recognition] match playback=${playbackTimestamp.toFixed(1)}s artist="${recognized.result.artist}" title="${recognized.result.title}"`)
+    } else {
+      log(`[recognition] no-match playback=${playbackTimestamp.toFixed(1)}s; keeping region unresolved`)
+    }
+    return true
+  } catch (error) {
+    // Capture/network failures are not timeline evidence. Only a valid Shazam
+    // no-match response creates or extends an unresolved region.
+    log(`[recognition] sample failed reason=${reason}: ${error?.name === 'AbortError' ? 'request timed out' : (error?.message || error)}`)
+    sendAutomaticRecognitionState({ error: error?.message || String(error) })
+    return false
+  } finally {
+    if (session === automaticRecognition && session.generation === automaticRecognitionGeneration) {
+      session.busy = false
+      session.phase = 'listening'
+      sendAutomaticRecognitionState()
+    }
+  }
+}
+
+async function startAutomaticRecognition() {
+  if (!isYouTubePlayerMode || !currentSourceUrl) return false
+  const sourceUrl = currentSourceUrl
+  stopAutomaticRecognition('restart')
+  const generation = automaticRecognitionGeneration
+  const observations = readAutomaticRecognitionObservations(sourceUrl)
+  let player = null
+  try {
+    player = await waitForYouTubePlayer({ sourceUrl, timeoutMs: 15_000 })
+  } catch (error) {
+    if (generation !== automaticRecognitionGeneration || sourceUrl !== currentSourceUrl) return false
+    log(`[recognition] player unavailable: ${error?.message || error}`)
+    return false
+  }
+  if (generation !== automaticRecognitionGeneration || sourceUrl !== currentSourceUrl) return false
+
+  automaticRecognition = {
+    generation,
+    sourceUrl,
+    observations,
+    timeline: [],
+    sessionStartSeconds: observations.length
+      ? Math.min(...observations.map(item => Number(item.playbackTimestamp))) - DEFAULT_SAMPLE_INTERVAL_SECONDS / 2
+      : Math.max(0, Number(player.poll.currentTime) || 0),
+    lastRequestAt: 0,
+    lastSeekRequestAt: 0,
+    nextSampleAt: Date.now(),
+    interval: null,
+    seekTimer: null,
+    busy: false,
+    phase: player.poll.isPlaying ? 'listening' : 'paused',
+    inUnidentified: observations.length === 0,
+    fromCache: observations.length > 0,
+    wasPlaying: !!player.poll.isPlaying,
+  }
+  currentTracklistUrl = null
+  currentTracklistProvider = AUTOMATIC_RECOGNITION_PROVIDER.id
+  currentTracklistOptions = new Map()
+  currentTracks = []
+  resetTimelineState()
+
+  mainWindow.webContents.send('tracklist-loaded', {
+    ...tracklistLoadedBase(AUTOMATIC_RECOGNITION_PROVIDER),
+    tracklistUrl: null,
+    isFallback: false,
+    isRecognizedTimeline: true,
+  })
+  refreshAutomaticRecognitionTimeline(automaticRecognition)
+  sendAutomaticRecognitionState()
+  mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+  log(`[recognition] started interval=${DEFAULT_SAMPLE_INTERVAL_SECONDS}s cachedObservations=${observations.length}`)
+
+  automaticRecognition.interval = setInterval(() => {
+    const active = automaticRecognition
+    if (!active || active.generation !== generation) return
+    active.nextSampleAt = Date.now() + AUTOMATIC_RECOGNITION_INTERVAL_MS
+    requestAutomaticRecognition('interval').catch(error => log('[recognition] interval failed', error?.message || error))
+  }, AUTOMATIC_RECOGNITION_INTERVAL_MS)
+  setImmediate(() => requestAutomaticRecognition('start').catch(error => log('[recognition] initial sample failed', error?.message || error)))
+  return true
+}
+
+function handleAutomaticRecognitionPlayback(poll) {
+  const session = automaticRecognition
+  if (!session) return
+  const segment = segmentAtTime(session.timeline, poll.currentTime)
+  const inUnidentified = !segment || !!segment.isRecognitionUnidentified
+  const resumed = !session.wasPlaying && !!poll.isPlaying
+  session.wasPlaying = !!poll.isPlaying
+  if (session.inUnidentified !== inUnidentified) {
+    session.inUnidentified = inUnidentified
+    sendAutomaticRecognitionState()
+  }
+  if (!poll.isPlaying && !session.busy && session.phase !== 'paused') {
+    session.phase = 'paused'
+    sendAutomaticRecognitionState()
+  } else if (poll.isPlaying && !session.busy && session.phase !== 'listening') {
+    session.phase = 'listening'
+    sendAutomaticRecognitionState()
+  }
+  if (resumed && Date.now() - session.lastRequestAt >= AUTOMATIC_RECOGNITION_INTERVAL_MS) {
+    requestAutomaticRecognition('resume').catch(error => log('[recognition] resume sample failed', error?.message || error))
+  }
+}
+
+function requestRecognitionAfterUnidentifiedSeek(seconds) {
+  const session = automaticRecognition
+  if (!session) return
+  const segment = segmentAtTime(session.timeline, seconds)
+  if (segment && !segment.isRecognitionUnidentified) return
+  const now = Date.now()
+  if (now - session.lastSeekRequestAt < AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS) {
+    log('[recognition] seek sample rejected cooldown=true')
+    return
+  }
+  session.lastSeekRequestAt = now
+  if (session.seekTimer) clearTimeout(session.seekTimer)
+  session.seekTimer = setTimeout(() => {
+    if (session !== automaticRecognition) return
+    session.seekTimer = null
+    requestAutomaticRecognition('unidentified-seek').catch(error => log('[recognition] seek sample failed', error?.message || error))
+  }, AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS)
 }
 
 function shazamPocResultPath() {
@@ -1273,7 +1561,7 @@ async function runShazamPoc() {
         try {
           log(`[shazam-poc] sample seek=${point}s`)
           await seekYouTubePlayerForPoc(ready.contents, point)
-          const { capture, samples } = await captureYouTubeAudioForPoc(ready.contents)
+          const { capture, samples } = await captureYouTubePlayerAudio(ready.contents)
           sample.playbackStartedAt = capture.playbackStartedAt
           sample.playbackEndedAt = capture.playbackEndedAt
           sample.playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
@@ -1489,7 +1777,7 @@ async function runShazamValidation() {
           try {
             log(`[shazam-validation] SAMPLE ${momentIndex + 1}/${moments.length} playback=${moment.playbackTimestamp.toFixed(1)}s expected="${moment.expected.artist} — ${moment.expected.title}"`)
             await seekYouTubePlayerForPoc(ready.contents, moment.playbackTimestamp)
-            const { capture, samples } = await captureYouTubeAudioForPoc(ready.contents)
+            const { capture, samples } = await captureYouTubePlayerAudio(ready.contents)
             sample.playbackStartedAt = capture.playbackStartedAt
             sample.playbackEndedAt = capture.playbackEndedAt
             sample.playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
@@ -1537,12 +1825,11 @@ async function runShazamValidation() {
   return shazamPocRun
 }
 
-function installShazamPocCaptureHandler(electronSession) {
+function installPlayerAudioCaptureHandler(electronSession) {
   electronSession.setDisplayMediaRequestHandler((request, callback) => {
     const requestingContents = request.frame ? webContents.fromFrame(request.frame) : null
-    const grant = shazamPocCaptureGrant
+    const grant = playerAudioCaptureGrant
     const allowed = !!(
-      DEVELOPER_MODE &&
       grant &&
       grant.expiresAt >= Date.now() &&
       request.userGesture &&
@@ -1551,12 +1838,12 @@ function installShazamPocCaptureHandler(electronSession) {
       requestingContents?.id === grant.webContentsId &&
       playerWvContents?.id === grant.webContentsId
     )
-    log(`[shazam-poc:capture] display request origin=${request.securityOrigin} player=${requestingContents?.id || 'none'} audio=${request.audioRequested} video=${request.videoRequested} gesture=${request.userGesture} allowed=${allowed}`)
+    log(`[recognition:capture] display request origin=${request.securityOrigin} player=${requestingContents?.id || 'none'} audio=${request.audioRequested} video=${request.videoRequested} gesture=${request.userGesture} allowed=${allowed}`)
     if (!allowed || !request.frame) {
       callback({})
       return
     }
-    shazamPocCaptureGrant = null
+    playerAudioCaptureGrant = null
     callback({
       video: request.frame,
       audio: request.frame,
@@ -1988,6 +2275,7 @@ function registerTracklistOption(provider, result, lookupToken = currentLookupTo
 }
 
 function applyTracklistResult(tlPlugin, result, { persistPreference = false } = {}) {
+  stopAutomaticRecognition('published-tracklist-selected')
   isTracklistLookupPending = false
   currentTracklistUrl = result.tracklistUrl
   currentTracklistProvider = tlPlugin.id
@@ -2032,6 +2320,30 @@ function applyTracklistResult(tlPlugin, result, { persistPreference = false } = 
 }
 
 function sendTracklistFallback(tlPlugin, error = null) {
+  if (isYouTubePlayerMode && currentSourceUrl) {
+    const sourceUrl = currentSourceUrl
+    const lookupToken = currentLookupToken
+    isTracklistLookupPending = false
+    startAutomaticRecognition()
+      .then(started => {
+        if (
+          !started &&
+          !automaticRecognition &&
+          sourceUrl === currentSourceUrl &&
+          lookupToken === currentLookupToken
+        ) sendTracklistFallbackPanel(tlPlugin, error)
+      })
+      .catch(recognitionError => {
+        if (sourceUrl !== currentSourceUrl || lookupToken !== currentLookupToken) return
+        log(`[recognition] unable to start: ${recognitionError?.message || recognitionError}`)
+        sendTracklistFallbackPanel(tlPlugin, error || recognitionError)
+      })
+    return
+  }
+  sendTracklistFallbackPanel(tlPlugin, error)
+}
+
+function sendTracklistFallbackPanel(tlPlugin, error = null) {
   isTracklistLookupPending = false
   currentTracklistUrl = null
   currentTracklistProvider = null
@@ -2165,6 +2477,7 @@ async function tryTracklistProvider(providerId) {
   }
 
   const lookupToken = ++currentLookupToken
+  stopAutomaticRecognition('manual-provider-lookup')
   log(`[lookup] MANUAL START provider=${providerId} source=${currentSourceUrl} token=${lookupToken}`)
 
   // Drop the previous provider's tracks so the timeline re-emits against the
@@ -2211,6 +2524,7 @@ async function refreshTracklistLookups() {
   }
 
   const lookupToken = ++currentLookupToken
+  stopAutomaticRecognition('provider-refresh')
   triedProviders = new Set()
   currentTracklistOptions = new Map()
   isTracklistLookupPending = true
@@ -2288,6 +2602,7 @@ async function handleSourceUrl(source, url, wvContents) {
   }
 
   const lookupToken = ++currentLookupToken
+  stopAutomaticRecognition('source-changed')
   log(`[lookup] START source=${source.id} url=${url} token=${lookupToken}`)
 
   statsSetReady = false
@@ -2391,7 +2706,10 @@ function wireWebview(wvContents) {
   attachedWebviews.set(wvContents.id, wvContents)
   wvContents.once('destroyed', () => {
     attachedWebviews.delete(wvContents.id)
-    if (playerWvContents === wvContents) playerWvContents = null
+    if (playerWvContents === wvContents) {
+      stopAutomaticRecognition('player-destroyed')
+      playerWvContents = null
+    }
     if (browserWvContents === wvContents) browserWvContents = null
     if (currentWvContents === wvContents) currentWvContents = playerWvContents
   })
@@ -2505,6 +2823,7 @@ function wireWebview(wvContents) {
     isTracklistLookupPending = false
     currentLookupToken++
     isYouTubePlayerMode = false
+    stopAutomaticRecognition('player-navigation-reset')
     stopMonitoring()
   })
 
@@ -2518,6 +2837,7 @@ function wireWebview(wvContents) {
       isTracklistLookupPending = false
       currentLookupToken++
       isYouTubePlayerMode = false
+      stopAutomaticRecognition('player-load-failed')
       stopMonitoring()
     }
   })
@@ -3038,7 +3358,7 @@ function createWindow() {
       setTimeout(() => loadSourceUrl(url).catch(err => log('[debug] startup load failed', err?.stack || err?.message || err)), 250)
     })
   }
-  installShazamPocCaptureHandler(mainWindow.webContents.session)
+  installPlayerAudioCaptureHandler(mainWindow.webContents.session)
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.once('did-finish-load', () => {
     if (AUTO_SHAZAM_VALIDATION) {
@@ -3088,6 +3408,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  stopAutomaticRecognition('app-quit')
   clearTimeout(saveBoundsTimer) // prevent in-flight timer from firing on a destroyed window
   persistStatsNow()
 })
@@ -3111,6 +3432,7 @@ ipcMain.handle('store-set', (_event, data) => {
   if (existing.tracklistPreferences) next.tracklistPreferences = existing.tracklistPreferences
   if (existing.artworkCache) next.artworkCache = existing.artworkCache
   if (existing.eventLookupCache) next.eventLookupCache = existing.eventLookupCache
+  if (existing.automaticRecognitionCache) next.automaticRecognitionCache = existing.automaticRecognitionCache
   writeStore(next)
   syncCurrentStatsMetadataFromStore(next)
 })
@@ -3257,12 +3579,14 @@ ipcMain.handle('tracklist-cache-clear', () => {
   const store = readStore()
   const tracklistCount = Object.keys(store.tracklistCache || {}).length
   const artworkCount = Object.keys(store.artworkCache || {}).length
+  const recognitionCount = Object.keys(store.automaticRecognitionCache || {}).length
   store.tracklistCache = {}
   store.tracklistPreferences = {}
   store.artworkCache = {}
+  store.automaticRecognitionCache = {}
   writeStore(store)
-  log(`[cache] cleared tracklists=${tracklistCount} artwork=${artworkCount}`)
-  return tracklistCount + artworkCount
+  log(`[cache] cleared tracklists=${tracklistCount} artwork=${artworkCount} recognition=${recognitionCount}`)
+  return tracklistCount + artworkCount + recognitionCount
 })
 ipcMain.handle('tracklist-try-provider', (_event, providerId) => tryTracklistProvider(providerId))
 ipcMain.handle('tracklist-select-provider', (_event, providerId) => selectTracklistProvider(providerId))

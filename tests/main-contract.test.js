@@ -160,6 +160,31 @@ test('cross-set Shazam validation compares cached identified tracklist moments',
   assert.match(mainJs, /Validate Shazam Against Saved Tracklists/)
 })
 
+test('empty published tracklists activate sparse automatic recognition without blocking playback', () => {
+  const fallback = mainJs.slice(mainJs.indexOf('function sendTracklistFallback'), mainJs.indexOf('/** Manual retry path'))
+  assert.match(fallback, /startAutomaticRecognition\(\)/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_INTERVAL_MS = DEFAULT_SAMPLE_INTERVAL_SECONDS \* 1000/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 25_000/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000/)
+  assert.match(mainJs, /setImmediate\(\(\) => requestAutomaticRecognition\('start'\)/)
+  assert.match(mainJs, /requestAutomaticRecognition\('unidentified-seek'\)/)
+})
+
+test('automatic recognition remains isolated from Last.fm and ordinary track statistics', () => {
+  const scrobble = mainJs.slice(mainJs.indexOf('function scrobbleLastTrackIfReady'), mainJs.indexOf('function stopMonitoring'))
+  const emit = mainJs.slice(mainJs.indexOf('function emitTimelineTrack'), mainJs.indexOf('function handlePlaybackPoll'))
+  assert.match(scrobble, /lastTrackData\.autoRecognized/)
+  assert.match(emit, /!data\.autoRecognized\) lfmUpdateNowPlaying/)
+  assert.match(mainJs, /track\?\.autoRecognized \|\| track\?\.isRecognitionUnidentified/)
+})
+
+test('automatic recognition observations are a private bounded cache', () => {
+  assert.match(mainJs, /MAX_AUTOMATIC_RECOGNITION_CACHE_ENTRIES = 100/)
+  assert.match(mainJs, /function writeAutomaticRecognitionObservations/)
+  assert.match(mainJs, /delete rendererStore\.automaticRecognitionCache/)
+  assert.match(mainJs, /if \(existing\.automaticRecognitionCache\) next\.automaticRecognitionCache = existing\.automaticRecognitionCache/)
+})
+
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
   assert.match(mainJs, /ipcMain\.handle\('tracklist-try-provider'/)
   assert.match(mainJs, /async function tryTracklistProvider\(providerId\)/)
@@ -276,6 +301,7 @@ test('private lookup caches never round-trip through ordinary renderer persisten
   assert.match(fn, /delete rendererStore\.tracklistPreferences/)
   assert.match(fn, /delete rendererStore\.artworkCache/)
   assert.match(fn, /delete rendererStore\.eventLookupCache/)
+  assert.match(fn, /delete rendererStore\.automaticRecognitionCache/)
 })
 
 test('event lookups are cached privately until the next local day', () => {

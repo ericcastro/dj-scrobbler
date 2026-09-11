@@ -46,7 +46,7 @@ contextBridge.exposeInMainWorld('api', {
   lookupNextEvents: (payload) => ipcRenderer.invoke('event-lookup', payload),
 
   on: (channel, callback) => {
-    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'source-metadata', 'set-availability', 'event-lookup-progress', 'stats-updated',
+    const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'source-metadata', 'set-availability', 'event-lookup-progress', 'recognition-state', 'stats-updated',
                      'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
                      'fallback-progress', 'tl-progress', 'update-status']
     if (!allowed.includes(channel)) return

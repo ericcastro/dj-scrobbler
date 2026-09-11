@@ -3619,6 +3619,79 @@ body.compact-layout #scrobble-badge.dim::after {
 
 .track-item.active .track-cue { color: var(--accent); }
 
+/* Automatic recognition timeline */
+.track-recognition-title-row {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 7px;
+}
+
+.track-recognition-title-row .track-title { min-width: 0; }
+
+.track-recognition-marker {
+  flex-shrink: 0;
+  color: var(--accent2);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  opacity: .72;
+  text-transform: uppercase;
+}
+
+.track-recognition-unidentified {
+  background: color-mix(in srgb, var(--bg3) 40%, transparent);
+}
+
+.track-recognition-long-gap {
+  margin-block: 5px;
+  padding-block: 9px;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--bg3) 62%, transparent) 0 6px,
+    color-mix(in srgb, var(--border) 42%, transparent) 6px 7px
+  );
+}
+
+.track-recognition-long-gap .track-title {
+  color: var(--text2);
+  font-style: italic;
+}
+
+.recognition-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 12px 14px;
+  color: var(--text2);
+  font-size: 10px;
+  letter-spacing: .04em;
+  opacity: .62;
+}
+
+.recognition-status.hidden { display: none; }
+
+.recognition-status .spectrum-bars {
+  opacity: .7;
+}
+
+.recognition-status.is-active .spectrum-bar {
+  animation-play-state: running;
+}
+
+.recognition-status.is-recognizing {
+  color: var(--accent2);
+  opacity: .9;
+}
+
+.recognition-status-compact {
+  min-height: 34px;
+  padding: 8px;
+  text-align: center;
+}
+
 /* ── Compact track list (right panel) ── */
 .track-list.compact .track-item {
   padding: 4px 6px;

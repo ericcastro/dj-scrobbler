@@ -41,6 +41,7 @@ const state = {
   currentEventLookupRequest: 0,
   eventSuggestionsDismissedNotice: false,
   pendingResumeTime: null, // seconds to seek to after first playback-progress tick
+  recognitionState: { active: false, phase: 'inactive', inUnidentified: false },
 }
 
 const EVENT_KAWAII_EMOTES = [
@@ -238,6 +239,8 @@ const sepTracksCount     = document.getElementById('sep-tracks-count')
 const sepListenTooltip   = document.getElementById('sep-listen-tooltip')
 const tlListFooter       = document.getElementById('tl-list-footer')
 const tlCompactFooter    = document.getElementById('tl-compact-footer')
+const recognitionStatus  = document.getElementById('recognition-status')
+const recognitionCompactStatus = document.getElementById('recognition-compact-status')
 const introSearchInput   = document.getElementById('intro-search-input')
 const introResumeSection  = document.getElementById('intro-resume')
 const introResumeGrid     = document.getElementById('intro-resume-grid')
@@ -2108,6 +2111,24 @@ function isResumeDialogOpen() {
   return !resumeDialog.classList.contains('hidden')
 }
 
+function renderRecognitionStatus() {
+  const recognition = state.recognitionState || {}
+  const active = !!recognition.active && state.currentTracklistProvider === 'shazam'
+  let message = ''
+  if (recognition.phase === 'recognizing') message = 'Identifying this audio…'
+  else if (recognition.phase === 'paused') message = 'Automatic identification pauses with playback'
+  else if (recognition.inUnidentified) message = 'Listening inside an unidentified section…'
+  else message = 'Listening for the next track…'
+
+  for (const element of [recognitionStatus, recognitionCompactStatus]) {
+    if (!element) continue
+    element.classList.toggle('hidden', !active)
+    element.classList.toggle('is-active', active && recognition.phase !== 'paused')
+    element.classList.toggle('is-recognizing', recognition.phase === 'recognizing')
+    element.innerHTML = active ? `${spectrumBarsHtml('recognition-indicator')}<span>${escHtml(message)}</span>` : ''
+  }
+}
+
 function wireMainEvents() {
   window.api.on('wv-status', (status) => {
     // Don't show/hide overlays while the resume dialog is open — it would change
@@ -2142,6 +2163,7 @@ function wireMainEvents() {
       state.metadataEditMode = null
       state.metadataOverwriteOnSet79 = false
       state.eventSuggestionsDismissedNotice = false
+      state.recognitionState = { active: false, phase: 'inactive', inUnidentified: false }
     }
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
@@ -2164,6 +2186,7 @@ function wireMainEvents() {
     renderSetMetadataHeader()
     renderSetSources()
     renderTracklistProviderChoice()
+    renderRecognitionStatus()
 
     if (isFallback) {
       state.currentTracks  = []   // prevent stale count leaking into bookmark
@@ -2239,8 +2262,12 @@ function wireMainEvents() {
     state.isIdTrack      = !!data.isId
     // Player-only events carry play/pause state, not track metadata.
     if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
-      npTrackText.textContent = data.isId ? 'ID' : (data.title || data.raw || '—')
-      npArtist.textContent   = data.isId ? 'ID' : (data.artist || '—')
+      npTrackText.textContent = data.isLongRecognitionGap
+        ? 'Unidentified gap'
+        : (data.isId ? 'ID' : (data.title || data.raw || '—'))
+      npArtist.textContent = data.isLongRecognitionGap
+        ? 'Automatic recognition'
+        : (data.isId ? 'ID' : (data.artist || '—'))
       npArtistSeparator.classList.toggle('hidden', !npArtist.textContent || npArtist.textContent === '—')
       npTracknum.textContent = data.trackNum ? `#${data.trackNum}` : ''
       setNpArtwork(data.isId ? null : data.artUrl, data.isId ? 'missing' : data.artworkStatus)
@@ -2294,7 +2321,9 @@ function wireMainEvents() {
     renderPlaybackSegments(true)
     // Persist track count on the history/favorites entry so the sidebar can
     // show "XX tracks" instead of a source name
-    const count = tracks.length
+    const count = payload?.isRecognizedTimeline
+      ? tracks.filter(track => track.autoRecognized).length
+      : tracks.length
     state.store.history   = state.store.history.map(item =>
       item.url === state.currentSetUrl ? { ...item, trackCount: count } : item
     )
@@ -2304,6 +2333,12 @@ function wireMainEvents() {
     persist()
     renderHistory()
     renderFavorites()
+    renderRecognitionStatus()
+  })
+
+  window.api.on('recognition-state', (recognition) => {
+    state.recognitionState = recognition || { active: false, phase: 'inactive', inUnidentified: false }
+    renderRecognitionStatus()
   })
 
   window.api.on('track-artwork', (payload) => {
@@ -2444,6 +2479,7 @@ const BADGE = {
   enabled:       { label: 'Scrobbling enabled',        cls: '' },
   scrobbling:    { label: 'Scrobbling',                cls: 'ok' },
   idtrack:       { label: 'Unidentified track',        cls: 'dim' },
+  automatic:     { label: 'Automatic ID · not scrobbled', cls: 'dim' },
   error:         { label: 'Error',                     cls: 'error' },
   unavailable:   { label: 'Tracklist unavailable',     cls: 'dim' },
 }
@@ -2452,6 +2488,7 @@ function refreshScrobbleBadge() {
   let key
   if (state.tracklistUnavailable) key = 'unavailable'
   else if (state.isIdTrack && state.isTrackPlaying) key = 'idtrack'
+  else if (state.nowPlaying?.autoRecognized) key = 'automatic'
   else if (state.lfmStatus === 'error') key = 'error'
   else if (state.lfmStatus === 'unconfigured') key = 'unconfigured'
   else if (state.isTrackPlaying) key = 'scrobbling'
@@ -3600,7 +3637,10 @@ function createTrackItem(track, compact) {
     (track.isId             ? ' track-id'           : '') +
     (track.isWWith          ? ' track-with'         : '') +
     (track.isMashupComponent ? ' track-mashup'      : '') +
-    (track.noTimestamp      ? ' track-no-timestamp' : '')
+    (track.noTimestamp      ? ' track-no-timestamp' : '') +
+    (track.autoRecognized   ? ' track-auto-recognized' : '') +
+    (track.isRecognitionUnidentified ? ' track-recognition-unidentified' : '') +
+    (track.isLongRecognitionGap ? ' track-recognition-long-gap' : '')
   li.dataset.trackNum = track.trackNum || ''
   li.dataset.providerTrackId = track.providerTrackId || ''
 
@@ -3614,13 +3654,18 @@ function createTrackItem(track, compact) {
       : `<div class="track-art track-art-empty${track.artworkStatus === 'loading' ? ' track-art-loading' : ''}"></div>`
   )
 
-  const titleText  = track.isId ? 'ID — ID' : escHtml(track.title || track.raw || '?')
-  const artistHtml = (!track.isId && track.artist && !compact)
-    ? `<span class="track-artist">${escHtml(track.artist)}</span>`
+  const titleText = escHtml(track.title || (track.isId ? 'ID — ID' : track.raw) || '?')
+  const artistHtml = track.isRecognitionUnidentified && track.isLongRecognitionGap && !compact
+    ? '<span class="track-artist">automatic recognition found no stable match here</span>'
+    : ((!track.isId && track.artist && !compact)
+        ? `<span class="track-artist">${escHtml(track.artist)}</span>`
+        : '')
+  const recognitionMarker = track.autoRecognized
+    ? '<span class="track-recognition-marker" title="Identified automatically with Shazam" aria-label="Identified automatically with Shazam">✦ auto</span>'
     : ''
 
   // Determine identify type — drives both button label and dialog content
-  const needsIdentify = track.isId || track.title === 'ID' || track.artist === 'ID'
+  const needsIdentify = (track.isId || track.title === 'ID' || track.artist === 'ID') && !track.isRecognitionUnidentified
   let idDialogType = 'id'
   if (!track.isId && track.title === 'ID') idDialogType = 'id-title'
   else if (!track.isId && track.artist === 'ID') idDialogType = 'id-artist'
@@ -3632,14 +3677,14 @@ function createTrackItem(track, compact) {
     ? `<div class="track-info">
          <div class="track-title-row">
            <div class="track-text-col">
-             <span class="track-title">${titleText}</span>
+             <span class="track-title">${titleText}</span>${recognitionMarker}
              ${artistHtml}
            </div>
            <button class="inline-track-btn track-id-btn">${idBtnLabel}</button>
          </div>
        </div>`
     : `<div class="track-info">
-         <span class="track-title">${titleText}</span>
+         <div class="track-recognition-title-row"><span class="track-title">${titleText}</span>${recognitionMarker}</div>
          ${artistHtml}
        </div>`
 
@@ -3724,8 +3769,9 @@ function renderTracklist(tracks) {
     }
   }
 
-  mainContent.classList.toggle('has-tracklist', tracks.length > 0)
+  mainContent.classList.toggle('has-tracklist', tracks.length > 0 || state.currentTracklistProvider === 'shazam')
   renderSetMetadataHeader()
+  renderRecognitionStatus()
 }
 
 function highlightTracklistByNum(trackNum) {
@@ -3745,6 +3791,8 @@ function clearTracklist() {
   tracklistCompactList.innerHTML = ''
   tlListFooter.classList.add('hidden')
   tlCompactFooter.classList.add('hidden')
+  recognitionStatus.classList.add('hidden')
+  recognitionCompactStatus.classList.add('hidden')
   tracklistProviderChoice.classList.add('hidden')
   mainContent.classList.remove('has-tracklist')
   tracklistUnavailableEl.classList.add('hidden')
