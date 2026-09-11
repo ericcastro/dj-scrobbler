@@ -1652,6 +1652,8 @@ body.video-mode-hidden #main-content.has-tracklist #video-area {
   inset: 0;
   z-index: 50;
   pointer-events: none;
+  --immersive-surface: color-mix(in srgb, var(--bg) 82%, transparent);
+  --immersive-border: color-mix(in srgb, var(--border) 78%, transparent);
   color: #f7f4f7;
   text-shadow: 0 1px 12px rgba(0, 0, 0, .9);
 }
@@ -1666,13 +1668,12 @@ body.video-mode-focus #immersive-overlay { display: block; }
   padding: clamp(22px, 3vw, 42px) clamp(24px, 3.2vw, 48px) clamp(20px, 2.5vw, 36px);
   border-left: 3px solid var(--accent);
   border-radius: 4px 14px 14px 4px;
-  background: linear-gradient(100deg, rgba(5, 6, 12, .82), rgba(5, 6, 12, .52) 72%, rgba(5, 6, 12, .12));
-  backdrop-filter: blur(12px) saturate(.85);
-  -webkit-backdrop-filter: blur(12px) saturate(.85);
+  background: var(--immersive-surface);
+  backdrop-filter: blur(5px) saturate(.85);
+  -webkit-backdrop-filter: blur(5px) saturate(.85);
 }
 
-#immersive-kicker,
-.immersive-tracklist-heading {
+#immersive-kicker {
   margin-bottom: 8px;
   color: var(--accent);
   font-size: clamp(9px, .7vw, 12px);
@@ -1707,25 +1708,25 @@ body.video-mode-focus #immersive-overlay { display: block; }
 
 #immersive-tracklist-shell {
   position: absolute;
-  top: clamp(54px, 10vh, 120px);
+  top: clamp(48px, 6vh, 78px);
   right: clamp(18px, 2.5vw, 46px);
-  bottom: clamp(24px, 5vh, 72px);
-  width: clamp(290px, 31vw, 510px);
+  bottom: clamp(16px, 2.5vh, 36px);
+  width: clamp(255px, 21vw, 400px);
   box-sizing: border-box;
-  padding: 18px 10px 18px 18px;
+  padding: 7px 5px 7px 10px;
   overflow: hidden;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 14px;
-  background: rgba(5, 6, 12, .56);
-  backdrop-filter: blur(16px) saturate(.75);
-  -webkit-backdrop-filter: blur(16px) saturate(.75);
+  border: 1px solid var(--immersive-border);
+  border-radius: 10px;
+  background: var(--immersive-surface);
+  backdrop-filter: blur(5px) saturate(.85);
+  -webkit-backdrop-filter: blur(5px) saturate(.85);
   pointer-events: auto;
 }
 
 #immersive-tracklist-list {
-  height: calc(100% - 24px);
+  height: 100%;
   margin: 0;
-  padding: 8vh 8px;
+  padding: 4vh 4px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
@@ -1762,8 +1763,10 @@ body.video-mode-focus #immersive-overlay { display: block; }
 .immersive-track-number,
 .immersive-track-cue { color: rgba(255,255,255,.52); font-size: clamp(9px, .72vw, 12px); }
 .immersive-track-copy { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.immersive-track-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(11px, .95vw, 16px); color: rgba(255,255,255,.9); }
-.immersive-track-artist { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(9px, .74vw, 12px); color: rgba(255,255,255,.55); }
+.immersive-track-copy { overflow: hidden; }
+.immersive-track-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(12px, 1vw, 17px); color: rgba(255,255,255,.9); }
+.immersive-track-title.overflow-marquee { overflow: visible; text-overflow: clip; }
+.immersive-track-artist { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(10px, .78vw, 13px); color: rgba(255,255,255,.55); }
 .immersive-track-row.active .immersive-track-number,
 .immersive-track-row.active .immersive-track-cue,
 .immersive-track-row.active .immersive-track-title { color: var(--accent); }

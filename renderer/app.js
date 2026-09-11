@@ -2068,6 +2068,7 @@ function renderImmersiveTracklist(tracks = state.currentTracks) {
     cue.className = 'immersive-track-cue'
     cue.textContent = track.cueDisplay || ''
     row.append(number, copy, cue)
+    wireOverflowMarquee(title, row, copy)
     if (track.cueDisplay && Number.isFinite(track.cueSeconds) && !track.noTimestamp && !track.isRecognitionCandidate) {
       row.addEventListener('click', () => playerSeek(track.cueSeconds))
     } else {
