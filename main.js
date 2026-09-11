@@ -535,11 +535,13 @@ function writeArtworkCacheUpdates(updates) {
 function getTracklistPreference(sourceUrl) {
   if (!sourceUrl) return null
   const providerId = readStore().tracklistPreferences?.[sourceUrl]
-  return plugins.tracklistById(providerId) ? providerId : null
+  return providerId === AUTOMATIC_RECOGNITION_PROVIDER.id || plugins.tracklistById(providerId)
+    ? providerId
+    : null
 }
 
 function writeTracklistPreference(sourceUrl, providerId) {
-  if (!sourceUrl || !plugins.tracklistById(providerId)) return false
+  if (!sourceUrl || (providerId !== AUTOMATIC_RECOGNITION_PROVIDER.id && !plugins.tracklistById(providerId))) return false
   const store = readStore()
   if (!store.tracklistPreferences || typeof store.tracklistPreferences !== 'object') {
     store.tracklistPreferences = {}
@@ -730,7 +732,7 @@ let lastStandaloneRecognitionAt = 0
 
 const AUTOMATIC_RECOGNITION_PROVIDER = {
   id: 'shazam',
-  name: 'Automatic ID',
+  name: 'Automatic',
   footerLabel: null,
 }
 
@@ -1584,7 +1586,7 @@ async function startAutomaticRecognition() {
   currentTracklistProvider = AUTOMATIC_RECOGNITION_PROVIDER.id
   const artworkToken = ++currentArtworkToken
   automaticRecognition.artworkToken = artworkToken
-  currentTracklistOptions = new Map()
+  registerAutomaticTracklistOption()
   currentTracks = []
   resetTimelineState()
 
@@ -1710,9 +1712,6 @@ function validatedRecognitionCorrection(value) {
 }
 
 function publishedRecognitionPatch(track, action, correction = null) {
-  if (action === 'confirm') {
-    return { autoRecognized: false, wasAutoRecognized: true, userConfirmed: true }
-  }
   if (action === 'wrong') {
     const { artist, title } = validatedRecognitionCorrection(correction)
     return {
@@ -1722,6 +1721,7 @@ function publishedRecognitionPatch(track, action, correction = null) {
       isId: false,
       autoRecognized: false,
       wasAutoRecognized: true,
+      manualIdentified: true,
       userConfirmed: true,
       userCorrected: true,
       recognitionSource: 'manual',
@@ -1740,6 +1740,7 @@ function publishedRecognitionPatch(track, action, correction = null) {
       isLongRecognitionGap: false,
       autoRecognized: false,
       wasAutoRecognized: false,
+      manualIdentified: false,
       userConfirmed: false,
       recognitionSource: null,
       recognition: null,
@@ -1750,12 +1751,33 @@ function publishedRecognitionPatch(track, action, correction = null) {
   throw new Error('Unknown recognition action.')
 }
 
+function publishedManualIdentificationPatch(correction) {
+  const { artist, title } = validatedRecognitionCorrection(correction)
+  return {
+    artist,
+    title,
+    raw: `${artist} - ${title}`,
+    isId: false,
+    isRecognitionUnidentified: false,
+    isLongRecognitionGap: false,
+    autoRecognized: false,
+    wasAutoRecognized: false,
+    manualIdentified: true,
+    userConfirmed: true,
+    userCorrected: true,
+    recognitionSource: 'manual',
+    recognition: null,
+    artUrl: '',
+    artworkStatus: 'missing',
+  }
+}
+
 function editRecognizedTrack(payload) {
   const action = String(payload?.action || '')
-  if (!['confirm', 'wrong', 'delete'].includes(action)) throw new Error('Unknown recognition action.')
+  if (!['wrong', 'delete'].includes(action)) throw new Error('Unknown recognition action.')
   if (payload?.sourceUrl !== currentSourceUrl || payload?.providerId !== currentTracklistProvider) return false
   const track = currentTracks.find(item => item.providerTrackId === payload?.providerTrackId)
-  if (!track?.autoRecognized) return false
+  if (!track || (!track.autoRecognized && !track.manualIdentified)) return false
 
   if (currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER.id) {
     const session = automaticRecognition
@@ -1778,6 +1800,47 @@ function editRecognizedTrack(payload) {
   emitCurrentTracklistData()
   if (action === 'wrong') queueCurrentTrackArtwork(track.providerTrackId)
   log(`[recognition] user action=${action} provider=${currentTracklistProvider} track="${track.raw}"`)
+  return true
+}
+
+function manualIdentifyTrack(payload) {
+  if (payload?.sourceUrl !== currentSourceUrl || payload?.providerId !== currentTracklistProvider) return false
+  const track = currentTracks.find(item => item.providerTrackId === payload?.providerTrackId)
+  if (!track || (!track.isId && track.title !== 'ID' && track.artist !== 'ID')) return false
+  const correction = validatedRecognitionCorrection(payload?.correction)
+
+  if (currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER.id) {
+    const session = automaticRecognition
+    const playbackTimestamp = Number(track.cueSeconds)
+    if (!session || session.sourceUrl !== currentSourceUrl || !Number.isFinite(playbackTimestamp)) return false
+    const manualKey = `${correction.artist.toLocaleLowerCase()}\u0000${correction.title.toLocaleLowerCase()}`
+    upsertRecognitionObservation(session.observations, {
+      playbackTimestamp,
+      capturedAt: new Date().toISOString(),
+      recognition: {
+        matched: true,
+        artist: correction.artist,
+        title: correction.title,
+        manualKey,
+        userConfirmed: true,
+        userCorrected: true,
+      },
+    })
+    writeAutomaticRecognitionObservations(session.sourceUrl, session.observations, session.setEndSeconds)
+    refreshAutomaticRecognitionTimeline(session)
+    log(`[recognition] manual ID timeline artist="${correction.artist}" title="${correction.title}"`)
+    return true
+  }
+
+  const patch = publishedManualIdentificationPatch(correction)
+  currentTracks = currentTracks.map(item => item.providerTrackId === track.providerTrackId
+    ? { ...item, ...patch }
+    : item
+  )
+  writeTrackRecognitionEdit(currentSourceUrl, currentTracklistProvider, track.providerTrackId, patch)
+  emitCurrentTracklistData()
+  queueCurrentTrackArtwork(track.providerTrackId)
+  log(`[recognition] manual ID provider=${currentTracklistProvider} artist="${correction.artist}" title="${correction.title}"`)
   return true
 }
 
@@ -2678,6 +2741,7 @@ async function probeTracklistProvider(tlPlugin, meta, lookupToken, { bypassCache
 
 function tracklistOptionPayload() {
   const providerOrder = new Map(plugins.TRACKLISTS.map((provider, index) => [provider.id, index]))
+  providerOrder.set(AUTOMATIC_RECOGNITION_PROVIDER.id, 99)
   return [...currentTracklistOptions.values()]
     .sort((a, b) => (providerOrder.get(a.provider.id) ?? 99) - (providerOrder.get(b.provider.id) ?? 99))
     .map(({ provider, result }) => ({
@@ -2685,6 +2749,27 @@ function tracklistOptionPayload() {
       name: provider.name,
       tracklistUrl: result.tracklistUrl,
     }))
+}
+
+function automaticTracklistOptionResult() {
+  return {
+    usable: true,
+    sourceUrl: currentSourceUrl,
+    title: currentSetTitle || currentSourceUrl,
+    tracklistUrl: null,
+    tracks: [],
+    fromCache: false,
+  }
+}
+
+function registerAutomaticTracklistOption() {
+  if (!currentSourceUrl) return false
+  currentTracklistOptions.set(AUTOMATIC_RECOGNITION_PROVIDER.id, {
+    provider: AUTOMATIC_RECOGNITION_PROVIDER,
+    result: automaticTracklistOptionResult(),
+  })
+  emitTracklistOptions()
+  return true
 }
 
 function emitTracklistOptions() {
@@ -2836,12 +2921,13 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
   waitForFallback = false,
 } = {}) {
   const fallbackPlugin = plugins.automaticFallbackTracklistsForSource(currentSourceId)[0] || null
+  const preferredProviderId = getTracklistPreference(meta.url || currentSourceUrl)
   if (showLoading) mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${primaryPlugin.name}…` })
 
   const lookups = startPrimaryWithFallback({
     primaryProvider: primaryPlugin,
     fallbackProvider: fallbackPlugin,
-    preferredProviderId: getTracklistPreference(meta.url || currentSourceUrl),
+    preferredProviderId,
     lookup: plugin => probeTracklistProvider(plugin, meta, lookupToken, { bypassCache }),
   })
 
@@ -2876,8 +2962,22 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
     }
   })
 
+  // Keep provider probes alive for availability and source switching, while an
+  // explicitly selected Automatic timeline continues to own this set.
+  if (preferredProviderId === AUTOMATIC_RECOGNITION_PROVIDER.id) {
+    if (await startAutomaticRecognition()) return
+    log('[recognition] preferred Automatic source could not start; using a published result when available')
+  }
+
   const choice = await lookups.selected
   if (lookupToken !== currentLookupToken || choice.selected?.result?.stale) return
+
+  // The user can switch to Automatic while these network probes are still
+  // settling. Retain their results as options, but do not switch away again.
+  if (currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER.id) {
+    if (waitForFallback) await Promise.all([lookups.primary, lookups.fallback])
+    return
+  }
 
   if (choice.selected) {
     applyTracklistResult(choice.selected.provider, choice.selected.result)
@@ -2932,6 +3032,20 @@ async function tryTracklistProvider(providerId) {
 }
 
 async function selectTracklistProvider(providerId) {
+  if (providerId === AUTOMATIC_RECOGNITION_PROVIDER.id) {
+    if (!currentSourceUrl || !isYouTubePlayerMode) return false
+    if (providerId === currentTracklistProvider) {
+      writeTracklistPreference(currentSourceUrl, providerId)
+      return true
+    }
+
+    log(`[lookup] SWITCH provider=${providerId} source=${currentSourceUrl}`)
+    scrobbleLastTrackIfReady()
+    const started = await startAutomaticRecognition()
+    if (started) writeTracklistPreference(currentSourceUrl, providerId)
+    return started
+  }
+
   const option = currentTracklistOptions.get(providerId)
   if (!option || !currentSourceUrl) {
     log(`[lookup] provider selection rejected provider=${providerId} source=${currentSourceUrl || '(none)'}`)
@@ -2960,6 +3074,7 @@ async function refreshTracklistLookups() {
   stopAutomaticRecognition('provider-refresh')
   triedProviders = new Set()
   currentTracklistOptions = new Map()
+  registerAutomaticTracklistOption()
   isTracklistLookupPending = true
   log(`[lookup] REFRESH source=${currentSourceUrl} token=${lookupToken}`)
 
@@ -3075,6 +3190,7 @@ async function handleSourceUrl(source, url, wvContents) {
   statsSetReady = true
   registerCurrentStatsSet()
   currentThumbnailUrl = thumbnailForSourceUrl(currentSourceUrl) || currentThumbnailUrl
+  registerAutomaticTracklistOption()
   log(`[lookup] meta resolved title="${currentSetTitle}" sourceUrl="${currentSourceUrl}"`)
 
   if (source.id === 'youtube' && videoId) {
@@ -4095,6 +4211,7 @@ ipcMain.handle('fallback-seek', (_event, seconds) => playerSeek(seconds))
 ipcMain.handle('tl-seek', (_event, seconds) => playerSeek(seconds))
 ipcMain.handle('track-recognition-identify', (_event, payload) => identifyTrackWithRecognition(payload))
 ipcMain.handle('track-recognition-edit', (_event, payload) => editRecognizedTrack(payload))
+ipcMain.handle('track-manual-identify', (_event, payload) => manualIdentifyTrack(payload))
 
 async function loadSourceUrl(url, playbackContents = playerWvContents || currentWvContents) {
   log(`[lookup] loadSourceUrl url=${url} hasPlayback=${!!playbackContents} playerWvContents=${!!playerWvContents} currentWvContents=${!!currentWvContents}`)

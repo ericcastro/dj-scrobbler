@@ -400,18 +400,18 @@ const CONTRIBUTE_CONFIGS = {
     sub:   "...so we can't seek to it. You can help adding it!",
   },
   'id': {
-    btnLabel: 'do you know this track?',
-    title:    'Do you know this track?',
+    btnLabel: 'manual ID',
+    title:    'Manual ID',
     sub:      ID_SUB,
   },
   'id-title': {
-    btnLabel: 'do you know the title?',
-    title:    'Do you know the title for this track?',
+    btnLabel: 'manual ID',
+    title:    'Manual ID',
     sub:      ID_SUB,
   },
   'id-artist': {
-    btnLabel: 'do you know the artist?',
-    title:    'Do you know the artist for this track?',
+    btnLabel: 'manual ID',
+    title:    'Manual ID',
     sub:      ID_SUB,
   },
 }
@@ -3661,9 +3661,7 @@ async function identifyUnknownTrack(track, button) {
 }
 
 async function handleRecognizedTrackAction(track, action, correction = null) {
-  if (action === 'confirm') {
-    if (!window.confirm(`Confirm “${track.artist} — ${track.title}” as this track?`)) return
-  } else if (action === 'wrong') {
+  if (action === 'wrong') {
     correction = {
       artist: String(correction?.artist || '').trim(),
       title: String(correction?.title || '').trim(),
@@ -3674,7 +3672,7 @@ async function handleRecognizedTrackAction(track, action, correction = null) {
     }
     if (!window.confirm(`Replace this automatic match with “${correction.artist} — ${correction.title}”?`)) return
   } else if (action === 'delete') {
-    if (!window.confirm('Delete this automatic match and return the segment to ID — ID?')) return
+    if (!window.confirm('Remove this ID and return the segment to ID — ID?')) return
   } else {
     return
   }
@@ -3689,7 +3687,7 @@ async function handleRecognizedTrackAction(track, action, correction = null) {
 
 function beginRecognizedTrackCorrection(li, track) {
   const text = li.querySelector('.track-text-col')
-  const actions = li.querySelector('.track-auto-actions')
+  const actions = li.querySelector('.track-auto-actions, .track-manual-actions')
   if (!text || !actions) return
 
   text.innerHTML = ''
@@ -3733,6 +3731,53 @@ function beginRecognizedTrackCorrection(li, track) {
   artistInput.select()
 }
 
+function beginManualTrackIdentification(li, track) {
+  const text = li.querySelector('.track-text-col')
+  const actions = li.querySelector('.track-manual-actions')
+  if (!text || !actions) return
+
+  text.innerHTML = ''
+  const titleInput = document.createElement('input')
+  titleInput.className = 'track-correction-input track-correction-title'
+  titleInput.value = track.title === 'ID' ? '' : (track.title || '')
+  titleInput.placeholder = 'Track title'
+  const artistInput = document.createElement('input')
+  artistInput.className = 'track-correction-input track-correction-artist'
+  artistInput.value = track.artist === 'ID' ? '' : (track.artist || '')
+  artistInput.placeholder = 'Artist'
+  text.append(titleInput, artistInput)
+
+  actions.innerHTML = `
+    <button class="inline-track-btn track-auto-action" data-action="save">save</button>
+    <button class="inline-track-btn track-auto-action" data-action="cancel">cancel</button>
+  `
+  const cancel = () => renderTracklist(state.currentTracks)
+  const save = async () => {
+    const saved = await window.api.manualIdentifyTrack({
+      ...recognitionTrackPayload(track),
+      correction: { artist: artistInput.value, title: titleInput.value },
+    })
+    if (!saved) window.alert('That track changed before the manual ID could be saved. Please try again.')
+  }
+  actions.querySelector('[data-action="save"]').addEventListener('click', (event) => {
+    event.stopPropagation()
+    save().catch(error => window.alert(error?.message || 'The manual ID could not be saved.'))
+  })
+  actions.querySelector('[data-action="cancel"]').addEventListener('click', (event) => {
+    event.stopPropagation()
+    cancel()
+  })
+  for (const input of [titleInput, artistInput]) {
+    input.addEventListener('click', event => event.stopPropagation())
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Escape') cancel()
+      if (event.key === 'Enter') save().catch(error => window.alert(error?.message || 'The manual ID could not be saved.'))
+    })
+  }
+  artistInput.focus()
+  artistInput.select()
+}
+
 function createTrackItem(track, compact) {
   const li = document.createElement('li')
   li.className = 'track-item' +
@@ -3767,30 +3812,26 @@ function createTrackItem(track, compact) {
     ? '<span class="track-recognition-marker" title="Identified automatically with Shazam" aria-label="Identified automatically with Shazam">✦ auto</span>'
     : ''
 
-  // Determine identify type — drives both button label and dialog content
+  // An incomplete published row can be retried digitally or completed inline.
   const needsIdentify = track.isId || track.title === 'ID' || track.artist === 'ID'
-  let idDialogType = 'id'
-  if (!track.isId && track.title === 'ID') idDialogType = 'id-title'
-  else if (!track.isId && track.artist === 'ID') idDialogType = 'id-artist'
-  const idBtnLabel = CONTRIBUTE_CONFIGS[idDialogType].btnLabel
-
-  const identifyHtml = track.isId
-    ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>identify</button>`
+  const manualIdentifyHtml = needsIdentify
+    ? `<span class="track-manual-actions">
+         ${track.isId
+    ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>retry auto ID</button>`
+    : ''}
+         <button class="inline-track-btn track-manual-id-btn">manual ID</button>
+       </span>`
     : ''
-  const contributeHtml = needsIdentify
-    ? `<button class="inline-track-btn track-id-btn">${idBtnLabel}</button>`
-    : ''
-  const autoActionsHtml = track.autoRecognized
+  const autoActionsHtml = (track.autoRecognized || track.manualIdentified)
     ? `<span class="track-auto-actions" aria-label="Automatic track actions">
-         <button class="inline-track-btn track-auto-action" data-action="confirm">confirm</button>
-         <button class="inline-track-btn track-auto-action" data-action="wrong">wrong</button>
-         <button class="inline-track-btn track-auto-action" data-action="delete">delete</button>
+         <button class="inline-track-btn track-auto-action" data-action="wrong">wrong ID</button>
+         <button class="inline-track-btn track-auto-action" data-action="delete">remove ID</button>
        </span>`
     : ''
   const analyzingHtml = track.isRecognitionCandidate
     ? `<span class="track-analysis-label">still analyzing ${track.recognitionCandidateCount || 1}/${track.recognitionRequiredCount || 3}</span>`
     : ''
-  const actionsHtml = analyzingHtml || autoActionsHtml || (identifyHtml + contributeHtml)
+  const actionsHtml = analyzingHtml || autoActionsHtml || manualIdentifyHtml
   const trackInfoHtml = `<div class="track-info">
        <div class="track-title-row">
          <div class="track-text-col">
@@ -3821,9 +3862,9 @@ function createTrackItem(track, compact) {
     e.stopPropagation()
     openContributeDialog('no-timestamp')
   })
-  li.querySelector('.track-id-btn')?.addEventListener('click', (e) => {
+  li.querySelector('.track-manual-id-btn')?.addEventListener('click', (e) => {
     e.stopPropagation()
-    openContributeDialog(idDialogType)
+    beginManualTrackIdentification(li, track)
   })
   li.querySelector('.track-identify-btn')?.addEventListener('click', (e) => {
     e.stopPropagation()

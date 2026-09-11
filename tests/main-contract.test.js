@@ -210,6 +210,8 @@ test('automatic and one-shot recognition edits are exposed without weakening sou
   assert.match(mainJs, /writeTrackRecognitionEdit\(sourceUrl, providerId, providerTrackId, patch\)/)
   assert.match(mainJs, /ipcMain\.handle\('track-recognition-identify'/)
   assert.match(mainJs, /ipcMain\.handle\('track-recognition-edit'/)
+  assert.match(mainJs, /function manualIdentifyTrack\(payload\)/)
+  assert.match(mainJs, /ipcMain\.handle\('track-manual-identify'/)
 })
 
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
@@ -438,9 +440,17 @@ test('usable provider outcomes are retained as switchable options', () => {
 
 test('tracklist provider preferences are persisted separately from tracklist cache', () => {
   assert.match(mainJs, /function getTracklistPreference\(sourceUrl\)/)
-  assert.match(mainJs, /preferredProviderId: getTracklistPreference\(/)
+  assert.match(mainJs, /const preferredProviderId = getTracklistPreference\(/)
+  assert.match(mainJs, /providerId === AUTOMATIC_RECOGNITION_PROVIDER\.id/)
   assert.match(mainJs, /existing\.tracklistPreferences\)/)
   assert.match(mainJs, /store\.tracklistPreferences = \{\}/)
+})
+
+test('Automatic is a selectable local tracklist source without background sampling beside published lists', () => {
+  assert.match(mainJs, /function registerAutomaticTracklistOption\(/)
+  assert.match(mainJs, /providerId === AUTOMATIC_RECOGNITION_PROVIDER\.id/)
+  assert.match(mainJs, /if \(preferredProviderId === AUTOMATIC_RECOGNITION_PROVIDER\.id\)/)
+  assert.match(mainJs, /if \(currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER\.id\)/)
 })
 
 test('every tracklist provider declares the host its links point at', () => {

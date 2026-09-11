@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('api', {
   refreshTracklists: () => ipcRenderer.invoke('tracklist-refresh'),
   identifyTrack: (payload) => ipcRenderer.invoke('track-recognition-identify', payload),
   editRecognizedTrack: (payload) => ipcRenderer.invoke('track-recognition-edit', payload),
+  manualIdentifyTrack: (payload) => ipcRenderer.invoke('track-manual-identify', payload),
   autoSetMetadata: () => ipcRenderer.invoke('set-metadata-auto'),
   resolveEventLocation: (location) => ipcRenderer.invoke('event-location-resolve', location),
   lookupNextEvents: (payload) => ipcRenderer.invoke('event-lookup', payload),

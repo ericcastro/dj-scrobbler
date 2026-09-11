@@ -3502,7 +3502,8 @@ body.compact-layout #scrobble-badge.dim::after {
   color: var(--text2);
 }
 
-.track-auto-actions {
+.track-auto-actions,
+.track-manual-actions {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -3510,12 +3511,12 @@ body.compact-layout #scrobble-badge.dim::after {
   margin-right: 10px;
 }
 
-.track-auto-actions .inline-track-btn {
+.track-auto-actions .inline-track-btn,
+.track-manual-actions .inline-track-btn {
   margin-right: 0;
   font-size: 9px;
 }
 
-.track-auto-action[data-action="confirm"] { color: var(--accent2); }
 .track-auto-action[data-action="save"] { color: var(--accent2); }
 .track-auto-action[data-action="delete"]:hover { color: var(--red); }
 .track-identify-btn { color: var(--accent2); }

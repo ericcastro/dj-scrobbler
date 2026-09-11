@@ -35,6 +35,19 @@ test('one or two equal Shazam results remain a muted analysis candidate', () => 
   assert.equal(segmentAtTime(two, 35), null)
 })
 
+test('two equal Shazam results graduate when their sixty-second window closes', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'Cloudy', 'Pulse', '1'),
+    match(24, 'Cloudy', 'Pulse', '1'),
+    miss(71),
+  ], { sessionStartSeconds: 0 })
+
+  assert.equal(timeline.length, 1)
+  assert.equal(timeline[0].title, 'Pulse')
+  assert.equal(timeline[0].confirmationTimestamp, 70)
+  assert.equal(timeline[0].autoRecognized, true)
+})
+
 test('the third equal result within sixty seconds commits one track', () => {
   const timeline = buildRecognitionTimeline([
     match(10, 'Cloudy', 'Pulse', '1'),
