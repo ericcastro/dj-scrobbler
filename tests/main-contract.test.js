@@ -131,6 +131,26 @@ test('YouTube playback starts before either automatic tracklist result is awaite
     'tracklist providers must not gate player navigation')
 })
 
+test('the Shazam POC captures only the armed player frame and keeps playback audible', () => {
+  assert.match(mainJs, /setDisplayMediaRequestHandler/)
+  assert.match(mainJs, /request\.userGesture/)
+  assert.match(mainJs, /requestingContents\?\.id === grant\.webContentsId/)
+  assert.match(mainJs, /playerWvContents\?\.id === grant\.webContentsId/)
+  assert.match(mainJs, /video: request\.frame/)
+  assert.match(mainJs, /audio: request\.frame/)
+  assert.match(mainJs, /enableLocalEcho: true/)
+  assert.match(mainJs, /buildFrameAudioCaptureScript/)
+  assert.doesNotMatch(mainJs, /getUserMedia/)
+})
+
+test('the developer POC samples a saved YouTube favorite independently of tracklist lookup', () => {
+  assert.match(mainJs, /function savedYouTubeFavoriteForPoc/)
+  assert.match(mainJs, /chooseSamplePoints\(ready\.poll\.duration/)
+  assert.match(mainJs, /loadSourceUrl\(targetUrl\)\.catch/)
+  assert.match(mainJs, /writeJsonAtomic\(shazamPocResultPath\(\), run\)/)
+  assert.match(mainJs, /Run Shazam Audio Capture POC/)
+})
+
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
   assert.match(mainJs, /ipcMain\.handle\('tracklist-try-provider'/)
   assert.match(mainJs, /async function tryTracklistProvider\(providerId\)/)

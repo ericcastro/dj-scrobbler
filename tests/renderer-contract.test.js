@@ -316,13 +316,11 @@ test('the alternate-provider button has matching markup, styles and wiring', () 
   assert.match(appJs, /window\.api\.tryTracklistProvider\(alt\.id\)/)
 })
 
-test('an untried alternate replaces the contribute prompt, and yields to it once tried', () => {
-  // The panel has one action slot: try another provider while one is left,
-  // then fall back to contributing a tracklist to the primary provider.
+test('an untried alternate remains the only empty-tracklist action', () => {
   assert.match(appJs, /const alt = \(alternateProviders \|\| \[\]\)\[0\] \|\| null/)
-  assert.match(appJs, /const showContribute = !alt && !lookupError && contributeUrl && contributeLabel/)
   assert.match(appJs, /btnAltProvider\.classList\.toggle\('hidden', !alt\)/)
-  assert.match(appJs, /btnContributeTracklist\.classList\.toggle\('hidden', !showContribute\)/)
+  assert.equal(indexHtml.includes('id="btn-contribute-tracklist"'), false)
+  assert.doesNotMatch(appJs, /btnContributeTracklist/)
 })
 
 test('the alternate button stays busy until the reply repaints the panel', () => {

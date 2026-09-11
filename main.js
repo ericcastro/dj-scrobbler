@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme, screen, webContents } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const path   = require('path')
 const https  = require('https')
@@ -37,6 +37,12 @@ const {
   isArtworkLookupCandidate,
   lookupDeezerArtwork,
 } = require('./lib/deezer-artwork')
+const {
+  appendRecognitionTimeline,
+  buildFrameAudioCaptureScript,
+  chooseSamplePoints,
+  recognizeFloat32,
+} = require('./lib/shazam-poc')
 
 // Must be set before app is ready — controls menu bar name and dock tooltip
 app.name = 'DJ Scrobbler'
@@ -72,6 +78,10 @@ function log(...args) {
   if (VERBOSE) console.log(...args)
 }
 const DEVELOPER_MODE = process.argv.includes('--developer')
+const AUTO_SHAZAM_POC = process.argv.includes('--shazam-poc')
+const SHAZAM_POC_CLIP_SECONDS = 10
+const SHAZAM_POC_SAMPLE_COUNT = 4
+const SHAZAM_POC_SEEK_SETTLE_MS = 4000
 const TRACKLIST_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 const MIN_AUTOMATIC_SET_DURATION_SECONDS = 10 * 60
 const EVENT_LOOKUP_CACHE_VERSION = 1
@@ -104,6 +114,8 @@ let playerWvContents = null
 let browserWvContents = null
 let pendingSourceUrl = null
 const attachedWebviews = new Map()
+let shazamPocCaptureGrant = null
+let shazamPocRun = null
 let displayFullscreenBounds = null
 let windowDragStart = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
@@ -1090,6 +1102,253 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+async function waitForYouTubePlayer({ sourceUrl = null, timeoutMs = 30_000 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const contents = playerWvContents
+    if (contents && !contents.isDestroyed() && (!sourceUrl || currentSourceUrl === sourceUrl)) {
+      const poll = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+      if (poll && poll.duration > 0) return { contents, poll }
+    }
+    await delay(250)
+  }
+  throw new Error('Timed out waiting for the YouTube player.')
+}
+
+async function seekYouTubePlayerForPoc(contents, seconds) {
+  const target = Math.max(0, Number(seconds) || 0)
+  await contents.executeJavaScript(`
+    (() => {
+      const p = window.ytPlayer
+      if (!p || typeof p.seekTo !== 'function') return false
+      p.seekTo(${target}, true)
+      if (typeof p.playVideo === 'function') p.playVideo()
+      return true
+    })()
+  `, true)
+
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    const poll = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+    if (poll?.isPlaying && Math.abs(poll.currentTime - target) < 8) {
+      await delay(SHAZAM_POC_SEEK_SETTLE_MS)
+      return
+    }
+    await delay(250)
+  }
+  throw new Error(`Timed out seeking the YouTube player to ${target}s.`)
+}
+
+function decodeCapturedFloat32(capture) {
+  const bytes = Buffer.from(String(capture?.samplesBase64 || ''), 'base64')
+  if (!bytes.length || bytes.length % 4 !== 0) throw new Error('Captured PCM payload is empty or malformed.')
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  return new Float32Array(arrayBuffer)
+}
+
+async function captureYouTubeAudioForPoc(contents, clipSeconds = SHAZAM_POC_CLIP_SECONDS) {
+  if (!contents || contents.isDestroyed()) throw new Error('The YouTube player webview is unavailable.')
+  shazamPocCaptureGrant = {
+    webContentsId: contents.id,
+    expiresAt: Date.now() + 5_000,
+  }
+  try {
+    log(`[shazam-poc:capture] requesting ${clipSeconds}s from player webContents=${contents.id}`)
+    const capture = await contents.executeJavaScript(
+      buildFrameAudioCaptureScript({ clipSeconds, sampleRate: 16_000 }),
+      true
+    )
+    if (!capture) throw new Error('The player returned no capture result.')
+    log(`[shazam-poc:capture] frames=${capture.frameCount} input=${capture.inputSampleRate}Hz/${capture.inputChannels}ch output=${capture.sampleRate}Hz peak=${Number(capture.peak).toFixed(5)} rms=${Number(capture.rms).toFixed(5)} track="${capture.audioTrackLabel || ''}"`)
+    if (!(Number(capture.rms) > 0.00001)) {
+      throw new Error('Captured PCM is silent; no recognition request was sent.')
+    }
+    return { capture, samples: decodeCapturedFloat32(capture) }
+  } finally {
+    shazamPocCaptureGrant = null
+  }
+}
+
+function shazamPocResultPath() {
+  return path.join(app.getPath('userData'), 'shazam-poc-results.json')
+}
+
+function savedYouTubeFavoriteForPoc() {
+  const store = readStore()
+  const favorites = Array.isArray(store.favorites) ? store.favorites : []
+  return favorites.find(item => item?.url === currentSourceUrl && extractVideoId(item.url)) ||
+    favorites.find(item => extractVideoId(item?.url)) ||
+    null
+}
+
+async function restorePlayerAfterShazamPoc(original, targetUrl) {
+  try {
+    if (original.sourceUrl && original.sourceUrl !== targetUrl && extractVideoId(original.sourceUrl)) {
+      loadSourceUrl(original.sourceUrl).catch(error => log('[shazam-poc] restore source failed', error?.message || error))
+      const restored = await waitForYouTubePlayer({ sourceUrl: original.sourceUrl })
+      if (Number.isFinite(original.poll?.currentTime)) {
+        await seekYouTubePlayerForPoc(restored.contents, original.poll.currentTime)
+      }
+      if (!original.poll?.isPlaying) await restored.contents.executeJavaScript(YT_PAUSE_SCRIPT).catch(() => {})
+      return
+    }
+
+    if (currentSourceUrl === targetUrl && Number.isFinite(original.poll?.currentTime)) {
+      const restored = await waitForYouTubePlayer({ sourceUrl: targetUrl })
+      await seekYouTubePlayerForPoc(restored.contents, original.poll.currentTime)
+      if (!original.poll?.isPlaying) await restored.contents.executeJavaScript(YT_PAUSE_SCRIPT).catch(() => {})
+      return
+    }
+
+    const restored = await waitForYouTubePlayer({ sourceUrl: targetUrl })
+    await restored.contents.executeJavaScript(`
+      (() => {
+        const p = window.ytPlayer
+        if (!p) return
+        if (typeof p.seekTo === 'function') p.seekTo(0, true)
+        if (typeof p.pauseVideo === 'function') p.pauseVideo()
+      })()
+    `).catch(() => {})
+  } catch (error) {
+    log('[shazam-poc] player restore failed', error?.message || error)
+  }
+}
+
+async function runShazamPoc() {
+  if (!DEVELOPER_MODE) throw new Error('The Shazam POC is available only in developer mode.')
+  if (shazamPocRun) return shazamPocRun
+
+  shazamPocRun = (async () => {
+    const favorite = savedYouTubeFavoriteForPoc()
+    if (!favorite) throw new Error('No saved YouTube favorite is available for the Shazam POC.')
+
+    const originalContents = playerWvContents
+    const originalPoll = originalContents && !originalContents.isDestroyed()
+      ? await originalContents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+      : null
+    const original = { sourceUrl: currentSourceUrl, poll: originalPoll }
+    const targetUrl = favorite.url
+    try {
+    log(`[shazam-poc] START title="${favorite.title || targetUrl}" url=${targetUrl}`)
+
+    if (currentSourceUrl !== targetUrl) {
+      // Playback begins as soon as the player URL loads; provider lookups remain
+      // independent and are deliberately not awaited by this capture experiment.
+      loadSourceUrl(targetUrl).catch(error => log('[shazam-poc] source lookup continued with error', error?.message || error))
+    }
+
+    const ready = await waitForYouTubePlayer({ sourceUrl: targetUrl })
+    const samplePoints = chooseSamplePoints(ready.poll.duration, {
+      count: SHAZAM_POC_SAMPLE_COUNT,
+      clipSeconds: SHAZAM_POC_CLIP_SECONDS,
+    })
+    if (!samplePoints.length) throw new Error(`Set duration ${ready.poll.duration}s is too short to sample.`)
+
+    const storeSettings = readStore().settings || {}
+    const endpointCountry = /^[A-Z]{2}$/.test(storeSettings.eventLocation?.countryCode)
+      ? storeSettings.eventLocation.countryCode
+      : 'GB'
+    const run = {
+      version: 1,
+      startedAt: new Date().toISOString(),
+      source: {
+        title: favorite.title || currentSetTitle || targetUrl,
+        url: targetUrl,
+        durationSeconds: ready.poll.duration,
+      },
+      clipSeconds: SHAZAM_POC_CLIP_SECONDS,
+      samplePoints,
+      samples: [],
+      timeline: [],
+    }
+
+      for (const point of samplePoints) {
+        const sample = { requestedPlaybackTimestamp: point }
+        run.samples.push(sample)
+        try {
+          log(`[shazam-poc] sample seek=${point}s`)
+          await seekYouTubePlayerForPoc(ready.contents, point)
+          const { capture, samples } = await captureYouTubeAudioForPoc(ready.contents)
+          sample.playbackStartedAt = capture.playbackStartedAt
+          sample.playbackEndedAt = capture.playbackEndedAt
+          sample.playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
+            ? (capture.playbackStartedAt + capture.playbackEndedAt) / 2
+            : point + SHAZAM_POC_CLIP_SECONDS / 2
+          sample.capture = {
+            inputSampleRate: capture.inputSampleRate,
+            inputChannels: capture.inputChannels,
+            sampleRate: capture.sampleRate,
+            frameCount: capture.frameCount,
+            peak: capture.peak,
+            rms: capture.rms,
+            audioTrackLabel: capture.audioTrackLabel,
+          }
+          log(`[shazam-poc:fingerprint] playback=${sample.playbackTimestamp.toFixed(1)}s samples=${samples.length}`)
+          const recognized = await recognizeFloat32(samples, capture.sampleRate, { endpointCountry })
+          sample.fingerprint = recognized.fingerprint
+          sample.recognition = recognized.result
+          const timelineEntry = {
+            playbackTimestamp: sample.playbackTimestamp,
+            recognition: recognized.result,
+          }
+          const timelineUpdate = appendRecognitionTimeline(run.timeline, timelineEntry)
+          sample.duplicateOf = timelineUpdate.duplicateOf
+          if (recognized.result.matched) {
+            log(`[shazam-poc:recognition] playback=${sample.playbackTimestamp.toFixed(1)}s artist="${recognized.result.artist}" title="${recognized.result.title}" matches=${recognized.result.matchCount}${timelineUpdate.added ? '' : ' duplicate=true'}`)
+          } else {
+            log(`[shazam-poc:recognition] playback=${sample.playbackTimestamp.toFixed(1)}s no-match`)
+          }
+        } catch (error) {
+          sample.error = error?.name === 'AbortError'
+            ? 'Recognition request timed out.'
+            : (error?.message || String(error))
+          log(`[shazam-poc:error] point=${point}s ${sample.error}`)
+        }
+        writeJsonAtomic(shazamPocResultPath(), run)
+      }
+      run.finishedAt = new Date().toISOString()
+      writeJsonAtomic(shazamPocResultPath(), run)
+      const matches = run.samples.filter(sample => sample.recognition?.matched).length
+      log(`[shazam-poc] DONE matches=${matches}/${run.samples.length} timeline=${run.timeline.length} results=${shazamPocResultPath()}`)
+      return run
+    } finally {
+      await restorePlayerAfterShazamPoc(original, targetUrl)
+    }
+  })().finally(() => {
+    shazamPocRun = null
+  })
+
+  return shazamPocRun
+}
+
+function installShazamPocCaptureHandler(electronSession) {
+  electronSession.setDisplayMediaRequestHandler((request, callback) => {
+    const requestingContents = request.frame ? webContents.fromFrame(request.frame) : null
+    const grant = shazamPocCaptureGrant
+    const allowed = !!(
+      DEVELOPER_MODE &&
+      grant &&
+      grant.expiresAt >= Date.now() &&
+      request.userGesture &&
+      request.audioRequested &&
+      request.videoRequested &&
+      requestingContents?.id === grant.webContentsId &&
+      playerWvContents?.id === grant.webContentsId
+    )
+    log(`[shazam-poc:capture] display request origin=${request.securityOrigin} player=${requestingContents?.id || 'none'} audio=${request.audioRequested} video=${request.videoRequested} gesture=${request.userGesture} allowed=${allowed}`)
+    if (!allowed || !request.frame) {
+      callback({})
+      return
+    }
+    shazamPocCaptureGrant = null
+    callback({
+      video: request.frame,
+      audio: request.frame,
+      enableLocalEcho: true,
+    })
+  })
+}
+
 async function executeTracklistExtraction(wc, script) {
   for (let i = 0; i < 12; i++) {
     const tracks = await wc.executeJavaScript(script).catch(() => null)
@@ -1321,11 +1580,9 @@ function tracklistLoadedBase(tlPlugin) {
   }
 }
 
-// Extra fields for the "nothing found" panel: how to contribute a tracklist to
-// the source's primary provider, plus any alternate provider not yet tried.
+// Extra fields for the "nothing found" panel: any alternate provider not yet
+// tried. Empty sets are populated by recognition rather than a create-TL CTA.
 function tracklistFallbackExtras() {
-  const primary = plugins.tracklistForSource(currentSourceId)
-  const contributeInfo = primary?.contributeInfo
   const alternates = plugins
     .alternateTracklistsForSource(currentSourceId, { exclude: [...triedProviders] })
     .map(p => ({
@@ -1337,9 +1594,6 @@ function tracklistFallbackExtras() {
     }))
 
   return {
-    contributeLabel: contributeInfo?.label || null,
-    contributeNote:  contributeInfo?.note  || null,
-    contributeUrl:   contributeInfo?.url?.(currentSourceUrl) || null,
     alternateProviders: alternates,
   }
 }
@@ -2385,6 +2639,11 @@ function buildMenu() {
             accelerator: 'CmdOrCtrl+Shift+I',
             click: () => { if (currentWvContents) currentWvContents.openDevTools() },
           },
+          { type: 'separator' },
+          {
+            label: 'Run Shazam Audio Capture POC',
+            click: () => runShazamPoc().catch(error => log('[shazam-poc] FAILED', error?.stack || error?.message || error)),
+          },
         ] : []),
       ],
     },
@@ -2559,8 +2818,12 @@ function createWindow() {
       setTimeout(() => loadSourceUrl(url).catch(err => log('[debug] startup load failed', err?.stack || err?.message || err)), 250)
     })
   }
+  installShazamPocCaptureHandler(mainWindow.webContents.session)
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.once('did-finish-load', () => {
+    if (AUTO_SHAZAM_POC) {
+      setTimeout(() => runShazamPoc().catch(error => log('[shazam-poc] FAILED', error?.stack || error?.message || error)), 1500)
+    }
     if (AUTO_UPDATE_TEST) {
       // manual:true bypasses the "update notifications disabled" setting
       setTimeout(() => checkForUpdates({ manual: true }), 1500)
@@ -2821,7 +3084,7 @@ ipcMain.handle('window-drag-end', () => {
 })
 
 // Hosts the app itself links to. Tracklist providers add their own — every
-// provider sends the user to its site (the tracklist page, a contribute form),
+// provider sends the user to its source-specific pages,
 // so deriving the list from the registry keeps a new provider's links from
 // being silently dropped here.
 const APP_EXTERNAL_HOSTS = ['djscrobbler.com', 'github.com', 'cast.ro', 'youtube.com', 'youtu.be', 'soundcloud.com']

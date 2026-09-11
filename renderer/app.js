@@ -17,7 +17,6 @@ const state = {
   currentTracklistProviderName: null,
   currentTracklistProviderFooter: null,
   currentTracklistOptions: [],
-  currentContributeUrl: null,
   currentAltProvider: null,   // { id, name, label, prompt, note } offered in the fallback panel
   currentThumbnailUrl: null,
   nowPlaying: null,
@@ -144,7 +143,6 @@ const tracklistUnavailableTitle   = document.getElementById('tracklist-unavailab
 const tracklistUnavailableSub     = document.getElementById('tracklist-unavailable-sub')
 const tlContributeActions         = document.getElementById('tl-contribute-actions')
 const btnAltProvider              = document.getElementById('btn-alt-provider')
-const btnContributeTracklist      = document.getElementById('btn-contribute-tracklist')
 const tlContributeNote            = document.getElementById('tl-contribute-note')
 const tracklistCompactList  = document.getElementById('tracklist-compact-list')
 const rightPanel            = document.getElementById('right-panel')
@@ -2127,7 +2125,7 @@ function wireMainEvents() {
     }
   })
 
-  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, providerName, providerFooterLabel, tracklistUrl, lookupError, contributeLabel, contributeNote, contributeUrl, alternateProviders, sourcePublishedAt, sourceViewCount, metadataOutlook }) => {
+  window.api.on('tracklist-loaded', ({ url, title, thumbnailUrl, isFallback, providerId, providerName, providerFooterLabel, tracklistUrl, lookupError, alternateProviders, sourcePublishedAt, sourceViewCount, metadataOutlook }) => {
     // Don't update set state or history while the user is deciding in the dialog.
     if (isResumeDialogOpen()) return
     document.body.classList.add('has-active-set')
@@ -2170,20 +2168,16 @@ function wireMainEvents() {
     if (isFallback) {
       state.currentTracks  = []   // prevent stale count leaking into bookmark
       state.currentSource  = 'youtube'
-      state.currentContributeUrl = contributeUrl || null
       npSet.textContent     = title
       tracklistUnavailableTitle.textContent = lookupError ? 'Tracklist lookup paused' : 'Tracklist not yet available'
 
-      // An untried alternate provider is the better offer, so it takes the
-      // panel's single action slot; contributing is what's left once every
-      // alternate has been tried and come up empty too.
+      // An untried alternate remains available while recognition is the path
+      // for sets that have no published tracklist.
       const alt = (alternateProviders || [])[0] || null
-      const showContribute = !alt && !lookupError && contributeUrl && contributeLabel
       state.currentAltProvider = alt
 
       const subLines = [escHtml(lookupError?.message || 'It will retry automatically next time.')]
       if (alt?.prompt) subLines.push(escHtml(alt.prompt))
-      else if (showContribute) subLines.push(' … or maybe create one yourself?')
       tracklistUnavailableSub.innerHTML = subLines.join('<br /><br />')
 
       btnAltProvider.classList.toggle('hidden', !alt)
@@ -2191,13 +2185,10 @@ function wireMainEvents() {
         btnAltProvider.textContent = alt.label
         btnAltProvider.disabled = false
       }
-      btnContributeTracklist.classList.toggle('hidden', !showContribute)
-      if (showContribute) btnContributeTracklist.textContent = contributeLabel
-
-      const note = alt ? alt.note : (showContribute ? contributeNote : null)
+      const note = alt?.note || null
       tlContributeNote.textContent = note || ''
       tlContributeNote.classList.toggle('hidden', !note)
-      tlContributeActions.classList.toggle('hidden', !alt && !showContribute)
+      tlContributeActions.classList.toggle('hidden', !alt)
       // Show the below-video area with the unavailable message
       tracklistUnavailableEl.classList.remove('hidden')
       tracklistList.innerHTML = ''
@@ -2220,7 +2211,6 @@ function wireMainEvents() {
       tracklistUnavailableSub.textContent = 'No tracklist was found for this DJ set. It may become available later — opening it again will retry automatically.'
       tracklistUnavailableEl.classList.add('hidden')
       tlContributeActions.classList.add('hidden')
-      state.currentContributeUrl = null
       state.currentAltProvider = null
     }
 
@@ -4252,10 +4242,6 @@ function wireEvents() {
   btnAboutWebsite.addEventListener('click', () => window.api.openExternal('https://www.djscrobbler.com'))
   document.querySelectorAll('.about-link').forEach(a => {
     a.addEventListener('click', () => window.api.openExternal(a.dataset.href))
-  })
-
-  btnContributeTracklist.addEventListener('click', () => {
-    if (state.currentContributeUrl) window.api.openExternal(state.currentContributeUrl)
   })
 
   btnSetMetadataRefresh.addEventListener('click', autoSetMetadata)

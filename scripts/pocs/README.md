@@ -3,6 +3,38 @@
 Small, disposable experiments that answer a product question before the idea is
 promoted into the desktop app.
 
+## Digital YouTube audio recognition
+
+Run:
+
+```sh
+npm run poc:shazam
+```
+
+The Electron app chooses the currently loaded saved YouTube favorite, or the
+first saved YouTube favorite when none is active. It seeks to four interior
+points, captures ten seconds of the app-owned player at each point, restores the
+previous player position/state, and exits only when you close the app. The same
+run is also available in developer mode from **View → Run Shazam Audio Capture
+POC**.
+
+Look for `[shazam-poc:capture]`, `[shazam-poc:fingerprint]`, and
+`[shazam-poc:recognition]` in the terminal. A healthy capture identifies itself
+as `Tab audio`, reports non-zero peak/RMS values, and contains about 160,000 mono
+samples at 16 kHz. `no-match` is a valid recognition outcome, not a capture
+failure.
+
+The latest structured result is written to `shazam-poc-results.json` in
+Electron's DJ Scrobbler user-data directory. It contains capture diagnostics,
+set playback timestamps, normalized matches, and a de-duplicated recognition
+timeline; captured PCM is never written to disk.
+
+The capture request is granted only to the armed player webContents and keeps
+local audio output enabled. It never requests microphone input. The Shazam
+endpoint used by this experiment is reverse-engineered and unsupported, so a
+future production implementation will need to account for endpoint changes and
+rate limits.
+
 ## When is this DJ playing next in my city? (v2)
 
 Run:
