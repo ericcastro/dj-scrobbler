@@ -96,15 +96,25 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
   }
   assert.match(appJs, /const VIDEO_MODES = \['inline', 'mini', 'hidden', 'focus'\]/)
   assert.match(appJs, /setWindowPresentation\(mode\)/)
+  assert.match(appJs, /setFocusWindowMode\(enabled\)/)
+  assert.match(appJs, /immersiveOverlayLayout/)
+  assert.match(appJs, /ResizeObserver/)
+  assert.match(indexHtml, /data-overlay-drag="now-playing"/)
+  assert.match(indexHtml, /data-overlay-resize="now-playing"/)
+  assert.match(indexHtml, /data-overlay-drag="tracklist"/)
+  assert.match(indexHtml, /data-overlay-resize="tracklist"/)
   assert.match(appJs, /setAlwaysOnTop\(!windowAlwaysOnTop\)/)
   assert.match(styleCss, /body\.video-mode-focus #immersive-overlay\s*\{\s*display:\s*block/)
+  assert.match(styleCss, /container-type:\s*inline-size/)
+  assert.match(styleCss, /font-size:\s*clamp\(20px,\s*calc\(3\.8cqw/)
+  assert.match(styleCss, /\.immersive-overlay-resize-handle/)
   assert.doesNotMatch(styleCss, /body\.video-mode-fullscreen/)
 })
 
 test('CSS custom properties are defined or supplied by renderer code', () => {
   const definitions = new Set([...styleCss.matchAll(/--([\w-]+)\s*:/g)].map(match => match[1]))
   const references = new Set([...styleCss.matchAll(/var\(--([\w-]+)/g)].map(match => match[1]))
-  const rendererSupplied = new Set(['marquee-dist', 'scroll-fade-size'])
+  const rendererSupplied = new Set(['marquee-dist', 'scroll-fade-size', 'immersive-now-scale'])
   const missing = [...references].filter(name => !definitions.has(name) && !rendererSupplied.has(name))
 
   assert.deepEqual(missing, [])

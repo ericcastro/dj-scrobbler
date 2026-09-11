@@ -1650,7 +1650,7 @@ body.video-mode-hidden #main-content.has-tracklist #video-area {
   display: none;
   position: absolute;
   inset: 0;
-  z-index: 50;
+  z-index: 80;
   pointer-events: none;
   --immersive-surface: color-mix(in srgb, var(--bg) 82%, transparent);
   --immersive-border: color-mix(in srgb, var(--border) 78%, transparent);
@@ -1671,12 +1671,15 @@ body.video-mode-focus #immersive-overlay { display: block; }
   background: var(--immersive-surface);
   backdrop-filter: blur(5px) saturate(.85);
   -webkit-backdrop-filter: blur(5px) saturate(.85);
+  container-type: inline-size;
+  pointer-events: auto;
+  overflow: hidden;
 }
 
 #immersive-kicker {
   margin-bottom: 8px;
   color: var(--accent);
-  font-size: clamp(9px, .7vw, 12px);
+  font-size: clamp(9px, calc(.75cqw * var(--immersive-now-scale, 1)), 14px);
   letter-spacing: .16em;
   text-transform: uppercase;
 }
@@ -1686,15 +1689,15 @@ body.video-mode-focus #immersive-overlay { display: block; }
   min-width: 0;
   align-items: baseline;
   gap: 10px;
-  font-size: clamp(22px, 2.6vw, 46px);
+  font-size: clamp(20px, calc(3.8cqw * var(--immersive-now-scale, 1)), 46px);
   line-height: 1.08;
   font-weight: 700;
 }
 
 #immersive-track-num { flex: none; color: var(--accent); }
 #immersive-track-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-#immersive-track-artist { margin-top: 8px; font-size: clamp(14px, 1.3vw, 23px); color: rgba(255,255,255,.78); }
-#immersive-set-title { margin-top: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(10px, .85vw, 15px); color: rgba(255,255,255,.48); }
+#immersive-track-artist { margin-top: 8px; font-size: clamp(13px, calc(1.75cqw * var(--immersive-now-scale, 1)), 23px); color: rgba(255,255,255,.78); }
+#immersive-set-title { margin-top: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(10px, calc(.85cqw * var(--immersive-now-scale, 1)), 16px); color: rgba(255,255,255,.48); }
 
 #immersive-progress {
   height: 2px;
@@ -1722,6 +1725,68 @@ body.video-mode-focus #immersive-overlay { display: block; }
   -webkit-backdrop-filter: blur(5px) saturate(.85);
   pointer-events: auto;
 }
+
+.immersive-overlay-drag-handle,
+.immersive-overlay-resize-handle {
+  position: absolute;
+  z-index: 3;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  cursor: grab;
+  -webkit-app-region: no-drag;
+}
+
+.immersive-overlay-drag-handle {
+  top: 6px;
+  left: 50%;
+  width: 38px;
+  height: 8px;
+  transform: translateX(-50%);
+}
+
+.immersive-overlay-drag-handle::after {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 2px;
+  margin: 3px auto;
+  border-radius: 2px;
+  background: var(--text2);
+}
+
+.immersive-overlay-resize-handle {
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+
+.immersive-overlay-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text2);
+  border-bottom: 2px solid var(--text2);
+}
+
+.immersive-overlay-surface:hover .immersive-overlay-drag-handle,
+.immersive-overlay-surface:hover .immersive-overlay-resize-handle,
+#immersive-now-playing:hover .immersive-overlay-drag-handle,
+#immersive-now-playing:hover .immersive-overlay-resize-handle,
+#immersive-tracklist-shell:hover .immersive-overlay-drag-handle,
+#immersive-tracklist-shell:hover .immersive-overlay-resize-handle {
+  opacity: .8;
+}
+
+.immersive-overlay-interacting,
+.immersive-overlay-interacting * { cursor: grabbing !important; }
+.immersive-overlay-interacting .immersive-overlay-resize-handle { cursor: nwse-resize !important; }
+.immersive-overlay-surface.is-interacting { transition: none; }
 
 #immersive-tracklist-list {
   height: 100%;

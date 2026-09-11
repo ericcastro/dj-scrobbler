@@ -144,6 +144,9 @@ const ARTWORK_LOOKUP_CONCURRENCY = 2
 const ARTWORK_LOOKUP_GAP_MS = 250
 const TITLE_BAR_HEIGHT = 52
 const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = TITLE_BAR_HEIGHT - 1
+const NORMAL_MIN_WINDOW_SIZE = [360, 600]
+const FOCUS_MIN_WINDOW_SIZE = [480, 270]
+const VIDEO_ASPECT_RATIO = 16 / 9
 const THEME_TITLE_BAR = {
   'neon-night': { color: '#0f1a30', symbolColor: '#e7f7ff' },
   'signal-teal': { color: '#071f25', symbolColor: '#f0fffc' },
@@ -167,6 +170,7 @@ const attachedWebviews = new Map()
 let playerAudioCaptureGrant = null
 let shazamPocRun = null
 let windowPresentation = 'windowed'
+let focusWindowMode = false
 let windowDragStart = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
 let saveBoundsTimer = null
@@ -4082,9 +4086,33 @@ function persistBounds() {
 function windowStateSnapshot() {
   return {
     presentation: windowPresentation,
+    focusWindowMode,
     isFullScreen: !!mainWindow?.isFullScreen(),
     alwaysOnTop: !!mainWindow?.isAlwaysOnTop(),
   }
+}
+
+function setFocusWindowMode(enabled) {
+  if (!mainWindow) return windowStateSnapshot()
+  const next = !!enabled && !mainWindow.isFullScreen()
+  if (focusWindowMode === next) return windowStateSnapshot()
+  focusWindowMode = next
+  if (next) {
+    mainWindow.setMinimumSize(...FOCUS_MIN_WINDOW_SIZE)
+    const [contentWidth] = mainWindow.getContentSize()
+    mainWindow.setContentSize(
+      Math.max(FOCUS_MIN_WINDOW_SIZE[0], contentWidth),
+      Math.max(FOCUS_MIN_WINDOW_SIZE[1], Math.round(Math.max(FOCUS_MIN_WINDOW_SIZE[0], contentWidth) / VIDEO_ASPECT_RATIO))
+    )
+    // setAspectRatio governs user-driven resizing; programmatic setContentSize
+    // above establishes the initial 16:9 geometry before the lock is applied.
+    mainWindow.setAspectRatio(VIDEO_ASPECT_RATIO)
+  } else {
+    mainWindow.setAspectRatio(0)
+    mainWindow.setMinimumSize(...NORMAL_MIN_WINDOW_SIZE)
+  }
+  sendWindowState()
+  return windowStateSnapshot()
 }
 
 function sendWindowState() {
@@ -4095,6 +4123,7 @@ function sendWindowState() {
 function setWindowPresentation(mode) {
   if (!mainWindow) return windowStateSnapshot()
   const next = ['windowed', 'enhanced-fullscreen', 'app-fullscreen'].includes(mode) ? mode : 'windowed'
+  if (next !== 'windowed') setFocusWindowMode(false)
   windowPresentation = next
   const shouldBeFullScreen = next !== 'windowed'
   if (mainWindow.isFullScreen() !== shouldBeFullScreen) mainWindow.setFullScreen(shouldBeFullScreen)
@@ -4134,8 +4163,8 @@ function createWindow() {
     width:  windowBounds?.width  || 1400,
     height: windowBounds?.height || 900,
     ...(windowBounds?.x != null ? { x: windowBounds.x, y: windowBounds.y } : {}),
-    minWidth: 360,
-    minHeight: 600,
+    minWidth: NORMAL_MIN_WINDOW_SIZE[0],
+    minHeight: NORMAL_MIN_WINDOW_SIZE[1],
     ...titleBarOptions(theme),
     autoHideMenuBar: process.platform !== 'darwin',
     fullscreenable: true,
@@ -4422,6 +4451,7 @@ ipcMain.handle('app-restart', () => {
 ipcMain.handle('is-developer', () => DEVELOPER_MODE)
 ipcMain.handle('window-state-get', () => windowStateSnapshot())
 ipcMain.handle('window-presentation-set', (_event, mode) => setWindowPresentation(mode))
+ipcMain.handle('window-focus-mode-set', (_event, enabled) => setFocusWindowMode(enabled))
 ipcMain.handle('window-always-on-top-set', (_event, enabled) => setWindowAlwaysOnTop(enabled))
 ipcMain.handle('window-drag-start', (_event, point) => {
   if (!mainWindow || mainWindow.isFullScreen()) return false

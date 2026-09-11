@@ -523,7 +523,9 @@
           <div id="seek-shield"></div>
         </div>
         <section id="immersive-overlay" aria-label="Current track and tracklist">
-          <div id="immersive-now-playing">
+          <div id="immersive-now-playing" class="immersive-overlay-surface">
+            <button class="immersive-overlay-drag-handle" data-overlay-drag="now-playing" title="Move now-playing overlay" aria-label="Move now-playing overlay"></button>
+            <button class="immersive-overlay-resize-handle" data-overlay-resize="now-playing" title="Resize now-playing overlay" aria-label="Resize now-playing overlay"></button>
             <div id="immersive-kicker">now playing</div>
             <div id="immersive-title-row">
               <span id="immersive-track-num"></span>
@@ -533,7 +535,9 @@
             <div id="immersive-set-title"></div>
             <div id="immersive-progress"><div id="immersive-progress-fill"></div></div>
           </div>
-          <div id="immersive-tracklist-shell">
+          <div id="immersive-tracklist-shell" class="immersive-overlay-surface">
+            <button class="immersive-overlay-drag-handle" data-overlay-drag="tracklist" title="Move tracklist overlay" aria-label="Move tracklist overlay"></button>
+            <button class="immersive-overlay-resize-handle" data-overlay-resize="tracklist" title="Resize tracklist overlay" aria-label="Resize tracklist overlay"></button>
             <ol id="immersive-tracklist-list"></ol>
           </div>
         </section>

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   isDeveloper:  ()      => ipcRenderer.invoke('is-developer'),
   getWindowState: () => ipcRenderer.invoke('window-state-get'),
   setWindowPresentation: (mode) => ipcRenderer.invoke('window-presentation-set', mode),
+  setFocusWindowMode: (enabled) => ipcRenderer.invoke('window-focus-mode-set', enabled),
   setAlwaysOnTop: (enabled) => ipcRenderer.invoke('window-always-on-top-set', enabled),
   windowDragStart: (point) => ipcRenderer.invoke('window-drag-start', point),
   windowDragMove:  (point) => ipcRenderer.invoke('window-drag-move', point),

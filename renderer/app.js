@@ -153,6 +153,9 @@ const tracklistCompactList  = document.getElementById('tracklist-compact-list')
 const rightPanel            = document.getElementById('right-panel')
 const rightPanelHandle      = document.getElementById('right-panel-handle')
 const btnTracklistToggle    = document.getElementById('btn-tracklist-toggle')
+const immersiveOverlay      = document.getElementById('immersive-overlay')
+const immersiveNowPlaying   = document.getElementById('immersive-now-playing')
+const immersiveTracklistShell = document.getElementById('immersive-tracklist-shell')
 const immersiveTracklistList = document.getElementById('immersive-tracklist-list')
 const immersiveTrackNum   = document.getElementById('immersive-track-num')
 const immersiveTrackTitle = document.getElementById('immersive-track-title')
@@ -1484,6 +1487,7 @@ async function init() {
 
   populateEventCountries()
   state.store = await window.api.getStore()
+  initializeImmersiveOverlayControls()
   renderEventLocationSettings()
   state.stats = await window.api.getStats()
   setLibraryViewMode(state.store.settings?.libraryViewMode || 'grid', false)
@@ -1677,6 +1681,182 @@ const LOADING_WATCHDOG_MS = 15_000
 let pendingKeyboardSeekTarget = null
 let pendingKeyboardVolumeTarget = null
 
+const IMMERSIVE_LAYOUT_DEFAULTS = {
+  'now-playing': { x: 3.5, y: 66, width: 60, height: 27 },
+  tracklist: { x: 76, y: 6.5, width: 21, height: 89 },
+}
+const IMMERSIVE_LAYOUT_LIMITS = {
+  'now-playing': { minWidth: 260, minHeight: 140 },
+  tracklist: { minWidth: 220, minHeight: 190 },
+}
+let immersiveInteraction = null
+let immersiveResizeObserver = null
+
+function finiteLayoutNumber(value, fallback) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function immersiveLayoutSettings() {
+  const saved = state.store.settings?.immersiveOverlayLayout
+  return saved && typeof saved === 'object' ? saved : {}
+}
+
+function normalizedImmersiveLayout(id, viewport = immersiveOverlay.getBoundingClientRect()) {
+  const defaults = IMMERSIVE_LAYOUT_DEFAULTS[id]
+  const saved = immersiveLayoutSettings()[id] || {}
+  return normalizeImmersiveLayoutValue(id, saved, viewport)
+}
+
+function normalizeImmersiveLayoutValue(id, value, viewport = immersiveOverlay.getBoundingClientRect()) {
+  const defaults = IMMERSIVE_LAYOUT_DEFAULTS[id]
+  const candidate = value || {}
+  const limits = IMMERSIVE_LAYOUT_LIMITS[id]
+  const minWidth = viewport.width ? (limits.minWidth / viewport.width) * 100 : 0
+  const minHeight = viewport.height ? (limits.minHeight / viewport.height) * 100 : 0
+  const width = Math.min(100, Math.max(minWidth, finiteLayoutNumber(candidate.width, defaults.width)))
+  const height = Math.min(100, Math.max(minHeight, finiteLayoutNumber(candidate.height, defaults.height)))
+  return {
+    x: Math.max(0, Math.min(100 - width, finiteLayoutNumber(candidate.x, defaults.x))),
+    y: Math.max(0, Math.min(100 - height, finiteLayoutNumber(candidate.y, defaults.y))),
+    width,
+    height,
+  }
+}
+
+function applyImmersiveLayout() {
+  const viewport = immersiveOverlay.getBoundingClientRect()
+  if (!viewport.width || !viewport.height) {
+    requestAnimationFrame(applyImmersiveLayout)
+    return
+  }
+  const saved = immersiveLayoutSettings()
+  for (const [id, surface] of [['now-playing', immersiveNowPlaying], ['tracklist', immersiveTracklistShell]]) {
+    const layout = normalizedImmersiveLayout(id, viewport)
+    surface.style.left = `${layout.x}%`
+    surface.style.top = `${layout.y}%`
+    surface.style.width = `${layout.width}%`
+    surface.style.height = `${layout.height}%`
+    if (!saved[id]) {
+      // Keep defaults in memory only until the user moves/resizes an overlay.
+      surface.removeAttribute('data-layout-saved')
+    } else {
+      surface.dataset.layoutSaved = 'true'
+    }
+  }
+  updateImmersiveNowScale()
+}
+
+function persistImmersiveLayout() {
+  const viewport = immersiveOverlay.getBoundingClientRect()
+  if (!viewport.width || !viewport.height) return
+  const next = {}
+  for (const [id, surface] of [['now-playing', immersiveNowPlaying], ['tracklist', immersiveTracklistShell]]) {
+    const rect = surface.getBoundingClientRect()
+    const layout = {
+      x: ((rect.left - viewport.left) / viewport.width) * 100,
+      y: ((rect.top - viewport.top) / viewport.height) * 100,
+      width: (rect.width / viewport.width) * 100,
+      height: (rect.height / viewport.height) * 100,
+    }
+    next[id] = normalizeImmersiveLayoutValue(id, layout, viewport)
+  }
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings.immersiveOverlayLayout = next
+  persist()
+}
+
+function updateImmersiveNowScale() {
+  if (!immersiveNowPlaying) return
+  const height = immersiveNowPlaying.getBoundingClientRect().height
+  const scale = Math.max(.62, Math.min(1.35, height / 300))
+  immersiveNowPlaying.style.setProperty('--immersive-now-scale', scale.toFixed(3))
+}
+
+function clampPercent(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function startImmersiveInteraction(event, id, action) {
+  if (event.button !== 0) return
+  const surface = id === 'now-playing' ? immersiveNowPlaying : immersiveTracklistShell
+  const viewport = immersiveOverlay.getBoundingClientRect()
+  const rect = surface.getBoundingClientRect()
+  if (!viewport.width || !viewport.height) return
+  event.preventDefault()
+  event.stopPropagation()
+  immersiveInteraction = {
+    id,
+    action,
+    pointerX: event.clientX,
+    pointerY: event.clientY,
+    left: rect.left - viewport.left,
+    top: rect.top - viewport.top,
+    width: rect.width,
+    height: rect.height,
+    viewport,
+    surface,
+  }
+  surface.classList.add('is-interacting')
+  document.body.classList.add('immersive-overlay-interacting')
+  window.addEventListener('pointermove', moveImmersiveInteraction)
+  window.addEventListener('pointerup', endImmersiveInteraction)
+  window.addEventListener('pointercancel', endImmersiveInteraction)
+}
+
+function moveImmersiveInteraction(event) {
+  const active = immersiveInteraction
+  if (!active) return
+  const dx = event.clientX - active.pointerX
+  const dy = event.clientY - active.pointerY
+  const min = IMMERSIVE_LAYOUT_LIMITS[active.id]
+  let width = active.width
+  let height = active.height
+  let left = active.left
+  let top = active.top
+  if (active.action === 'resize') {
+    width = Math.max(min.minWidth, Math.min(active.viewport.width - active.left, active.width + dx))
+    height = Math.max(min.minHeight, Math.min(active.viewport.height - active.top, active.height + dy))
+  } else {
+    left = clampPercent(active.left + dx, 0, active.viewport.width - active.width)
+    top = clampPercent(active.top + dy, 0, active.viewport.height - active.height)
+  }
+  active.surface.style.left = `${(left / active.viewport.width) * 100}%`
+  active.surface.style.top = `${(top / active.viewport.height) * 100}%`
+  active.surface.style.width = `${(width / active.viewport.width) * 100}%`
+  active.surface.style.height = `${(height / active.viewport.height) * 100}%`
+  updateImmersiveNowScale()
+}
+
+function endImmersiveInteraction() {
+  if (!immersiveInteraction) return
+  immersiveInteraction.surface.classList.remove('is-interacting')
+  immersiveInteraction = null
+  document.body.classList.remove('immersive-overlay-interacting')
+  window.removeEventListener('pointermove', moveImmersiveInteraction)
+  window.removeEventListener('pointerup', endImmersiveInteraction)
+  window.removeEventListener('pointercancel', endImmersiveInteraction)
+  persistImmersiveLayout()
+  applyImmersiveLayout()
+}
+
+function initializeImmersiveOverlayControls() {
+  applyImmersiveLayout()
+  immersiveOverlay.querySelectorAll('[data-overlay-drag]').forEach(handle => {
+    handle.addEventListener('pointerdown', event => startImmersiveInteraction(event, handle.dataset.overlayDrag, 'drag'))
+  })
+  immersiveOverlay.querySelectorAll('[data-overlay-resize]').forEach(handle => {
+    handle.addEventListener('pointerdown', event => startImmersiveInteraction(event, handle.dataset.overlayResize, 'resize'))
+  })
+  immersiveNowPlaying.addEventListener('pointerdown', event => {
+    if (event.target.closest('button, a, input')) return
+    startImmersiveInteraction(event, 'now-playing', 'drag')
+  })
+  immersiveResizeObserver = new ResizeObserver(() => updateImmersiveNowScale())
+  immersiveResizeObserver.observe(immersiveNowPlaying)
+  window.addEventListener('resize', applyImmersiveLayout)
+}
+
 function setSidebarWidthVar() {
   const w = sidebar.offsetWidth || DEFAULT_SIDEBAR_W
   document.documentElement.style.setProperty('--sidebar-w-current', `${w}px`)
@@ -1723,6 +1903,7 @@ function applyVideoMode(mode, persistSetting = true) {
   document.body.classList.toggle('video-mode-mini', next === 'mini')
   document.body.classList.toggle('video-mode-hidden', next === 'hidden')
   document.body.classList.toggle('video-mode-focus', next === 'focus')
+  syncFocusWindowMode()
   updateVideoModeButtons()
   setSidebarWidthVar()
   requestAnimationFrame(() => requestAnimationFrame(updateMiniPlayerMetrics))
@@ -1791,6 +1972,14 @@ function cycleVideoMode() {
   applyVideoMode(videoModePrimaryAction())
 }
 
+function syncFocusWindowMode() {
+  if (!window.api?.setFocusWindowMode) return
+  const enabled = currentVideoMode === 'focus' && currentWindowPresentation === 'windowed'
+  window.api.setFocusWindowMode(enabled).catch(error => {
+    console.warn('[window] focus mode constraints unavailable:', error?.message || error)
+  })
+}
+
 function applyWindowState(windowState = {}) {
   currentWindowPresentation = windowState.presentation || 'windowed'
   windowAlwaysOnTop = !!windowState.alwaysOnTop
@@ -1800,6 +1989,7 @@ function applyWindowState(windowState = {}) {
   if (currentWindowPresentation === 'enhanced-fullscreen' && currentVideoMode !== 'focus') {
     applyVideoMode('focus', false)
   }
+  syncFocusWindowMode()
   updateVideoModeButtons()
 }
 

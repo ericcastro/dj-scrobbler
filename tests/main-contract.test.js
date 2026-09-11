@@ -57,6 +57,17 @@ test('always-on-top is restored, persisted, and exposed as window state', () => 
   assert.match(preloadJs, /'window-state'/)
 })
 
+test('focus window mode locks a resizable window to the video aspect ratio', () => {
+  assert.match(mainJs, /const FOCUS_MIN_WINDOW_SIZE = \[480, 270\]/)
+  assert.match(mainJs, /const VIDEO_ASPECT_RATIO = 16 \/ 9/)
+  assert.match(mainJs, /function setFocusWindowMode\(enabled\)/)
+  assert.match(mainJs, /mainWindow\.setMinimumSize\(\.\.\.FOCUS_MIN_WINDOW_SIZE\)/)
+  assert.match(mainJs, /mainWindow\.setAspectRatio\(VIDEO_ASPECT_RATIO\)/)
+  assert.match(mainJs, /mainWindow\.setAspectRatio\(0\)/)
+  assert.match(mainJs, /ipcMain\.handle\('window-focus-mode-set'/)
+  assert.match(preloadJs, /setFocusWindowMode: \(enabled\) => ipcRenderer\.invoke\('window-focus-mode-set'/)
+})
+
 test('set-theme IPC handler delegates to setTitleBarTheme which calls setTitleBarOverlay on Windows', () => {
   // The handler calls a dedicated helper
   assert.match(mainJs, /ipcMain\.handle\('set-theme'/)
