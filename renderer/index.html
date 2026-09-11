@@ -44,6 +44,26 @@
       <button class="icon-btn" id="btn-video-mode" title="Mini-player mode">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/></svg>
       </button>
+      <div id="display-menu-wrap">
+        <button class="icon-btn" id="btn-display-menu" title="Display options" aria-label="Display options" aria-haspopup="menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+        </button>
+        <div id="display-menu" class="hidden" role="menu" aria-label="Display options">
+          <button class="display-menu-item" data-display-action="focus" role="menuitem">
+            <span>focus window</span><small>video + tracklist</small>
+          </button>
+          <button class="display-menu-item" data-display-action="enhanced-fullscreen" role="menuitem">
+            <span>enhanced full screen</span><small>video + tracklist</small>
+          </button>
+          <button class="display-menu-item" data-display-action="app-fullscreen" role="menuitem">
+            <span>app full screen</span><small>the entire workspace</small>
+          </button>
+          <div class="display-menu-rule"></div>
+          <button class="display-menu-item display-menu-toggle" data-display-action="always-on-top" role="menuitemcheckbox" aria-checked="false">
+            <span>always on top</span><span class="display-toggle-mark" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
       <button class="icon-btn" id="btn-sidebar-toggle" title="Toggle sidebar">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
       </button>
@@ -502,9 +522,26 @@
                to mask YouTube's native controls/buffering flash -->
           <div id="seek-shield"></div>
         </div>
+        <section id="immersive-overlay" aria-label="Current track and tracklist">
+          <div id="immersive-now-playing">
+            <div id="immersive-kicker">now playing</div>
+            <div id="immersive-title-row">
+              <span id="immersive-track-num"></span>
+              <span id="immersive-track-title">—</span>
+            </div>
+            <div id="immersive-track-artist"></div>
+            <div id="immersive-set-title"></div>
+            <div id="immersive-progress"><div id="immersive-progress-fill"></div></div>
+          </div>
+          <div id="immersive-tracklist-shell">
+            <div class="immersive-tracklist-heading">tracklist</div>
+            <ol id="immersive-tracklist-list"></ol>
+          </div>
+        </section>
         <div id="video-controls" aria-label="Video controls">
           <button class="video-control-btn" id="btn-video-dock" title="Mini-player mode"></button>
-          <button class="video-control-btn" id="btn-video-fullscreen" title="Full screen"></button>
+          <button class="video-control-btn" id="btn-video-fullscreen" title="Focus window"></button>
+          <button class="video-control-btn" id="btn-video-native-fullscreen" title="Enhanced full screen"></button>
           <button class="video-control-btn" id="btn-video-hide" title="Audio only"></button>
         </div>
       </div>

@@ -83,6 +83,24 @@ test('critical player controls have matching markup and styles', () => {
   }
 })
 
+test('enhanced display modes expose a resizable focus view and two native fullscreen choices', () => {
+  for (const id of [
+    'btn-display-menu',
+    'display-menu',
+    'immersive-overlay',
+    'immersive-now-playing',
+    'immersive-tracklist-list',
+    'btn-video-native-fullscreen',
+  ]) {
+    assert.equal(indexHtml.includes(`id="${id}"`), true, `${id} missing from index.html`)
+  }
+  assert.match(appJs, /const VIDEO_MODES = \['inline', 'mini', 'hidden', 'focus'\]/)
+  assert.match(appJs, /setWindowPresentation\(mode\)/)
+  assert.match(appJs, /setAlwaysOnTop\(!windowAlwaysOnTop\)/)
+  assert.match(styleCss, /body\.video-mode-focus #immersive-overlay\s*\{\s*display:\s*block/)
+  assert.doesNotMatch(styleCss, /body\.video-mode-fullscreen/)
+})
+
 test('CSS custom properties are defined or supplied by renderer code', () => {
   const definitions = new Set([...styleCss.matchAll(/--([\w-]+)\s*:/g)].map(match => match[1]))
   const references = new Set([...styleCss.matchAll(/var\(--([\w-]+)/g)].map(match => match[1]))

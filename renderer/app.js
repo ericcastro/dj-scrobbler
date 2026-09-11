@@ -20,6 +20,7 @@ const state = {
   currentAltProvider: null,   // { id, name, label, prompt, note } offered in the fallback panel
   currentThumbnailUrl: null,
   nowPlaying: null,
+  currentTrack: null,
   playbackCurrentTime: 0,
   playbackDuration: 0,
   lfmStatus: 'unconfigured',
@@ -63,7 +64,10 @@ const btnBookmark        = document.getElementById('btn-bookmark')
 const btnVideoMode       = document.getElementById('btn-video-mode')
 const btnVideoDock       = document.getElementById('btn-video-dock')
 const btnVideoFullscreen = document.getElementById('btn-video-fullscreen')
+const btnVideoNativeFullscreen = document.getElementById('btn-video-native-fullscreen')
 const btnVideoHide       = document.getElementById('btn-video-hide')
+const btnDisplayMenu     = document.getElementById('btn-display-menu')
+const displayMenu        = document.getElementById('display-menu')
 const btnDevtools        = document.getElementById('btn-devtools')
 const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
 const sidebar            = document.getElementById('sidebar')
@@ -149,6 +153,12 @@ const tracklistCompactList  = document.getElementById('tracklist-compact-list')
 const rightPanel            = document.getElementById('right-panel')
 const rightPanelHandle      = document.getElementById('right-panel-handle')
 const btnTracklistToggle    = document.getElementById('btn-tracklist-toggle')
+const immersiveTracklistList = document.getElementById('immersive-tracklist-list')
+const immersiveTrackNum   = document.getElementById('immersive-track-num')
+const immersiveTrackTitle = document.getElementById('immersive-track-title')
+const immersiveTrackArtist = document.getElementById('immersive-track-artist')
+const immersiveSetTitle   = document.getElementById('immersive-set-title')
+const immersiveProgressFill = document.getElementById('immersive-progress-fill')
 const btnPlayPause          = document.getElementById('btn-playpause')
 const btnPrevTrack          = document.getElementById('btn-prev-track')
 const btnNextTrack          = document.getElementById('btn-next-track')
@@ -1354,7 +1364,7 @@ function dragPoint(e) {
 
 function startWindowDrag(e) {
   if (e.button !== 0 || e.target.closest('.video-control-btn')) return
-  if (currentVideoMode === 'fullscreen') return
+  if (currentWindowPresentation !== 'windowed') return
   e.preventDefault()
   window.api.windowDragStart(dragPoint(e))
 
@@ -1485,6 +1495,7 @@ async function init() {
   applyTheme(state.store.settings?.theme || 'neon-night', false)
   restoreSidebarWidth()
   applyVideoMode(state.store.settings?.videoMode || 'inline', false)
+  applyWindowState(await window.api.getWindowState())
   applyResponsiveSidebar()
   restoreRightPanelWidth()
   playerVolume = Math.max(0, Math.min(100, Math.round(Number(state.store.settings?.playerVolume ?? 80) || 0)))
@@ -1650,8 +1661,11 @@ function renderIntroResume() {
 
 // ── Video mode ───────────────────────────────────────────────────────────────
 
-const VIDEO_MODES = ['inline', 'mini', 'hidden', 'fullscreen']
+const VIDEO_MODES = ['inline', 'mini', 'hidden', 'focus']
 let currentVideoMode = 'inline'
+let currentWindowPresentation = 'windowed'
+let windowAlwaysOnTop = false
+let immersiveActiveTrackKey = ''
 let progressSegmentKey = ''
 let sidebarAutoHidden = false
 let playerVolume = 80
@@ -1705,11 +1719,10 @@ function applyVideoMode(mode, persistSetting = true) {
   if (next !== 'mini' || !sidebar.classList.contains('collapsed')) {
     document.body.classList.remove('sidebar-player-hidden')
   }
-  window.api.setDisplayFullscreen(next === 'fullscreen')
   currentVideoMode = next
   document.body.classList.toggle('video-mode-mini', next === 'mini')
   document.body.classList.toggle('video-mode-hidden', next === 'hidden')
-  document.body.classList.toggle('video-mode-fullscreen', next === 'fullscreen')
+  document.body.classList.toggle('video-mode-focus', next === 'focus')
   updateVideoModeButtons()
   setSidebarWidthVar()
   requestAnimationFrame(() => requestAnimationFrame(updateMiniPlayerMetrics))
@@ -1720,20 +1733,20 @@ function applyVideoMode(mode, persistSetting = true) {
   }
   if (persistSetting) {
     if (!state.store.settings) state.store.settings = {}
-    state.store.settings.videoMode = next === 'fullscreen' ? 'inline' : next
+    state.store.settings.videoMode = next === 'focus' ? 'inline' : next
     persist()
   }
 }
 
 function videoModePrimaryAction(mode = currentVideoMode) {
-  if (mode === 'mini' || mode === 'fullscreen' || mode === 'hidden') return 'inline'
+  if (mode === 'mini' || mode === 'focus' || mode === 'hidden') return 'inline'
   return 'mini'
 }
 
 function videoModeLabel(mode) {
   if (mode === 'mini') return 'Mini-player mode'
   if (mode === 'inline') return 'Theater view'
-  if (mode === 'fullscreen') return 'Exit full screen'
+  if (mode === 'focus') return 'Exit focus window'
   if (mode === 'hidden') return 'Show video'
   return 'Video mode'
 }
@@ -1742,7 +1755,7 @@ function videoModeIcon(mode) {
   if (mode === 'mini') return ICON.miniPlayer
   if (mode === 'hidden') return ICON.video
   if (mode === 'inline') return ICON.theater
-  if (mode === 'fullscreen') return ICON.fullscreenExit
+  if (mode === 'focus') return ICON.fullscreenExit
   return ICON.video
 }
 
@@ -1754,17 +1767,71 @@ function updateVideoModeButtons() {
   btnVideoDock.innerHTML = icon(videoModeIcon(nextAction), 15)
   btnVideoDock.title = videoModeLabel(nextAction)
 
-  const fullscreenAction = currentVideoMode === 'fullscreen' ? 'inline' : 'fullscreen'
-  btnVideoFullscreen.innerHTML = icon(currentVideoMode === 'fullscreen' ? ICON.fullscreenExit : ICON.fullscreen, 15)
-  btnVideoFullscreen.title = currentVideoMode === 'fullscreen' ? 'Exit full screen' : 'Full screen'
+  const focusAction = currentVideoMode === 'focus' ? 'inline' : 'focus'
+  btnVideoFullscreen.innerHTML = icon(currentVideoMode === 'focus' ? ICON.fullscreenExit : ICON.theater, 15)
+  btnVideoFullscreen.title = currentVideoMode === 'focus' ? 'Exit focus window' : 'Focus window'
+
+  const enhancedIsActive = currentWindowPresentation === 'enhanced-fullscreen'
+  btnVideoNativeFullscreen.innerHTML = icon(enhancedIsActive ? ICON.fullscreenExit : ICON.fullscreen, 15)
+  btnVideoNativeFullscreen.title = enhancedIsActive ? 'Exit full screen' : 'Enhanced full screen'
 
   btnVideoHide.innerHTML = icon(ICON.x, 15)
   btnVideoHide.title = 'Audio only'
-  btnVideoFullscreen.dataset.mode = fullscreenAction
+  btnVideoFullscreen.dataset.mode = focusAction
+  btnDisplayMenu.classList.toggle('active', currentVideoMode === 'focus' || currentWindowPresentation !== 'windowed' || windowAlwaysOnTop)
+  displayMenu.querySelector('[data-display-action="focus"]')?.classList.toggle('active', currentVideoMode === 'focus')
+  displayMenu.querySelector('[data-display-action="enhanced-fullscreen"]')?.classList.toggle('active', enhancedIsActive)
+  displayMenu.querySelector('[data-display-action="app-fullscreen"]')?.classList.toggle('active', currentWindowPresentation === 'app-fullscreen')
+  const alwaysOnTopItem = displayMenu.querySelector('[data-display-action="always-on-top"]')
+  alwaysOnTopItem?.classList.toggle('active', windowAlwaysOnTop)
+  alwaysOnTopItem?.setAttribute('aria-checked', String(windowAlwaysOnTop))
 }
 
 function cycleVideoMode() {
   applyVideoMode(videoModePrimaryAction())
+}
+
+function applyWindowState(windowState = {}) {
+  currentWindowPresentation = windowState.presentation || 'windowed'
+  windowAlwaysOnTop = !!windowState.alwaysOnTop
+  if (state.store?.settings) state.store.settings.alwaysOnTop = windowAlwaysOnTop
+  document.body.classList.toggle('native-enhanced-fullscreen', currentWindowPresentation === 'enhanced-fullscreen')
+  document.body.classList.toggle('native-app-fullscreen', currentWindowPresentation === 'app-fullscreen')
+  if (currentWindowPresentation === 'enhanced-fullscreen' && currentVideoMode !== 'focus') {
+    applyVideoMode('focus', false)
+  }
+  updateVideoModeButtons()
+}
+
+function closeDisplayMenu() {
+  displayMenu.classList.add('hidden')
+  btnDisplayMenu.setAttribute('aria-expanded', 'false')
+}
+
+function toggleDisplayMenu() {
+  const willOpen = displayMenu.classList.contains('hidden')
+  displayMenu.classList.toggle('hidden', !willOpen)
+  btnDisplayMenu.setAttribute('aria-expanded', String(willOpen))
+}
+
+async function setPresentation(mode) {
+  if (mode === 'enhanced-fullscreen') applyVideoMode('focus', false)
+  if (mode === 'app-fullscreen' && currentVideoMode === 'focus') applyVideoMode('inline', false)
+  applyWindowState(await window.api.setWindowPresentation(mode))
+}
+
+async function handleDisplayAction(action) {
+  if (action === 'focus') {
+    if (currentWindowPresentation !== 'windowed') await setPresentation('windowed')
+    applyVideoMode(currentVideoMode === 'focus' ? 'inline' : 'focus')
+  } else if (action === 'enhanced-fullscreen') {
+    await setPresentation(currentWindowPresentation === 'enhanced-fullscreen' ? 'windowed' : 'enhanced-fullscreen')
+  } else if (action === 'app-fullscreen') {
+    await setPresentation(currentWindowPresentation === 'app-fullscreen' ? 'windowed' : 'app-fullscreen')
+  } else if (action === 'always-on-top') {
+    applyWindowState(await window.api.setAlwaysOnTop(!windowAlwaysOnTop))
+  }
+  closeDisplayMenu()
 }
 
 // ── Lifetime listening stats ──────────────────────────────────────────────────
@@ -1817,6 +1884,7 @@ function updatePlaybackProgress(currentTime = state.playbackCurrentTime, duratio
   const safeCurrent = Math.max(0, Number(currentTime) || 0)
   const pct = hasDuration ? Math.max(0, Math.min(1, safeCurrent / duration)) : 0
   playbackProgressFill.style.width = `${pct * 100}%`
+  immersiveProgressFill.style.width = `${pct * 100}%`
   playbackProgressThumb.style.left = `${pct * 100}%`
   playbackElapsed.textContent = formatPlaybackTime(safeCurrent)
   playbackRemaining.textContent = hasDuration
@@ -1932,6 +2000,83 @@ function timelineTracks() {
     typeof track.cueSeconds === 'number' &&
     Number.isFinite(track.cueSeconds)
   )
+}
+
+function immersiveTrackAtTime() {
+  if (state.currentTrack) return state.currentTrack
+  const now = Number(state.playbackCurrentTime) || 0
+  let active = null
+  for (const track of timelineTracks()) {
+    if (track.cueSeconds <= now + 0.5) active = track
+    else break
+  }
+  return active
+}
+
+function immersiveTrackKey(track) {
+  if (!track) return ''
+  return String(track.providerTrackId || track.trackNum || `${track.cueSeconds}:${track.title || track.raw || ''}`)
+}
+
+function updateImmersiveOverlay({ scroll = false } = {}) {
+  const track = immersiveTrackAtTime()
+  const key = immersiveTrackKey(track)
+  immersiveTrackNum.textContent = track?.trackNum ? `#${track.trackNum}` : ''
+  immersiveTrackTitle.textContent = track ? segmentTitle(track) : 'Waiting for track information…'
+  immersiveTrackArtist.textContent = track?.isLongRecognitionGap
+    ? 'Shazam could not identify this section'
+    : (track?.artist || '')
+  immersiveSetTitle.textContent = state.currentSetTitle || ''
+
+  if (key === immersiveActiveTrackKey && !scroll) return
+  immersiveActiveTrackKey = key
+  let activeRow = null
+  immersiveTracklistList.querySelectorAll('.immersive-track-row').forEach(row => {
+    const active = !!key && row.dataset.trackKey === key
+    row.classList.toggle('active', active)
+    if (active) activeRow = row
+  })
+  if (activeRow && (scroll || currentVideoMode === 'focus')) {
+    activeRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
+function renderImmersiveTracklist(tracks = state.currentTracks) {
+  immersiveTracklistList.innerHTML = ''
+  immersiveActiveTrackKey = ''
+  const fragment = document.createDocumentFragment()
+  tracks.filter(track => !track.isMashupComponent).forEach(track => {
+    const row = document.createElement('li')
+    row.className = `immersive-track-row${track.isId ? ' is-id' : ''}${track.isWWith ? ' is-with' : ''}`
+    row.dataset.trackKey = immersiveTrackKey(track)
+
+    const number = document.createElement('span')
+    number.className = 'immersive-track-number'
+    number.textContent = track.isWWith ? 'w/' : (track.trackNum || '')
+    const copy = document.createElement('span')
+    copy.className = 'immersive-track-copy'
+    const title = document.createElement('span')
+    title.className = 'immersive-track-title'
+    title.textContent = segmentTitle(track)
+    const artist = document.createElement('span')
+    artist.className = 'immersive-track-artist'
+    artist.textContent = track.isLongRecognitionGap
+      ? 'there may be multiple unidentified tracks here'
+      : (track.artist || '')
+    copy.append(title, artist)
+    const cue = document.createElement('span')
+    cue.className = 'immersive-track-cue'
+    cue.textContent = track.cueDisplay || ''
+    row.append(number, copy, cue)
+    if (track.cueDisplay && Number.isFinite(track.cueSeconds) && !track.noTimestamp && !track.isRecognitionCandidate) {
+      row.addEventListener('click', () => playerSeek(track.cueSeconds))
+    } else {
+      row.classList.add('not-seekable')
+    }
+    fragment.appendChild(row)
+  })
+  immersiveTracklistList.appendChild(fragment)
+  updateImmersiveOverlay({ scroll: true })
 }
 
 function playbackSegmentData() {
@@ -2164,6 +2309,7 @@ function wireMainEvents() {
     updateViewTabs()
     const isNewSet = url !== state.currentSetUrl
     if (isNewSet) {
+      state.currentTrack = null
       state.currentSetMetadata = null
       state.currentSourceStats = null
       state.currentSetAvailability = null
@@ -2196,6 +2342,7 @@ function wireMainEvents() {
     renderSetSources()
     renderTracklistProviderChoice()
     renderRecognitionStatus()
+    updateImmersiveOverlay()
 
     if (isFallback) {
       state.currentTracks  = []   // prevent stale count leaking into bookmark
@@ -2271,6 +2418,7 @@ function wireMainEvents() {
     state.isIdTrack      = !!data.isId
     // Player-only events carry play/pause state, not track metadata.
     if (data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
+      state.currentTrack = data
       npTrackText.textContent = data.isId ? 'ID — ID' : (data.title || data.raw || '—')
       npArtist.textContent = data.isLongRecognitionGap
         ? 'Shazam couldn\'t identify this section'
@@ -2280,6 +2428,7 @@ function wireMainEvents() {
       setNpArtwork(data.isId ? null : data.artUrl, data.isId ? 'missing' : data.artworkStatus)
       if (data.trackNum) highlightTracklistByNum(data.trackNum)
     }
+    updateImmersiveOverlay({ scroll: true })
     // Save playback progress so history/favorites items can show a progress bar
     if (data.trackNum && state.currentSetUrl && data.source !== 'youtube-player' && data.source !== 'youtube-fallback') {
       updateSetProgress(state.currentSetUrl, data.trackNum, data.cueSeconds)
@@ -2303,6 +2452,7 @@ function wireMainEvents() {
     state.playbackCurrentTime = currentTime || 0
     state.playbackDuration = duration || 0
     updatePlaybackProgress()
+    updateImmersiveOverlay()
 
     if (!state.currentSetUrl) return
     // On first valid tick after a resume load, seek to the saved position then clear
@@ -2323,8 +2473,8 @@ function wireMainEvents() {
   window.api.on('tracklist-data', (payload) => {
     if (isResumeDialogOpen()) return
     const tracks = Array.isArray(payload) ? payload : (payload?.tracks || [])
-    renderTracklist(tracks)
     state.currentTracks = tracks
+    renderTracklist(tracks)
     renderPlaybackSegments(true)
     // Persist track count on the history/favorites entry so the sidebar can
     // show "XX tracks" instead of a source name
@@ -3514,6 +3664,7 @@ function loadSet(item, resume) {
     state.tracklistUnavailable = false
     state.currentTracks = []
     state.currentSetTitle = item.title || item.url
+    state.currentTrack = null
     state.currentSetUrl = item.url
     state.currentThumbnailUrl = item.thumbnailUrl || null
     state.currentTracklistUrl = null
@@ -3962,6 +4113,7 @@ function renderTracklist(tracks) {
   }
 
   mainContent.classList.toggle('has-tracklist', tracks.length > 0 || state.currentTracklistProvider === 'shazam')
+  renderImmersiveTracklist(annotated)
   renderSetMetadataHeader()
   renderRecognitionStatus()
 }
@@ -3987,6 +4139,7 @@ function clearTracklist() {
   recognitionCompactStatus.classList.add('hidden')
   tracklistProviderChoice.classList.add('hidden')
   mainContent.classList.remove('has-tracklist')
+  renderImmersiveTracklist([])
   tracklistUnavailableEl.classList.add('hidden')
   setMetadataHeader.classList.add('hidden')
   // Reset scroll position so every new set starts from the top, then
@@ -4100,6 +4253,7 @@ function persist() {
 function resetNowPlaying() {
   document.body.classList.remove('has-active-set')
   state.nowPlaying         = null
+  state.currentTrack       = null
   state.currentSetTitle    = ''
   state.currentSetUrl      = ''
   state.currentSource      = ''
@@ -4137,6 +4291,7 @@ function resetNowPlaying() {
   ppIcon.innerHTML       = icon(ICON.play, 16)
   btnPlayPause.classList.remove('playing')
   updateBookmarkBtn()
+  renderImmersiveTracklist([])
 }
 
 // ── Overlays ──────────────────────────────────────────────────────────────────
@@ -4292,6 +4447,11 @@ function wireEvents() {
     if (!e.target.closest('#search-box')) hideSearchDropdown()
   })
   document.addEventListener('keydown', handlePlayerShortcutKeydown)
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && currentWindowPresentation === 'windowed' && currentVideoMode === 'focus') {
+      applyVideoMode('inline')
+    }
+  })
   document.addEventListener('keyup', handlePlayerShortcutKeyup)
 
   btnDevtools.addEventListener('click', () => window.api.openDevTools())
@@ -4299,8 +4459,22 @@ function wireEvents() {
   btnTracklistToggle.addEventListener('click', () => toggleRightPanel())
   btnVideoMode.addEventListener('click', cycleVideoMode)
   btnVideoDock.addEventListener('click', () => applyVideoMode(videoModePrimaryAction()))
-  btnVideoFullscreen.addEventListener('click', () => applyVideoMode(btnVideoFullscreen.dataset.mode || 'fullscreen'))
+  btnVideoFullscreen.addEventListener('click', () => applyVideoMode(btnVideoFullscreen.dataset.mode || 'focus'))
+  btnVideoNativeFullscreen.addEventListener('click', () => {
+    setPresentation(currentWindowPresentation === 'enhanced-fullscreen' ? 'windowed' : 'enhanced-fullscreen')
+      .catch(error => window.alert(error?.message || 'The display mode could not be changed.'))
+  })
   btnVideoHide.addEventListener('click', () => applyVideoMode('hidden'))
+  btnDisplayMenu.addEventListener('click', (event) => {
+    event.stopPropagation()
+    toggleDisplayMenu()
+  })
+  displayMenu.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-display-action]')
+    if (!item) return
+    handleDisplayAction(item.dataset.displayAction)
+      .catch(error => window.alert(error?.message || 'The display mode could not be changed.'))
+  })
   npInfo.addEventListener('click', showNowPlayingTrack)
   npInfo.addEventListener('keydown', event => {
     if (event.key !== 'Enter' && event.key !== ' ') return
@@ -4308,6 +4482,10 @@ function wireEvents() {
     showNowPlayingTrack()
   })
   videoControls.addEventListener('mousedown', startWindowDrag)
+  window.api.on('window-state', applyWindowState)
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('#display-menu-wrap')) closeDisplayMenu()
+  })
   window.addEventListener('resize', applyResponsiveSidebar)
   volumeControl.addEventListener('mouseenter', showVolumePopover)
   volumeControl.addEventListener('mouseleave', scheduleVolumePopoverClose)

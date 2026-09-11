@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme, screen, webContents } = require('electron')
+const { app, BrowserWindow, ipcMain, shell, Menu, nativeImage, nativeTheme, webContents } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const path   = require('path')
 const https  = require('https')
@@ -166,7 +166,7 @@ let pendingSourceUrl = null
 const attachedWebviews = new Map()
 let playerAudioCaptureGrant = null
 let shazamPocRun = null
-let displayFullscreenBounds = null
+let windowPresentation = 'windowed'
 let windowDragStart = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
 let saveBoundsTimer = null
@@ -4070,7 +4070,7 @@ function setTitleBarTheme(theme) {
 function persistBounds() {
   clearTimeout(saveBoundsTimer)
   saveBoundsTimer = setTimeout(() => {
-    if (!mainWindow || mainWindow.isDestroyed() || displayFullscreenBounds || mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isMinimized() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return
     const store = readStore()
     if (!store.settings) store.settings = {}
     store.settings.windowBounds = mainWindow.getBounds()
@@ -4079,23 +4079,38 @@ function persistBounds() {
   }, 400)
 }
 
-function setDisplayFullscreen(enabled) {
-  if (!mainWindow) return false
-  if (enabled) {
-    if (!displayFullscreenBounds) displayFullscreenBounds = mainWindow.getBounds()
-    if (mainWindow.isMaximized()) mainWindow.unmaximize()
-    if (mainWindow.isFullScreen()) mainWindow.setFullScreen(false)
-    const display = screen.getDisplayMatching(mainWindow.getBounds())
-    mainWindow.setResizable(false)
-    mainWindow.setBounds(display.bounds, true)
-    return true
+function windowStateSnapshot() {
+  return {
+    presentation: windowPresentation,
+    isFullScreen: !!mainWindow?.isFullScreen(),
+    alwaysOnTop: !!mainWindow?.isAlwaysOnTop(),
   }
-  if (!displayFullscreenBounds) return false
-  const restoreBounds = displayFullscreenBounds
-  displayFullscreenBounds = null
-  mainWindow.setResizable(true)
-  mainWindow.setBounds(restoreBounds, true)
-  return true
+}
+
+function sendWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('window-state', windowStateSnapshot())
+}
+
+function setWindowPresentation(mode) {
+  if (!mainWindow) return windowStateSnapshot()
+  const next = ['windowed', 'enhanced-fullscreen', 'app-fullscreen'].includes(mode) ? mode : 'windowed'
+  windowPresentation = next
+  const shouldBeFullScreen = next !== 'windowed'
+  if (mainWindow.isFullScreen() !== shouldBeFullScreen) mainWindow.setFullScreen(shouldBeFullScreen)
+  else sendWindowState()
+  return windowStateSnapshot()
+}
+
+function setWindowAlwaysOnTop(enabled) {
+  if (!mainWindow) return windowStateSnapshot()
+  mainWindow.setAlwaysOnTop(!!enabled, process.platform === 'darwin' ? 'floating' : 'normal')
+  const store = readStore()
+  if (!store.settings) store.settings = {}
+  store.settings.alwaysOnTop = !!enabled
+  writeStore(store)
+  sendWindowState()
+  return windowStateSnapshot()
 }
 
 // ── Window ────────────────────────────────────────────────────────────────────
@@ -4114,7 +4129,7 @@ function titleBarOverlayForTheme(theme) {
 
 function createWindow() {
   const store = readStore()
-  const { windowBounds, theme = 'neon-night' } = store.settings || {}
+  const { windowBounds, theme = 'neon-night', alwaysOnTop = false } = store.settings || {}
   mainWindow = new BrowserWindow({
     width:  windowBounds?.width  || 1400,
     height: windowBounds?.height || 900,
@@ -4123,7 +4138,7 @@ function createWindow() {
     minHeight: 600,
     ...titleBarOptions(theme),
     autoHideMenuBar: process.platform !== 'darwin',
-    fullscreenable: false,
+    fullscreenable: true,
     backgroundColor: '#0c1220',
     icon: appIcon(theme),
     webPreferences: {
@@ -4136,7 +4151,12 @@ function createWindow() {
 
   mainWindow.on('resize', persistBounds)
   mainWindow.on('move',   persistBounds)
-  if (typeof mainWindow.setFullScreenable === 'function') mainWindow.setFullScreenable(false)
+  mainWindow.setAlwaysOnTop(!!alwaysOnTop, process.platform === 'darwin' ? 'floating' : 'normal')
+  mainWindow.on('enter-full-screen', sendWindowState)
+  mainWindow.on('leave-full-screen', () => {
+    windowPresentation = 'windowed'
+    sendWindowState()
+  })
 
   if (process.env.DJ_DEBUG_LOAD_URL) {
     mainWindow.webContents.once('did-finish-load', () => {
@@ -4400,14 +4420,16 @@ ipcMain.handle('app-restart', () => {
   app.exit(0)
 })
 ipcMain.handle('is-developer', () => DEVELOPER_MODE)
-ipcMain.handle('set-display-fullscreen', (_event, enabled) => setDisplayFullscreen(!!enabled))
+ipcMain.handle('window-state-get', () => windowStateSnapshot())
+ipcMain.handle('window-presentation-set', (_event, mode) => setWindowPresentation(mode))
+ipcMain.handle('window-always-on-top-set', (_event, enabled) => setWindowAlwaysOnTop(enabled))
 ipcMain.handle('window-drag-start', (_event, point) => {
-  if (!mainWindow || displayFullscreenBounds) return false
+  if (!mainWindow || mainWindow.isFullScreen()) return false
   windowDragStart = { point, bounds: mainWindow.getBounds() }
   return true
 })
 ipcMain.handle('window-drag-move', (_event, point) => {
-  if (!mainWindow || !windowDragStart || displayFullscreenBounds) return false
+  if (!mainWindow || !windowDragStart || mainWindow.isFullScreen()) return false
   const dx = Math.round(point.screenX - windowDragStart.point.screenX)
   const dy = Math.round(point.screenY - windowDragStart.point.screenY)
   mainWindow.setPosition(windowDragStart.bounds.x + dx, windowDragStart.bounds.y + dy, false)

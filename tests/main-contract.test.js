@@ -39,6 +39,24 @@ test('createWindow uses platform-conditional titlebar style', () => {
   assert.match(mainJs, /frame:\s*true/)
 })
 
+test('window presentation uses native fullscreen without resizing the display bounds', () => {
+  assert.match(mainJs, /fullscreenable:\s*true/)
+  assert.match(mainJs, /function setWindowPresentation\(mode\)/)
+  assert.match(mainJs, /mainWindow\.setFullScreen\(shouldBeFullScreen\)/)
+  assert.match(mainJs, /'enhanced-fullscreen'/)
+  assert.match(mainJs, /'app-fullscreen'/)
+  assert.doesNotMatch(mainJs, /setDisplayFullscreen/)
+  assert.doesNotMatch(mainJs, /displayFullscreenBounds/)
+})
+
+test('always-on-top is restored, persisted, and exposed as window state', () => {
+  assert.match(mainJs, /alwaysOnTop\s*=\s*false/)
+  assert.match(mainJs, /mainWindow\.setAlwaysOnTop\(!!alwaysOnTop/)
+  assert.match(mainJs, /store\.settings\.alwaysOnTop\s*=\s*!!enabled/)
+  assert.match(mainJs, /ipcMain\.handle\('window-always-on-top-set'/)
+  assert.match(preloadJs, /'window-state'/)
+})
+
 test('set-theme IPC handler delegates to setTitleBarTheme which calls setTitleBarOverlay on Windows', () => {
   // The handler calls a dedicated helper
   assert.match(mainJs, /ipcMain\.handle\('set-theme'/)

@@ -8,7 +8,9 @@ contextBridge.exposeInMainWorld('api', {
   getRecentLogs: ()     => ipcRenderer.invoke('get-recent-logs'),
   appRestart:    ()     => ipcRenderer.invoke('app-restart'),
   isDeveloper:  ()      => ipcRenderer.invoke('is-developer'),
-  setDisplayFullscreen: (enabled) => ipcRenderer.invoke('set-display-fullscreen', enabled),
+  getWindowState: () => ipcRenderer.invoke('window-state-get'),
+  setWindowPresentation: (mode) => ipcRenderer.invoke('window-presentation-set', mode),
+  setAlwaysOnTop: (enabled) => ipcRenderer.invoke('window-always-on-top-set', enabled),
   windowDragStart: (point) => ipcRenderer.invoke('window-drag-start', point),
   windowDragMove:  (point) => ipcRenderer.invoke('window-drag-move', point),
   windowDragEnd:   ()      => ipcRenderer.invoke('window-drag-end'),
@@ -52,7 +54,7 @@ contextBridge.exposeInMainWorld('api', {
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'source-metadata', 'set-availability', 'event-lookup-progress', 'recognition-state', 'stats-updated',
                      'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
-                     'fallback-progress', 'tl-progress', 'update-status']
+                     'fallback-progress', 'tl-progress', 'update-status', 'window-state']
     if (!allowed.includes(channel)) return
     ipcRenderer.on(channel, (_event, ...args) => callback(...args))
   },
