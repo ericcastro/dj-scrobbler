@@ -21,6 +21,40 @@ test('renderer app references only DOM IDs that exist in index.html', () => {
   assert.deepEqual(missing, [])
 })
 
+test('automatic recognition has marked tracks, editable matches, retryable gaps, and a restrained live footer', () => {
+  assert.match(preloadJs, /'recognition-state'/)
+  assert.match(preloadJs, /track-recognition-identify/)
+  assert.match(preloadJs, /track-recognition-edit/)
+  assert.match(preloadJs, /track-manual-identify/)
+  assert.match(preloadJs, /tracklist-reset-automatic/)
+  assert.match(indexHtml, /id="recognition-status"/)
+  assert.match(indexHtml, /id="recognition-compact-status"/)
+  assert.match(appJs, /track\.autoRecognized\s*\? ' track-auto-recognized'/)
+  assert.match(appJs, /track\.isLongRecognitionGap \? ' track-recognition-long-gap'/)
+  assert.match(appJs, /track\.isRecognitionCandidate \? ' track-recognition-candidate'/)
+  assert.match(appJs, /still analyzing/)
+  assert.match(appJs, /Identified with Shazam/)
+  assert.match(appJs, />✦ AUTO<\/span>/)
+  assert.match(appJs, /Listening inside an unidentified section/)
+  assert.match(appJs, /data-action="wrong"/)
+  assert.match(appJs, /data-action="delete"/)
+  assert.match(appJs, /retry Shazam id/)
+  assert.match(appJs, />manual id<\/button>/)
+  assert.match(appJs, /fix id/)
+  assert.match(appJs, /remove id/)
+  assert.doesNotMatch(appJs, /× remove id/)
+  assert.match(appJs, /tracklist-provider-reset/)
+  assert.match(appJs, /resetAutomaticTracklist/)
+  assert.match(appJs, /beginManualTrackIdentification/)
+  assert.doesNotMatch(appJs, /Automatic ID · not scrobbled/)
+  assert.match(styleCss, /\.track-recognition-long-gap\s*\{/)
+  assert.match(styleCss, /\.track-recognition-candidate\s*\{/)
+  assert.match(styleCss, /\.track-auto-actions,\s*\n\.track-manual-actions\s*\{/)
+  assert.match(styleCss, /\.track-item:hover \.track-auto-actions/)
+  assert.match(styleCss, /\.track-item:focus-within \.track-auto-actions/)
+  assert.match(styleCss, /\.recognition-status\.is-active \.spectrum-bar/)
+})
+
 test('critical player controls have matching markup and styles', () => {
   for (const id of [
     'player-status-overlay',
@@ -189,6 +223,17 @@ test('Library cards are near-opaque without changing Home card restraint', () =>
   assert.match(styleCss, /\.library-set-card:hover,[\s\S]*opacity:\s*1/)
 })
 
+test('resume cards prefer real playback time over automatic timeline row counts', () => {
+  const progressFn = appJs.slice(appJs.indexOf('function getProgressPct('), appJs.indexOf('function updateSetProgress('))
+  assert.match(progressFn, /const timePct = Number\(item\.progressTimePct\)/)
+  assert.ok(progressFn.indexOf('Number.isFinite(timePct)') < progressFn.indexOf('item.progressTrackNum'))
+})
+
+test('Home resume cards require meaningful progress but keep near-complete YouTube sets', () => {
+  const resumeFn = appJs.slice(appJs.indexOf('function renderIntroResume('), appJs.indexOf('// ── Video mode'))
+  assert.match(resumeFn, /return pct >= 5 && pct < 99 && isYouTubeSourceUrl\(item\.url\)/)
+})
+
 test('mini player shows current track artwork and follows background enrichment', () => {
   assert.match(indexHtml, /id="np-artwork"[\s\S]*id="np-artwork-image"/)
   assert.match(appJs, /function setNpArtwork\(artUrl, artworkStatus = 'missing'\)/)
@@ -316,13 +361,11 @@ test('the alternate-provider button has matching markup, styles and wiring', () 
   assert.match(appJs, /window\.api\.tryTracklistProvider\(alt\.id\)/)
 })
 
-test('an untried alternate replaces the contribute prompt, and yields to it once tried', () => {
-  // The panel has one action slot: try another provider while one is left,
-  // then fall back to contributing a tracklist to the primary provider.
+test('an untried alternate remains the only empty-tracklist action', () => {
   assert.match(appJs, /const alt = \(alternateProviders \|\| \[\]\)\[0\] \|\| null/)
-  assert.match(appJs, /const showContribute = !alt && !lookupError && contributeUrl && contributeLabel/)
   assert.match(appJs, /btnAltProvider\.classList\.toggle\('hidden', !alt\)/)
-  assert.match(appJs, /btnContributeTracklist\.classList\.toggle\('hidden', !showContribute\)/)
+  assert.equal(indexHtml.includes('id="btn-contribute-tracklist"'), false)
+  assert.doesNotMatch(appJs, /btnContributeTracklist/)
 })
 
 test('the alternate button stays busy until the reply repaints the panel', () => {
@@ -560,8 +603,8 @@ test('mini-player keeps artist and track on one line with the set title beneath'
   assert.match(indexHtml, /id="np-title-row"[\s\S]*id="np-title-content"[\s\S]*id="np-tracknum"[\s\S]*id="np-artist"[\s\S]*id="np-artist-separator"[\s\S]*id="np-track"/)
   assert.match(indexHtml, /id="np-info"[\s\S]*id="np-set"[\s\S]*id="np-right"[\s\S]*id="np-source"/)
   assert.match(appJs, /npArtistSeparator\.classList\.toggle\('hidden'/)
-  assert.match(appJs, /npTrackText\.textContent = data\.isId \? 'ID'/)
-  assert.match(appJs, /npArtist\.textContent\s+= data\.isId \? 'ID'/)
+  assert.match(appJs, /npTrackText\.textContent = data\.isId \? 'ID — ID'/)
+  assert.match(appJs, /npArtist\.textContent = data\.isLongRecognitionGap[\s\S]*data\.isId \? 'ID'/)
   assert.match(appJs, /wireOverflowMarquee\(npTitleContent, npTitleRow, npTitleRow\)/)
   assert.match(styleCss, /#np-title-row\s*\{[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis/s)
   assert.match(styleCss, /#np-title-content\s*\{[^}]*width:\s*max-content/s)

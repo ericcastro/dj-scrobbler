@@ -131,6 +131,118 @@ test('YouTube playback starts before either automatic tracklist result is awaite
     'tracklist providers must not gate player navigation')
 })
 
+test('the Shazam POC captures only the armed player frame and keeps playback audible', () => {
+  assert.match(mainJs, /setDisplayMediaRequestHandler/)
+  assert.match(mainJs, /request\.userGesture/)
+  assert.match(mainJs, /requestingContents\?\.id === grant\.webContentsId/)
+  assert.match(mainJs, /playerWvContents\?\.id === grant\.webContentsId/)
+  assert.match(mainJs, /video: request\.frame/)
+  assert.match(mainJs, /audio: request\.frame/)
+  assert.match(mainJs, /enableLocalEcho: true/)
+  assert.match(mainJs, /buildFrameAudioCaptureScript/)
+  assert.doesNotMatch(mainJs, /getUserMedia/)
+})
+
+test('the developer POC samples a saved YouTube favorite independently of tracklist lookup', () => {
+  assert.match(mainJs, /function savedYouTubeFavoriteForPoc/)
+  assert.match(mainJs, /chooseSamplePoints\(ready\.poll\.duration/)
+  assert.match(mainJs, /loadSourceUrl\(targetUrl\)\.catch/)
+  assert.match(mainJs, /writeJsonAtomic\(shazamPocResultPath\(\), run\)/)
+  assert.match(mainJs, /Run Shazam Audio Capture POC/)
+})
+
+test('cross-set Shazam validation compares cached identified tracklist moments', () => {
+  assert.match(mainJs, /function savedTracklistValidationSets/)
+  assert.match(mainJs, /isUsableCachedTracklist\(entry\)/)
+  assert.match(mainJs, /chooseTracklistMoments\(target\.tracks, ready\.poll\.duration/)
+  assert.match(mainJs, /compareRecognition\(moment\.expected, recognized\.result\)/)
+  assert.match(mainJs, /shazam-validation-results\.json/)
+  assert.match(mainJs, /Validate Shazam Against Saved Tracklists/)
+})
+
+test('empty published tracklists activate jittered automatic recognition without blocking playback', () => {
+  const fallback = mainJs.slice(mainJs.indexOf('function sendTracklistFallback'), mainJs.indexOf('/** Manual retry path'))
+  assert.match(fallback, /startAutomaticRecognition\(\)/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS = 10/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS = 15/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 9_500/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000/)
+  assert.match(mainJs, /randomSampleIntervalSeconds\(Math\.random/)
+  assert.match(mainJs, /setImmediate\(\(\) => runAutomaticRecognitionCycle\(automaticRecognition, 'start'\)/)
+  assert.match(mainJs, /runAutomaticRecognitionCycle\(session, 'unidentified-seek'\)/)
+  assert.match(mainJs, /applyRecognitionServiceBackoff\(session, error\)/)
+})
+
+test('automatic matches scrobble while unidentified regions remain excluded', () => {
+  const scrobble = mainJs.slice(mainJs.indexOf('function scrobbleLastTrackIfReady'), mainJs.indexOf('function stopMonitoring'))
+  const emit = mainJs.slice(mainJs.indexOf('function emitTimelineTrack'), mainJs.indexOf('function handlePlaybackPoll'))
+  assert.doesNotMatch(scrobble, /lastTrackData\.autoRecognized/)
+  assert.match(scrobble, /lastTrackData\.scrobbledOnConfirmation/)
+  assert.match(emit, /if \(!data\.isId\) lfmUpdateNowPlaying/)
+  assert.match(mainJs, /lfmScrobble\(newlyCommitted\.artist, newlyCommitted\.title/)
+  assert.match(mainJs, /track\?\.isId \|\| track\?\.isRecognitionUnidentified/)
+})
+
+test('automatic recognition requires repeated confidence and finalizes unresolved audio at set end', () => {
+  assert.match(mainJs, /isEnded: state === 0/)
+  assert.match(mainJs, /session\.setEndSeconds = poll\.duration/)
+  assert.match(mainJs, /session\.phase = 'complete'/)
+  assert.match(mainJs, /session\.phase = session\.atEnd \? 'complete' : 'listening'/)
+  assert.match(mainJs, /setEndSeconds: session\.atEnd \? session\.setEndSeconds : null/)
+  assert.match(mainJs, /still analyzing track=/)
+  assert.match(mainJs, /!track\.isRecognitionCandidate/)
+})
+
+test('automatic recognition observations are a private bounded cache', () => {
+  assert.match(mainJs, /MAX_AUTOMATIC_RECOGNITION_CACHE_ENTRIES = 100/)
+  assert.match(mainJs, /function writeAutomaticRecognitionObservations/)
+  assert.match(mainJs, /delete rendererStore\.automaticRecognitionCache/)
+  assert.match(mainJs, /if \(existing\.automaticRecognitionCache\) next\.automaticRecognitionCache = existing\.automaticRecognitionCache/)
+  assert.match(mainJs, /delete rendererStore\.trackRecognitionEdits/)
+  assert.match(mainJs, /if \(existing\.trackRecognitionEdits\) next\.trackRecognitionEdits = existing\.trackRecognitionEdits/)
+})
+
+test('a reopened automatic session can bridge only its most recent cached track', () => {
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS = 3 \* 60/)
+  assert.match(mainJs, /const latestCachedTrack = \[\.\.\.cachedTimeline\]\.reverse\(\)\.find/)
+  assert.match(mainJs, /cachedTrackAgeSeconds <= AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS/)
+  assert.match(mainJs, /continuesPreviousSession: true/)
+})
+
+test('automatic and one-shot recognition edits are exposed without weakening source scoping', () => {
+  assert.match(mainJs, /function editRecognizedTrack\(payload\)/)
+  assert.match(mainJs, /applyRecognitionDecision\(session\.observations, track, action, correction\)/)
+  assert.match(mainJs, /function identifyTrackWithRecognition\(payload\)/)
+  assert.match(mainJs, /payload\?\.sourceUrl !== currentSourceUrl \|\| payload\?\.providerId !== currentTracklistProvider/)
+  assert.match(mainJs, /writeTrackRecognitionEdit\(sourceUrl, providerId, providerTrackId, patch\)/)
+  assert.match(mainJs, /ipcMain\.handle\('track-recognition-identify'/)
+  assert.match(mainJs, /ipcMain\.handle\('track-recognition-edit'/)
+  assert.match(mainJs, /function manualIdentifyTrack\(payload\)/)
+  assert.match(mainJs, /ipcMain\.handle\('track-manual-identify'/)
+})
+
+test('published unresolved rows use confidence sampling and retry after expiry', () => {
+  assert.match(mainJs, /PUBLISHED_UNIDENTIFIED_RETRY_MS = 24 \* 60 \* 60 \* 1000/)
+  assert.match(mainJs, /function startPublishedTrackRecognition/)
+  assert.match(mainJs, /function maybeRetryPublishedUnidentifiedTrack/)
+  assert.match(mainJs, /automaticRetryAt/)
+  const targeted = mainJs.slice(
+    mainJs.indexOf('async function runTargetedRecognitionCycle'),
+    mainJs.indexOf('async function startPublishedTrackRecognition'),
+  )
+  assert.match(targeted, /targetedRecognitionDecision\(session\.observations/)
+  assert.match(targeted, /captureDurationWithinSegment/)
+  assert.match(targeted, /applyRecognitionServiceBackoff\(session, error\)/)
+  assert.match(targeted, /lfmScrobble\(match\.artist, match\.title/)
+})
+
+test('main process helpers have unique function names', () => {
+  const names = [...mainJs.matchAll(/^(?:async )?function\s+([A-Za-z_$][\w$]*)\s*\(/gm)]
+    .map(match => match[1])
+  const duplicates = names.filter((name, index) => names.indexOf(name) !== index)
+  assert.deepEqual([...new Set(duplicates)], [])
+})
+
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
   assert.match(mainJs, /ipcMain\.handle\('tracklist-try-provider'/)
   assert.match(mainJs, /async function tryTracklistProvider\(providerId\)/)
@@ -222,6 +334,7 @@ test('missing identified artwork is enriched only after tracklist rows reach the
     'artwork lookup must never block initial tracklist rendering')
   assert.match(mainJs, /tracks\.filter\(track => track\.artworkStatus === 'loading'\)/)
   assert.match(mainJs, /ARTWORK_LOOKUP_CONCURRENCY = 2/)
+  assert.match(mainJs, /previous\?\.artworkStatus && previous\.artworkStatus !== 'error'/)
 })
 
 test('now-playing events carry artwork identity for the mini player', () => {
@@ -233,8 +346,9 @@ test('now-playing events carry artwork identity for the mini player', () => {
 })
 
 test('Deezer artwork cache is long-lived, bounded, negative-aware, and written once per set', () => {
+  assert.match(mainJs, /ARTWORK_CACHE_VERSION = 2/)
   assert.match(mainJs, /ARTWORK_CACHE_HIT_TTL_MS = 365 \* 24 \* 60 \* 60 \* 1000/)
-  assert.match(mainJs, /ARTWORK_CACHE_MISS_TTL_MS = 30 \* 24 \* 60 \* 60 \* 1000/)
+  assert.match(mainJs, /ARTWORK_CACHE_MISS_TTL_MS = 24 \* 60 \* 60 \* 1000/)
   assert.match(mainJs, /MAX_ARTWORK_CACHE_ENTRIES = 6000/)
   assert.match(mainJs, /artUrl: cached\.artUrl \|\| ''/)
   assert.match(mainJs, /writeArtworkCacheUpdates\(updates\)/)
@@ -247,6 +361,7 @@ test('private lookup caches never round-trip through ordinary renderer persisten
   assert.match(fn, /delete rendererStore\.tracklistPreferences/)
   assert.match(fn, /delete rendererStore\.artworkCache/)
   assert.match(fn, /delete rendererStore\.eventLookupCache/)
+  assert.match(fn, /delete rendererStore\.automaticRecognitionCache/)
 })
 
 test('event lookups are cached privately until the next local day', () => {
@@ -356,9 +471,21 @@ test('usable provider outcomes are retained as switchable options', () => {
 
 test('tracklist provider preferences are persisted separately from tracklist cache', () => {
   assert.match(mainJs, /function getTracklistPreference\(sourceUrl\)/)
-  assert.match(mainJs, /preferredProviderId: getTracklistPreference\(/)
+  assert.match(mainJs, /const preferredProviderId = getTracklistPreference\(/)
+  assert.match(mainJs, /providerId === AUTOMATIC_RECOGNITION_PROVIDER\.id/)
   assert.match(mainJs, /existing\.tracklistPreferences\)/)
   assert.match(mainJs, /store\.tracklistPreferences = \{\}/)
+})
+
+test('Shazam is a selectable local tracklist source with a scoped reset', () => {
+  assert.match(mainJs, /function registerAutomaticTracklistOption\(/)
+  assert.match(mainJs, /providerId === AUTOMATIC_RECOGNITION_PROVIDER\.id/)
+  assert.match(mainJs, /if \(preferredProviderId === AUTOMATIC_RECOGNITION_PROVIDER\.id\)/)
+  assert.match(mainJs, /if \(currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER\.id\)/)
+  assert.match(mainJs, /name: 'Shazam'/)
+  assert.match(mainJs, /function clearAutomaticRecognitionObservations\(sourceUrl\)/)
+  assert.match(mainJs, /function resetAutomaticRecognition\(\)/)
+  assert.match(mainJs, /ipcMain\.handle\('tracklist-reset-automatic'/)
 })
 
 test('every tracklist provider declares the host its links point at', () => {

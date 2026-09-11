@@ -299,15 +299,6 @@ module.exports = {
     }).filter(t => t.raw || t.hasTimestamp || t.onclickStr)
   })()`,
 
-  // Shown in the "no tracklist found" UI so the user can submit one.
-  // Receives the source URL (YouTube/SC) and returns the full contribute URL.
-  contributeInfo: {
-    label: 'Create tracklist on 1001Tracklists',
-    note:  'You\'ll need a 1001Tracklists account — they\'re community-powered.',
-    url: (sourceUrl) =>
-      `https://www.1001tracklists.com/action/tracklist_add.php?medialink=${encodeURIComponent(sourceUrl)}`,
-  },
-
   footerLabel: 'edit on 1001Tracklists ↗',
 
   // Registrable domain the app is allowed to open in the user's browser

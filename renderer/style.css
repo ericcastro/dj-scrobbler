@@ -2173,6 +2173,28 @@ button.set-metadata-pill {
   font-size: 10px;
   font-weight: 600;
 }
+.tracklist-provider-reset {
+  border: 0;
+  padding: 2px 3px;
+  color: var(--text2);
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  opacity: .62;
+  cursor: pointer;
+}
+.tracklist-provider-reset:hover,
+.tracklist-provider-reset:focus-visible {
+  color: var(--accent);
+  opacity: 1;
+  outline: none;
+}
+.tracklist-provider-reset:disabled {
+  cursor: wait;
+  opacity: .4;
+}
 .tracklist-provider-pills {
   display: inline-flex;
   align-items: center;
@@ -3496,6 +3518,71 @@ body.compact-layout #scrobble-badge.dim::after {
   opacity: .8;
   color: var(--accent);
 }
+.inline-track-btn:disabled {
+  opacity: .2;
+  cursor: default;
+  color: var(--text2);
+}
+
+.track-auto-actions,
+.track-manual-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  margin-right: 10px;
+}
+
+.track-auto-actions .inline-track-btn,
+.track-manual-actions .inline-track-btn {
+  margin-right: 0;
+  font-size: 9px;
+}
+
+/* Confirmed Shazam IDs read as ordinary tracklist rows. Their correction
+   controls appear on hover or when the row receives keyboard focus. */
+.track-auto-actions {
+  max-width: 0;
+  overflow: hidden;
+  margin-right: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: max-width .14s ease, margin-right .14s ease, opacity .12s ease, visibility .12s ease;
+}
+
+.track-item:hover .track-auto-actions,
+.track-item:focus-within .track-auto-actions {
+  max-width: 128px;
+  margin-right: 10px;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.track-item:focus-visible {
+  outline: none;
+  background: var(--bg3);
+}
+
+.track-auto-action[data-action="save"] { color: var(--accent2); }
+.track-auto-action[data-action="delete"]:hover { color: var(--red); }
+.track-identify-btn { color: var(--accent2); }
+
+.track-correction-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--text2) 45%, transparent);
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.track-correction-input:focus { border-bottom-color: var(--accent2); }
+.track-correction-title { font-size: 12px; }
+.track-correction-artist { font-size: 11px; color: var(--text2); }
 
 /* Flex row: text column on the left, identify button centered on the right */
 .track-title-row {
@@ -3618,6 +3705,98 @@ body.compact-layout #scrobble-badge.dim::after {
 }
 
 .track-item.active .track-cue { color: var(--accent); }
+
+/* Shazam recognition timeline */
+.track-recognition-title-row {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 7px;
+}
+
+.track-recognition-title-row .track-title { min-width: 0; }
+
+.track-recognition-marker {
+  flex-shrink: 0;
+  color: var(--accent2);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  opacity: .72;
+  text-transform: uppercase;
+}
+
+.track-recognition-candidate {
+  cursor: default;
+  opacity: .42;
+}
+
+.track-recognition-candidate:hover {
+  background: transparent;
+}
+
+.track-analysis-label {
+  flex-shrink: 0;
+  margin-right: 10px;
+  color: var(--text2);
+  font-size: 9px;
+  letter-spacing: .035em;
+  white-space: nowrap;
+}
+
+.track-recognition-unidentified {
+  background: color-mix(in srgb, var(--bg3) 40%, transparent);
+}
+
+.track-recognition-long-gap {
+  margin-block: 7px;
+  min-height: 68px;
+  padding-block: 16px;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--bg3) 62%, transparent) 0 6px,
+    color-mix(in srgb, var(--border) 42%, transparent) 6px 7px
+  );
+}
+
+.track-recognition-long-gap .track-title {
+  color: var(--text2);
+  font-style: italic;
+}
+
+.recognition-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 12px 14px;
+  color: var(--text2);
+  font-size: 10px;
+  letter-spacing: .04em;
+  opacity: .62;
+}
+
+.recognition-status.hidden { display: none; }
+
+.recognition-status .spectrum-bars {
+  opacity: .7;
+}
+
+.recognition-status.is-active .spectrum-bar {
+  animation-play-state: running;
+}
+
+.recognition-status.is-recognizing {
+  color: var(--accent2);
+  opacity: .9;
+}
+
+.recognition-status-compact {
+  min-height: 34px;
+  padding: 8px;
+  text-align: center;
+}
 
 /* ── Compact track list (right panel) ── */
 .track-list.compact .track-item {

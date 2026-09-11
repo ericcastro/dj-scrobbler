@@ -3,6 +3,63 @@
 Small, disposable experiments that answer a product question before the idea is
 promoted into the desktop app.
 
+## Digital YouTube audio recognition
+
+Run:
+
+```sh
+npm run poc:shazam
+```
+
+The Electron app chooses the currently loaded saved YouTube favorite, or the
+first saved YouTube favorite when none is active. It seeks to four interior
+points, captures ten seconds of the app-owned player at each point, restores the
+previous player position/state, and exits only when you close the app. The same
+run is also available in developer mode from **View → Run Shazam Audio Capture
+POC**.
+
+Look for `[recognition:capture]`, `[shazam-poc:fingerprint]`, and
+`[shazam-poc:recognition]` in the terminal. A healthy capture identifies itself
+as `Tab audio`, reports non-zero peak/RMS values, and contains about 160,000 mono
+samples at 16 kHz. `no-match` is a valid recognition outcome, not a capture
+failure.
+
+The latest structured result is written to `shazam-poc-results.json` in
+Electron's DJ Scrobbler user-data directory. It contains capture diagnostics,
+set playback timestamps, normalized matches, and a de-duplicated recognition
+timeline; captured PCM is never written to disk.
+
+For the larger cross-check against published tracklists, run:
+
+```sh
+npm run poc:shazam:validate
+```
+
+This selects five saved sets with cached tracklists from different DJs where
+possible, then captures five safely spaced identified tracks from each set. Its
+`shazam-validation-results.json` report records the published expectation and
+Shazam result independently and classifies them as exact, near, related,
+different, or no-match. A disagreement is evidence to inspect, not a capture
+failure.
+
+The capture request is granted only to the armed player webContents and keeps
+local audio output enabled. It never requests microphone input.
+
+The same capture path powers the selectable Shazam tracklist source when both
+published providers finish without a usable result. It captures up to ten
+seconds at a randomized 10–15-second cadence while playback is running, stores
+only normalized recognition observations, and commits a track after three
+matching samples—or after two matching samples mature for 60 seconds without
+contradiction. Repeated provisional matches update Last.fm's now-playing state;
+committed matches are scrobbled. Seeking into an unresolved region schedules a
+sample after a short settling delay, subject to request and seek cooldowns.
+
+The Shazam endpoint is reverse-engineered and unsupported. Shazam publishes no
+rate-limit contract for it, so the jittered cadence is a product choice rather
+than a guaranteed service allowance. HTTP 403/429 responses trigger exponential
+backoff. Endpoint changes, blocking, and platform-specific Chromium
+display-audio behavior remain experimental.
+
 ## When is this DJ playing next in my city? (v2)
 
 Run:

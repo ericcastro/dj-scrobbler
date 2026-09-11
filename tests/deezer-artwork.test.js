@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const {
   artworkLookupKey,
   chooseDeezerArtwork,
+  deezerFallbackSearchUrl,
   deezerSearchUrl,
   isArtworkLookupCandidate,
   normalizeTitle,
@@ -55,6 +56,15 @@ test('Deezer searches are structured, bounded, and require no API credential', (
   for (const forbidden of ['key', 'token', 'secret', 'client_id']) {
     assert.equal(url.searchParams.has(forbidden), false)
   }
+})
+
+test('Deezer falls back to an unquoted collaborative-credit query', () => {
+  const url = deezerFallbackSearchUrl(track({
+    artist: 'Argy, Son of Son & Anyma',
+    title: 'Voices In My Head (Amelie Lens Remix) [Mixed]',
+  }))
+  assert.equal(url.searchParams.get('q'), 'Argy, Son of Son & Anyma Voices In My Head (Amelie Lens Remix) [Mixed]')
+  assert.equal(url.searchParams.get('limit'), '10')
 })
 
 test('matching is strict on title while allowing Deezer to name only the primary collaborator', () => {

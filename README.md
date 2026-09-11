@@ -63,7 +63,7 @@ DJ Scrobbler has three plugin layers:
 - **Tracklist plugins** find and extract tracklists (currently 1001Tracklists and set79).
 - **Event plugins** find upcoming appearances for tagged DJs (currently Resident Advisor and Shotgun).
 
-When you open a DJ set, the app starts its own YouTube player immediately and searches both tracklist providers. An exact 1001Tracklists match wins; set79 is a best-effort fallback based on title and duration. The app maps the player's current time onto provider cue points, updates Now Playing, records listening stats, and scrobbles to Last.fm once a track has genuinely played long enough.
+When you open a DJ set, the app starts its own YouTube player immediately and searches both tracklist providers. An exact 1001Tracklists match wins; set79 is a best-effort fallback based on title and duration. If neither has a usable tracklist, the Shazam source sparsely samples the app's own player audio and builds a timestamped recognition timeline as the set plays. Repeated matches may update Last.fm's now-playing state; a track is added and scrobbled only after the confidence threshold is met.
 
 Tracklists, provider preferences, set metadata, and artwork results are cached locally. User-facing history, favorites, edits, settings, and listening statistics remain local to the machine.
 
