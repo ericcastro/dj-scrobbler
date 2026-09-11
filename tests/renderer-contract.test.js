@@ -21,16 +21,23 @@ test('renderer app references only DOM IDs that exist in index.html', () => {
   assert.deepEqual(missing, [])
 })
 
-test('automatic recognition has marked tracks, distinct gaps, and a restrained live footer', () => {
+test('automatic recognition has marked tracks, editable matches, retryable gaps, and a restrained live footer', () => {
   assert.match(preloadJs, /'recognition-state'/)
+  assert.match(preloadJs, /track-recognition-identify/)
+  assert.match(preloadJs, /track-recognition-edit/)
   assert.match(indexHtml, /id="recognition-status"/)
   assert.match(indexHtml, /id="recognition-compact-status"/)
   assert.match(appJs, /track\.autoRecognized\s*\? ' track-auto-recognized'/)
   assert.match(appJs, /track\.isLongRecognitionGap \? ' track-recognition-long-gap'/)
   assert.match(appJs, /Identified automatically with Shazam/)
   assert.match(appJs, /Listening inside an unidentified section/)
-  assert.match(appJs, /Automatic ID · not scrobbled/)
+  assert.match(appJs, /data-action="confirm"/)
+  assert.match(appJs, /data-action="wrong"/)
+  assert.match(appJs, /data-action="delete"/)
+  assert.match(appJs, /track-identify-btn/)
+  assert.doesNotMatch(appJs, /Automatic ID · not scrobbled/)
   assert.match(styleCss, /\.track-recognition-long-gap\s*\{/)
+  assert.match(styleCss, /\.track-auto-actions\s*\{/)
   assert.match(styleCss, /\.recognition-status\.is-active \.spectrum-bar/)
 })
 

@@ -3496,6 +3496,44 @@ body.compact-layout #scrobble-badge.dim::after {
   opacity: .8;
   color: var(--accent);
 }
+.inline-track-btn:disabled {
+  opacity: .2;
+  cursor: default;
+  color: var(--text2);
+}
+
+.track-auto-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  margin-right: 10px;
+}
+
+.track-auto-actions .inline-track-btn {
+  margin-right: 0;
+  font-size: 9px;
+}
+
+.track-auto-action[data-action="confirm"] { color: var(--accent2); }
+.track-auto-action[data-action="save"] { color: var(--accent2); }
+.track-auto-action[data-action="delete"]:hover { color: var(--red); }
+.track-identify-btn { color: var(--accent2); }
+
+.track-correction-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--text2) 45%, transparent);
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.track-correction-input:focus { border-bottom-color: var(--accent2); }
+.track-correction-title { font-size: 12px; }
+.track-correction-artist { font-size: 11px; color: var(--text2); }
 
 /* Flex row: text column on the left, identify button centered on the right */
 .track-title-row {

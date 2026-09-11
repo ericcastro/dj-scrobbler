@@ -2322,7 +2322,7 @@ function wireMainEvents() {
     // Persist track count on the history/favorites entry so the sidebar can
     // show "XX tracks" instead of a source name
     const count = payload?.isRecognizedTimeline
-      ? tracks.filter(track => track.autoRecognized).length
+      ? tracks.filter(track => !track.isId && !track.isWWith).length
       : tracks.length
     state.store.history   = state.store.history.map(item =>
       item.url === state.currentSetUrl ? { ...item, trackCount: count } : item
@@ -2479,7 +2479,6 @@ const BADGE = {
   enabled:       { label: 'Scrobbling enabled',        cls: '' },
   scrobbling:    { label: 'Scrobbling',                cls: 'ok' },
   idtrack:       { label: 'Unidentified track',        cls: 'dim' },
-  automatic:     { label: 'Automatic ID · not scrobbled', cls: 'dim' },
   error:         { label: 'Error',                     cls: 'error' },
   unavailable:   { label: 'Tracklist unavailable',     cls: 'dim' },
 }
@@ -2488,7 +2487,6 @@ function refreshScrobbleBadge() {
   let key
   if (state.tracklistUnavailable) key = 'unavailable'
   else if (state.isIdTrack && state.isTrackPlaying) key = 'idtrack'
-  else if (state.nowPlaying?.autoRecognized) key = 'automatic'
   else if (state.lfmStatus === 'error') key = 'error'
   else if (state.lfmStatus === 'unconfigured') key = 'unconfigured'
   else if (state.isTrackPlaying) key = 'scrobbling'
@@ -3631,6 +3629,109 @@ function makeSetListItem(item, onRemove) {
 
 // ── Tracklist panel ───────────────────────────────────────────────────────────
 
+function recognitionTrackPayload(track) {
+  return {
+    sourceUrl: state.currentSetUrl,
+    providerId: state.currentTracklistProvider,
+    providerTrackId: track.providerTrackId,
+  }
+}
+
+async function identifyUnknownTrack(track, button) {
+  const original = button.textContent
+  button.disabled = true
+  button.textContent = 'identifying…'
+  try {
+    const result = await window.api.identifyTrack(recognitionTrackPayload(track))
+    if (result?.status === 'matched') return
+    if (result?.status === 'cooldown') {
+      window.alert(`Please wait ${result.retryAfterSeconds || 'a few'} seconds before trying recognition again.`)
+    } else if (result?.status === 'no-match') {
+      window.alert('No match this time. Try again at another point in the segment.')
+    } else if (result?.status === 'paused') {
+      window.alert('Playback must be running for recognition.')
+    } else if (result?.status !== 'matched') {
+      window.alert(result?.message || 'Recognition could not run for this segment.')
+    }
+  } finally {
+    button.disabled = false
+    button.textContent = original
+  }
+}
+
+async function handleRecognizedTrackAction(track, action, correction = null) {
+  if (action === 'confirm') {
+    if (!window.confirm(`Confirm “${track.artist} — ${track.title}” as this track?`)) return
+  } else if (action === 'wrong') {
+    correction = {
+      artist: String(correction?.artist || '').trim(),
+      title: String(correction?.title || '').trim(),
+    }
+    if (!correction.artist || !correction.title) {
+      window.alert('Artist and title are required.')
+      return
+    }
+    if (!window.confirm(`Replace this automatic match with “${correction.artist} — ${correction.title}”?`)) return
+  } else if (action === 'delete') {
+    if (!window.confirm('Delete this automatic match and return the segment to ID — ID?')) return
+  } else {
+    return
+  }
+
+  const saved = await window.api.editRecognizedTrack({
+    ...recognitionTrackPayload(track),
+    action,
+    correction,
+  })
+  if (!saved) window.alert('That track changed before the edit could be saved. Please try again.')
+}
+
+function beginRecognizedTrackCorrection(li, track) {
+  const text = li.querySelector('.track-text-col')
+  const actions = li.querySelector('.track-auto-actions')
+  if (!text || !actions) return
+
+  text.innerHTML = ''
+  const titleInput = document.createElement('input')
+  titleInput.className = 'track-correction-input track-correction-title'
+  titleInput.value = track.title || ''
+  titleInput.placeholder = 'Track title'
+  const artistInput = document.createElement('input')
+  artistInput.className = 'track-correction-input track-correction-artist'
+  artistInput.value = track.artist || ''
+  artistInput.placeholder = 'Artist'
+  text.append(titleInput, artistInput)
+
+  actions.innerHTML = `
+    <button class="inline-track-btn track-auto-action" data-action="save">save</button>
+    <button class="inline-track-btn track-auto-action" data-action="cancel">cancel</button>
+  `
+  const cancel = () => renderTracklist(state.currentTracks)
+  const save = async () => {
+    await handleRecognizedTrackAction(track, 'wrong', {
+      artist: artistInput.value,
+      title: titleInput.value,
+    })
+  }
+  actions.querySelector('[data-action="save"]').addEventListener('click', (event) => {
+    event.stopPropagation()
+    save().catch(error => window.alert(error?.message || 'The correction could not be saved.'))
+  })
+  actions.querySelector('[data-action="cancel"]').addEventListener('click', (event) => {
+    event.stopPropagation()
+    cancel()
+  })
+  for (const input of [titleInput, artistInput]) {
+    input.addEventListener('click', event => event.stopPropagation())
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Escape') cancel()
+      if (event.key === 'Enter') save().catch(error => window.alert(error?.message || 'The correction could not be saved.'))
+    })
+  }
+  artistInput.focus()
+  artistInput.select()
+}
+
 function createTrackItem(track, compact) {
   const li = document.createElement('li')
   li.className = 'track-item' +
@@ -3665,28 +3766,35 @@ function createTrackItem(track, compact) {
     : ''
 
   // Determine identify type — drives both button label and dialog content
-  const needsIdentify = (track.isId || track.title === 'ID' || track.artist === 'ID') && !track.isRecognitionUnidentified
+  const needsIdentify = track.isId || track.title === 'ID' || track.artist === 'ID'
   let idDialogType = 'id'
   if (!track.isId && track.title === 'ID') idDialogType = 'id-title'
   else if (!track.isId && track.artist === 'ID') idDialogType = 'id-artist'
   const idBtnLabel = CONTRIBUTE_CONFIGS[idDialogType].btnLabel
 
-  // When needsIdentify: wrap title + artist in a column so the button can
-  // center vertically against the full text block, not just the title line.
-  const trackInfoHtml = needsIdentify
-    ? `<div class="track-info">
-         <div class="track-title-row">
-           <div class="track-text-col">
-             <span class="track-title">${titleText}</span>${recognitionMarker}
-             ${artistHtml}
-           </div>
-           <button class="inline-track-btn track-id-btn">${idBtnLabel}</button>
+  const identifyHtml = track.isId
+    ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>identify</button>`
+    : ''
+  const contributeHtml = needsIdentify
+    ? `<button class="inline-track-btn track-id-btn">${idBtnLabel}</button>`
+    : ''
+  const autoActionsHtml = track.autoRecognized
+    ? `<span class="track-auto-actions" aria-label="Automatic track actions">
+         <button class="inline-track-btn track-auto-action" data-action="confirm">confirm</button>
+         <button class="inline-track-btn track-auto-action" data-action="wrong">wrong</button>
+         <button class="inline-track-btn track-auto-action" data-action="delete">delete</button>
+       </span>`
+    : ''
+  const actionsHtml = autoActionsHtml || (identifyHtml + contributeHtml)
+  const trackInfoHtml = `<div class="track-info">
+       <div class="track-title-row">
+         <div class="track-text-col">
+           <div class="track-recognition-title-row"><span class="track-title">${titleText}</span>${recognitionMarker}</div>
+           ${artistHtml}
          </div>
-       </div>`
-    : `<div class="track-info">
-         <div class="track-recognition-title-row"><span class="track-title">${titleText}</span>${recognitionMarker}</div>
-         ${artistHtml}
-       </div>`
+         ${actionsHtml}
+       </div>
+     </div>`
 
   // cue column: timestamp if available, inline button if no timestamp
   const cueHtml = track.cueDisplay
@@ -3711,6 +3819,22 @@ function createTrackItem(track, compact) {
   li.querySelector('.track-id-btn')?.addEventListener('click', (e) => {
     e.stopPropagation()
     openContributeDialog(idDialogType)
+  })
+  li.querySelector('.track-identify-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    identifyUnknownTrack(track, e.currentTarget)
+      .catch(error => window.alert(error?.message || 'Recognition failed.'))
+  })
+  li.querySelectorAll('.track-auto-action').forEach(button => {
+    button.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (button.dataset.action === 'wrong') {
+        beginRecognizedTrackCorrection(li, track)
+        return
+      }
+      handleRecognizedTrackAction(track, button.dataset.action)
+        .catch(error => window.alert(error?.message || 'The edit could not be saved.'))
+    })
   })
 
   // A track is only seekable when it has a user-visible timestamp (cueDisplay).

@@ -82,6 +82,7 @@ test('recognition normalization preserves useful Shazam metadata', () => {
       subtitle: 'Track Artist',
       url: 'https://www.shazam.com/track/12345',
       genres: { primary: 'Electronic' },
+      images: { coverart: 'https://is1-ssl.mzstatic.com/image/thumb/cover.jpg' },
     },
   }, { recognizedAt: '2026-09-11T10:00:00.000Z', samplems: 9_950 })
 
@@ -93,6 +94,7 @@ test('recognition normalization preserves useful Shazam metadata', () => {
     shazamTrackId: '12345',
     shazamUrl: 'https://www.shazam.com/track/12345',
     genre: 'Electronic',
+    artUrl: 'https://is1-ssl.mzstatic.com/image/thumb/cover.jpg',
     matchCount: 2,
     matchOffsetSeconds: 42.25,
     samplems: 9_950,
@@ -132,6 +134,16 @@ test('recognizeFloat32 normalizes a mocked service response', async () => {
   assert.equal(JSON.parse(request.body).signature.uri.startsWith('data:audio/vnd.shazam.sig;base64,'), true)
   assert.equal(output.result.matched, true)
   assert.equal(output.result.artist, 'DJ')
+})
+
+test('recognition HTTP failures retain their status for scheduler backoff', async () => {
+  const samples = new Float32Array(16_000)
+  await assert.rejects(
+    recognizeFloat32(samples, 16_000, {
+      fetchImpl: async () => ({ ok: false, status: 429 }),
+    }),
+    error => error.statusCode === 429,
+  )
 })
 
 test('capture script requests frame display audio and never microphone input', () => {

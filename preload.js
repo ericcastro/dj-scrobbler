@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('api', {
   tryTracklistProvider: (providerId) => ipcRenderer.invoke('tracklist-try-provider', providerId),
   selectTracklistProvider: (providerId) => ipcRenderer.invoke('tracklist-select-provider', providerId),
   refreshTracklists: () => ipcRenderer.invoke('tracklist-refresh'),
+  identifyTrack: (payload) => ipcRenderer.invoke('track-recognition-identify', payload),
+  editRecognizedTrack: (payload) => ipcRenderer.invoke('track-recognition-edit', payload),
   autoSetMetadata: () => ipcRenderer.invoke('set-metadata-auto'),
   resolveEventLocation: (location) => ipcRenderer.invoke('event-location-resolve', location),
   lookupNextEvents: (payload) => ipcRenderer.invoke('event-lookup', payload),

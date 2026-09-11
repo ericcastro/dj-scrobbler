@@ -160,22 +160,25 @@ test('cross-set Shazam validation compares cached identified tracklist moments',
   assert.match(mainJs, /Validate Shazam Against Saved Tracklists/)
 })
 
-test('empty published tracklists activate sparse automatic recognition without blocking playback', () => {
+test('empty published tracklists activate jittered automatic recognition without blocking playback', () => {
   const fallback = mainJs.slice(mainJs.indexOf('function sendTracklistFallback'), mainJs.indexOf('/** Manual retry path'))
   assert.match(fallback, /startAutomaticRecognition\(\)/)
-  assert.match(mainJs, /AUTOMATIC_RECOGNITION_INTERVAL_MS = DEFAULT_SAMPLE_INTERVAL_SECONDS \* 1000/)
-  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 25_000/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS = 11/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS = 15/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 10_500/)
   assert.match(mainJs, /AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000/)
-  assert.match(mainJs, /setImmediate\(\(\) => requestAutomaticRecognition\('start'\)/)
-  assert.match(mainJs, /requestAutomaticRecognition\('unidentified-seek'\)/)
+  assert.match(mainJs, /randomSampleIntervalSeconds\(Math\.random/)
+  assert.match(mainJs, /setImmediate\(\(\) => runAutomaticRecognitionCycle\(automaticRecognition, 'start'\)/)
+  assert.match(mainJs, /runAutomaticRecognitionCycle\(session, 'unidentified-seek'\)/)
+  assert.match(mainJs, /error\?\.statusCode === 429 \|\| error\?\.statusCode === 403/)
 })
 
-test('automatic recognition remains isolated from Last.fm and ordinary track statistics', () => {
+test('automatic matches scrobble while unidentified regions remain excluded', () => {
   const scrobble = mainJs.slice(mainJs.indexOf('function scrobbleLastTrackIfReady'), mainJs.indexOf('function stopMonitoring'))
   const emit = mainJs.slice(mainJs.indexOf('function emitTimelineTrack'), mainJs.indexOf('function handlePlaybackPoll'))
-  assert.match(scrobble, /lastTrackData\.autoRecognized/)
-  assert.match(emit, /!data\.autoRecognized\) lfmUpdateNowPlaying/)
-  assert.match(mainJs, /track\?\.autoRecognized \|\| track\?\.isRecognitionUnidentified/)
+  assert.doesNotMatch(scrobble, /lastTrackData\.autoRecognized/)
+  assert.match(emit, /if \(!data\.isId\) lfmUpdateNowPlaying/)
+  assert.match(mainJs, /track\?\.isId \|\| track\?\.isRecognitionUnidentified/)
 })
 
 test('automatic recognition observations are a private bounded cache', () => {
@@ -183,6 +186,18 @@ test('automatic recognition observations are a private bounded cache', () => {
   assert.match(mainJs, /function writeAutomaticRecognitionObservations/)
   assert.match(mainJs, /delete rendererStore\.automaticRecognitionCache/)
   assert.match(mainJs, /if \(existing\.automaticRecognitionCache\) next\.automaticRecognitionCache = existing\.automaticRecognitionCache/)
+  assert.match(mainJs, /delete rendererStore\.trackRecognitionEdits/)
+  assert.match(mainJs, /if \(existing\.trackRecognitionEdits\) next\.trackRecognitionEdits = existing\.trackRecognitionEdits/)
+})
+
+test('automatic and one-shot recognition edits are exposed without weakening source scoping', () => {
+  assert.match(mainJs, /function editRecognizedTrack\(payload\)/)
+  assert.match(mainJs, /applyRecognitionDecision\(session\.observations, track, action, correction\)/)
+  assert.match(mainJs, /function identifyTrackWithRecognition\(payload\)/)
+  assert.match(mainJs, /payload\?\.sourceUrl !== currentSourceUrl \|\| payload\?\.providerId !== currentTracklistProvider/)
+  assert.match(mainJs, /writeTrackRecognitionEdit\(sourceUrl, providerId, providerTrackId, patch\)/)
+  assert.match(mainJs, /ipcMain\.handle\('track-recognition-identify'/)
+  assert.match(mainJs, /ipcMain\.handle\('track-recognition-edit'/)
 })
 
 test('manual provider retries are reachable over IPC and keyed to the live set', () => {
