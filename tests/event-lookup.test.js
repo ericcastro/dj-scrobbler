@@ -100,6 +100,34 @@ test('multi-source lookup returns one earliest event per DJ and keeps source pri
   assert.ok(progress.some(update => update.artist === 'Cloudy' && update.activeSourceNames.length === 2))
 })
 
+test('a fast high-priority source reports a usable partial result while slower sources continue', async () => {
+  let releaseSlow
+  const slow = new Promise(resolve => { releaseSlow = resolve })
+  let receiveFirstResult
+  const firstResult = new Promise(resolve => { receiveFirstResult = resolve })
+  const sources = [
+    fakeSource('resident-advisor', 10, { Cloudy: normalizedEvent('ra-cloudy', '2026-10-01', 'Resident Advisor') }),
+    {
+      ...fakeSource('shotgun', 20, {}),
+      findEvents: async () => slow,
+    },
+  ]
+  const lookup = lookupNextEvents({
+    djNames: ['Cloudy'],
+    location: { city: 'Paris', country: 'France', countryCode: 'FR' },
+    today: '2026-09-07',
+    sources,
+    onResult: result => receiveFirstResult(result),
+  })
+
+  const partial = await firstResult
+  assert.equal(partial.event.id, 'ra-cloudy')
+  assert.deepEqual(partial.checkedSources, ['resident-advisor'])
+  releaseSlow([])
+  const final = await lookup
+  assert.equal(final[0].event.id, 'ra-cloudy')
+})
+
 test('Shotgun browser operations cannot outlive the lookup deadline', async () => {
   assert.equal(await withinDeadline(Promise.resolve('ok'), Date.now() + 100), 'ok')
   await assert.rejects(

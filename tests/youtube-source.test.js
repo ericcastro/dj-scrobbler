@@ -28,10 +28,10 @@ test('YouTube public watch metadata yields stable plays and upload date fields',
   assert.deepEqual(youtube.parsePublicVideoStats(`
     <meta itemprop="interactionCount" content="24389">
     <meta itemprop="uploadDate" content="2026-08-14">
-  `), { viewCount: 24389, publishedAt: '2026-08-14' })
+  `), { viewCount: 24389, publishedAt: '2026-08-14', youtubeArtists: [], youtubeCollaborators: [] })
 
   assert.deepEqual(youtube.parsePublicVideoStats(`
     {"videoDetails":{"videoId":"abc","viewCount":"981"},
      "microformat":{"playerMicroformatRenderer":{"uploadDate":"2022-01-02T23:57:33-07:00"}}}
-  `), { viewCount: 981, publishedAt: '2022-01-02' })
+  `), { viewCount: 981, publishedAt: '2022-01-02', youtubeArtists: [], youtubeCollaborators: [] })
 })

@@ -1,11 +1,12 @@
 /**
  * YouTube source plugin.
  * Detects youtube.com/watch URLs, intercepts clicks before SPA navigation,
- * and fetches metadata via the oEmbed API.
+ * and fetches oEmbed metadata plus public watch-page stats/artist identities.
  */
 const https = require('https')
+const { parseYouTubeCollaborators } = require('../../lib/youtube-page-data')
 
-function requestText(url, { timeoutMs = 4000, headers = {} } = {}) {
+function requestText(url, { timeoutMs = 4000, headers = {}, redirectsLeft = 4 } = {}) {
   return new Promise((resolve, reject) => {
     const target = new URL(url)
     const req = https.request({
@@ -14,6 +15,22 @@ function requestText(url, { timeoutMs = 4000, headers = {} } = {}) {
       method: 'GET',
       headers,
     }, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume()
+        if (redirectsLeft <= 0) {
+          reject(new Error('YouTube redirected too many times'))
+          return
+        }
+        const redirect = new URL(res.headers.location, target)
+        const isYouTube = redirect.protocol === 'https:' &&
+          (redirect.hostname === 'youtube.com' || redirect.hostname.endsWith('.youtube.com'))
+        if (!isYouTube) {
+          reject(new Error('YouTube redirected outside youtube.com'))
+          return
+        }
+        requestText(redirect.href, { timeoutMs, headers, redirectsLeft: redirectsLeft - 1 }).then(resolve, reject)
+        return
+      }
       const chunks = []
       let byteLength = 0
       res.on('data', chunk => {
@@ -57,9 +74,14 @@ function parsePublicVideoStats(html) {
     /"publishDate":"(\d{4}-\d{2}-\d{2})(?:T[^"]*)?"/,
   ])
   const viewCount = rawViews == null ? null : Number(rawViews)
+  const youtubeCollaborators = parseYouTubeCollaborators(text)
   return {
     viewCount: Number.isSafeInteger(viewCount) ? viewCount : null,
     publishedAt,
+    youtubeArtists: youtubeCollaborators
+      .filter(item => item.officialArtist)
+      .map(({ officialArtist: _officialArtist, ...artist }) => artist),
+    youtubeCollaborators,
   }
 }
 

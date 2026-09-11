@@ -42,7 +42,7 @@ test('late set metadata updates the stats set catalog', () => {
     mainJs.indexOf('function emitSetMetadata'),
     mainJs.indexOf('function sourceLinksForTracklist')
   )
-  assert.match(emitMetadata, /if \(!currentStatsDjNames\.length\) currentStatsDjNames = metadata\.djNames \|\| \[\]/)
+  assert.match(emitMetadata, /djNames: \[\.\.\.currentStatsDjNames, \.\.\.\(metadata\.djNames \|\| \[\]\)\]/)
   assert.match(emitMetadata, /registerCurrentStatsSet\(\)/)
 })
 

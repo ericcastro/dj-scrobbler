@@ -22,6 +22,7 @@ const {
   normalizeSetMetadata,
 } = require('./lib/set-metadata')
 const { classifyMetadataOutlook } = require('./lib/metadata-outlook')
+const { mergeConfirmedYouTubeArtists } = require('./lib/youtube-page-data')
 const { writeJsonAtomic } = require('./lib/atomic-json')
 const {
   migrateStats,
@@ -1345,7 +1346,16 @@ function tracklistFallbackExtras() {
 
 function emitSetMetadata(tlPlugin, metadata, sourceUrl, lookupToken) {
   if (lookupToken !== currentLookupToken || sourceUrl !== currentSourceUrl || !hasSetMetadata(metadata)) return
-  if (!currentStatsDjNames.length) currentStatsDjNames = metadata.djNames || []
+  if (tlPlugin.id === 'set79' && Array.isArray(currentSourceMeta?.youtubeCollaborators)) {
+    currentSourceMeta.youtubeArtists = mergeConfirmedYouTubeArtists(
+      currentSourceMeta.youtubeArtists,
+      currentSourceMeta.youtubeCollaborators,
+      metadata.djNames,
+    )
+  }
+  currentStatsDjNames = normalizeSetMetadata({
+    djNames: [...currentStatsDjNames, ...(metadata.djNames || [])],
+  }).djNames
   registerCurrentStatsSet()
   mainWindow.webContents.send('set-metadata', {
     sourceUrl,
@@ -1376,6 +1386,13 @@ function emitSourceStatsWhenReady(meta, sourceUrl, lookupToken) {
     if (lookupToken !== currentLookupToken || sourceUrl !== currentSourceUrl) return
     meta.viewCount = stats?.viewCount ?? null
     meta.publishedAt = stats?.publishedAt || null
+    meta.youtubeArtists = Array.isArray(stats?.youtubeArtists) ? stats.youtubeArtists : []
+    meta.youtubeCollaborators = Array.isArray(stats?.youtubeCollaborators) ? stats.youtubeCollaborators : []
+    meta.youtubeArtists = mergeConfirmedYouTubeArtists(
+      meta.youtubeArtists,
+      meta.youtubeCollaborators,
+      currentStatsDjNames,
+    )
     mainWindow.webContents.send('source-metadata', {
       sourceUrl,
       sourcePublishedAt: meta.publishedAt,
@@ -1385,6 +1402,14 @@ function emitSourceStatsWhenReady(meta, sourceUrl, lookupToken) {
         viewCount: meta.viewCount,
       }),
     })
+    if (meta.youtubeArtists.length) {
+      emitSetMetadata(
+        { id: 'youtube' },
+        normalizeSetMetadata({ djNames: meta.youtubeArtists.map(artist => artist.name) }),
+        sourceUrl,
+        lookupToken,
+      )
+    }
   }).catch(error => log(`[source] public metadata failed: ${error?.message || error}`))
 }
 
@@ -2649,6 +2674,16 @@ ipcMain.handle('event-lookup', async (_event, value) => {
     onProgress(progress) {
       if (!_event.sender.isDestroyed() && sourceUrl === currentSourceUrl) {
         _event.sender.send('event-lookup-progress', { sourceUrl, requestId, ...progress })
+      }
+    },
+    onResult(_result, partialResults) {
+      if (!_event.sender.isDestroyed() && sourceUrl === currentSourceUrl) {
+        _event.sender.send('event-lookup-progress', {
+          sourceUrl,
+          requestId,
+          phase: 'result',
+          results: partialResults,
+        })
       }
     },
   })

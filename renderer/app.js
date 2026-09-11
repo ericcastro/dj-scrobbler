@@ -641,11 +641,14 @@ function renderNextDjEvents() {
     const activity = sources
       ? `Checking ${escHtml(artist)} on ${escHtml(sources)}…${count}`
       : `Preparing the lookup for ${escHtml(artist)}…${count}`
+    const partialMatches = (state.currentEventLookup?.results || []).filter(result => result.event)
     setEventLookup.innerHTML = `
       <div class="set-event-status-row">
         <span class="set-event-lookup-status"><span class="set-event-activity-dot" aria-hidden="true"></span>${activity}</span>
       </div>
+      ${eventMatchesHtml(partialMatches)}
       ${eventLocationControlHtml(location)}`
+    wireEventMatches(partialMatches)
     wireEventLocationChange()
     return
   }
@@ -660,14 +663,23 @@ function renderNextDjEvents() {
     wireEventLocationChange()
     return
   }
-  setEventLookup.innerHTML = matches.map((result, index) => `
+  setEventLookup.innerHTML = eventMatchesHtml(matches) + eventLocationControlHtml(location)
+  wireEventMatches(matches)
+  wireEventLocationChange()
+}
+
+function eventMatchesHtml(matches) {
+  return matches.map((result, index) => `
     <div class="set-event-line">
       <div class="set-event-summary-clip"><span class="set-event-summary-text"><strong>${escHtml(result.artist)}</strong> is playing in your city! <span class="set-event-emote">${escHtml(eventAnnouncementEmote(result))}</span></span></div>
       <button type="button" class="set-event-link" data-event-index="${index}">${escHtml(result.event.sourceName)} ↗</button>
     </div>
     <div class="set-event-line set-event-detail-line"><div class="set-event-summary-clip"><span class="set-event-summary-text set-event-detail">${eventSummaryHtml(result)}</span></div></div>
     <div class="set-event-separator" aria-hidden="true"></div>
-  `).join('') + eventLocationControlHtml(location)
+  `).join('')
+}
+
+function wireEventMatches(matches) {
   setEventLookup.querySelectorAll('.set-event-link').forEach(button => {
     button.addEventListener('click', () => {
       const url = matches[Number(button.dataset.eventIndex)]?.event?.url
@@ -677,7 +689,6 @@ function renderNextDjEvents() {
   setEventLookup.querySelectorAll('.set-event-line').forEach(line => {
     wireOverflowMarquee(line.querySelector('.set-event-summary-text'), line)
   })
-  wireEventLocationChange()
 }
 
 function normalizedEventDisplayText(value) {
@@ -2379,7 +2390,7 @@ function wireMainEvents() {
     })
     if (replaceFromSet79) state.metadataEditMode = null
     renderSetMetadataHeader()
-    lookupNextDjEvents()
+    lookupNextDjEvents({ force: metadata.providerId === 'youtube' || metadata.providerId === 'set79' })
   })
 
   window.api.on('source-metadata', (metadata) => {
@@ -2396,7 +2407,8 @@ function wireMainEvents() {
     if (!eventSuggestionsEnabled()) return
     if (progress?.sourceUrl !== state.currentSetUrl || progress?.requestId !== state.currentEventLookupRequest) return
     if (state.currentEventLookup?.status !== 'checking') return
-    state.currentEventLookup.progress = progress
+    if (!Array.isArray(progress.results)) state.currentEventLookup.progress = progress
+    if (Array.isArray(progress.results)) state.currentEventLookup.results = progress.results
     renderNextDjEvents()
   })
 
