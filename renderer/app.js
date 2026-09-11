@@ -2116,6 +2116,7 @@ function renderRecognitionStatus() {
   const active = !!recognition.active && state.currentTracklistProvider === 'shazam'
   let message = ''
   if (recognition.phase === 'recognizing') message = 'Identifying this audio…'
+  else if (recognition.phase === 'complete') message = 'Automatic identification complete'
   else if (recognition.phase === 'paused') message = 'Automatic identification pauses with playback'
   else if (recognition.inUnidentified) message = 'Listening inside an unidentified section…'
   else message = 'Listening for the next track…'
@@ -2322,7 +2323,7 @@ function wireMainEvents() {
     // Persist track count on the history/favorites entry so the sidebar can
     // show "XX tracks" instead of a source name
     const count = payload?.isRecognizedTimeline
-      ? tracks.filter(track => !track.isId && !track.isWWith).length
+      ? tracks.filter(track => !track.isId && !track.isWWith && !track.isRecognitionCandidate).length
       : tracks.length
     state.store.history   = state.store.history.map(item =>
       item.url === state.currentSetUrl ? { ...item, trackCount: count } : item
@@ -3643,7 +3644,7 @@ async function identifyUnknownTrack(track, button) {
   button.textContent = 'identifying…'
   try {
     const result = await window.api.identifyTrack(recognitionTrackPayload(track))
-    if (result?.status === 'matched') return
+    if (result?.status === 'matched' || result?.status === 'analyzing') return
     if (result?.status === 'cooldown') {
       window.alert(`Please wait ${result.retryAfterSeconds || 'a few'} seconds before trying recognition again.`)
     } else if (result?.status === 'no-match') {
@@ -3740,6 +3741,7 @@ function createTrackItem(track, compact) {
     (track.isMashupComponent ? ' track-mashup'      : '') +
     (track.noTimestamp      ? ' track-no-timestamp' : '') +
     (track.autoRecognized   ? ' track-auto-recognized' : '') +
+    (track.isRecognitionCandidate ? ' track-recognition-candidate' : '') +
     (track.isRecognitionUnidentified ? ' track-recognition-unidentified' : '') +
     (track.isLongRecognitionGap ? ' track-recognition-long-gap' : '')
   li.dataset.trackNum = track.trackNum || ''
@@ -3785,7 +3787,10 @@ function createTrackItem(track, compact) {
          <button class="inline-track-btn track-auto-action" data-action="delete">delete</button>
        </span>`
     : ''
-  const actionsHtml = autoActionsHtml || (identifyHtml + contributeHtml)
+  const analyzingHtml = track.isRecognitionCandidate
+    ? `<span class="track-analysis-label">still analyzing ${track.recognitionCandidateCount || 1}/${track.recognitionRequiredCount || 3}</span>`
+    : ''
+  const actionsHtml = analyzingHtml || autoActionsHtml || (identifyHtml + contributeHtml)
   const trackInfoHtml = `<div class="track-info">
        <div class="track-title-row">
          <div class="track-text-col">
@@ -3836,6 +3841,10 @@ function createTrackItem(track, compact) {
         .catch(error => window.alert(error?.message || 'The edit could not be saved.'))
     })
   })
+
+  // A provisional Shazam result is informational only. It must not be
+  // seekable or expose contribution controls until confidence promotes it.
+  if (track.isRecognitionCandidate) return li
 
   // A track is only seekable when it has a user-visible timestamp (cueDisplay).
   // cueSeconds alone is not enough — mashup components and w/ items can have

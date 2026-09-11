@@ -163,9 +163,9 @@ test('cross-set Shazam validation compares cached identified tracklist moments',
 test('empty published tracklists activate jittered automatic recognition without blocking playback', () => {
   const fallback = mainJs.slice(mainJs.indexOf('function sendTracklistFallback'), mainJs.indexOf('/** Manual retry path'))
   assert.match(fallback, /startAutomaticRecognition\(\)/)
-  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS = 11/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS = 10/)
   assert.match(mainJs, /AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS = 15/)
-  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 10_500/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 9_500/)
   assert.match(mainJs, /AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000/)
   assert.match(mainJs, /randomSampleIntervalSeconds\(Math\.random/)
   assert.match(mainJs, /setImmediate\(\(\) => runAutomaticRecognitionCycle\(automaticRecognition, 'start'\)/)
@@ -177,8 +177,20 @@ test('automatic matches scrobble while unidentified regions remain excluded', ()
   const scrobble = mainJs.slice(mainJs.indexOf('function scrobbleLastTrackIfReady'), mainJs.indexOf('function stopMonitoring'))
   const emit = mainJs.slice(mainJs.indexOf('function emitTimelineTrack'), mainJs.indexOf('function handlePlaybackPoll'))
   assert.doesNotMatch(scrobble, /lastTrackData\.autoRecognized/)
+  assert.match(scrobble, /lastTrackData\.scrobbledOnConfirmation/)
   assert.match(emit, /if \(!data\.isId\) lfmUpdateNowPlaying/)
+  assert.match(mainJs, /lfmScrobble\(newlyCommitted\.artist, newlyCommitted\.title/)
   assert.match(mainJs, /track\?\.isId \|\| track\?\.isRecognitionUnidentified/)
+})
+
+test('automatic recognition requires repeated confidence and finalizes unresolved audio at set end', () => {
+  assert.match(mainJs, /isEnded: state === 0/)
+  assert.match(mainJs, /session\.setEndSeconds = poll\.duration/)
+  assert.match(mainJs, /session\.phase = 'complete'/)
+  assert.match(mainJs, /session\.phase = session\.atEnd \? 'complete' : 'listening'/)
+  assert.match(mainJs, /setEndSeconds: session\.atEnd \? session\.setEndSeconds : null/)
+  assert.match(mainJs, /still analyzing track=/)
+  assert.match(mainJs, /!track\.isRecognitionCandidate/)
 })
 
 test('automatic recognition observations are a private bounded cache', () => {

@@ -3677,6 +3677,24 @@ body.compact-layout #scrobble-badge.dim::after {
   text-transform: uppercase;
 }
 
+.track-recognition-candidate {
+  cursor: default;
+  opacity: .42;
+}
+
+.track-recognition-candidate:hover {
+  background: transparent;
+}
+
+.track-analysis-label {
+  flex-shrink: 0;
+  margin-right: 10px;
+  color: var(--text2);
+  font-size: 9px;
+  letter-spacing: .035em;
+  white-space: nowrap;
+}
+
 .track-recognition-unidentified {
   background: color-mix(in srgb, var(--bg3) 40%, transparent);
 }
