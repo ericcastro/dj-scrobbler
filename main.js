@@ -14,7 +14,11 @@ const {
   mergeUpdateStatus,
 } = require('./lib/update-utils')
 const macUpdater = require('./lib/mac-updater')
-const { wireYouTubePlayerUi, isYouTubePlayerUrl } = require('./lib/youtube-player-ui')
+const {
+  forceYouTubePlaybackQuality,
+  wireYouTubePlayerUi,
+  isYouTubePlayerUrl,
+} = require('./lib/youtube-player-ui')
 const { startPrimaryWithFallback } = require('./lib/parallel-tracklist-lookup')
 const {
   hasSetMetadata,
@@ -147,6 +151,8 @@ const WINDOWS_TITLE_BAR_OVERLAY_HEIGHT = TITLE_BAR_HEIGHT - 1
 const NORMAL_MIN_WINDOW_SIZE = [360, 600]
 const FOCUS_MIN_WINDOW_SIZE = [480, 270]
 const VIDEO_ASPECT_RATIO = 16 / 9
+const YOUTUBE_QUALITY_MIN_HEIGHT = 1080
+const YOUTUBE_QUALITY_RESIZE_DELAY_MS = 650
 const THEME_TITLE_BAR = {
   'neon-night': { color: '#0f1a30', symbolColor: '#e7f7ff' },
   'signal-teal': { color: '#071f25', symbolColor: '#f0fffc' },
@@ -174,6 +180,8 @@ let focusWindowMode = false
 let windowDragStart = null
 let isQuitting = false   // distinguishes Cmd+Q from red-button close
 let saveBoundsTimer = null
+let youtubeQualityTimer = null
+let youtubeQualityRunPending = false
 let updateState = {
   status: 'idle',
   currentVersion: app.getVersion(),
@@ -773,7 +781,9 @@ function extractVideoId(url) {
 }
 
 function youtubePlayerUrl(videoId) {
-  return `https://www.djscrobbler.com/embed/youtube?id=${encodeURIComponent(videoId)}`
+  // Native controls must exist for the quality selector below to drive them.
+  // They are suppressed inside the YouTube frame by wireYouTubePlayerUi.
+  return `https://www.djscrobbler.com/embed/youtube?id=${encodeURIComponent(videoId)}&controls=1&hl=en`
 }
 
 function thumbnailForSourceUrl(sourceUrl) {
@@ -1166,6 +1176,43 @@ const YT_POLL_SCRIPT = `
     }
   })()
 `
+
+function wantsHighQualityYouTubePlayback() {
+  return focusWindowMode || windowPresentation !== 'windowed'
+}
+
+function cancelYouTubeQualityBoost() {
+  clearTimeout(youtubeQualityTimer)
+  youtubeQualityTimer = null
+}
+
+function scheduleYouTubeQualityBoost(reason, delayMs = YOUTUBE_QUALITY_RESIZE_DELAY_MS) {
+  cancelYouTubeQualityBoost()
+  if (!wantsHighQualityYouTubePlayback() || !isYouTubePlayerMode) return
+
+  const contents = playerWvContents
+  if (!contents || contents.isDestroyed()) return
+  youtubeQualityTimer = setTimeout(async () => {
+    youtubeQualityTimer = null
+    if (contents !== playerWvContents || contents.isDestroyed() ||
+        !isYouTubePlayerMode || !wantsHighQualityYouTubePlayback()) return
+    if (youtubeQualityRunPending) {
+      scheduleYouTubeQualityBoost(reason, 250)
+      return
+    }
+    youtubeQualityRunPending = true
+    try {
+      const result = await forceYouTubePlaybackQuality(contents, {
+        targetHeight: YOUTUBE_QUALITY_MIN_HEIGHT,
+      })
+      log(`[player-quality] reason=${reason} result=${JSON.stringify(result)}`)
+    } catch (error) {
+      log(`[player-quality] reason=${reason} failed-open error=${error?.message || error}`)
+    } finally {
+      youtubeQualityRunPending = false
+    }
+  }, Math.max(0, Number(delayMs) || 0))
+}
 
 function startYouTubePlayerMonitoring(wvContents) {
   stopMonitoring({ finalize: false })
@@ -3499,6 +3546,7 @@ function wireWebview(wvContents) {
     attachedWebviews.delete(wvContents.id)
     if (playerWvContents === wvContents) {
       stopAutomaticRecognition('player-destroyed')
+      cancelYouTubeQualityBoost()
       playerWvContents = null
     }
     if (browserWvContents === wvContents) browserWvContents = null
@@ -3606,6 +3654,7 @@ function wireWebview(wvContents) {
       log(`[wv:player] did-finish-load — YT player URL confirmed → hide-overlay + startMonitoring`)
       mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
       startYouTubePlayerMonitoring(wvContents)
+      scheduleYouTubeQualityBoost('player-loaded', 900)
       return
     }
 
@@ -4112,6 +4161,7 @@ function setFocusWindowMode(enabled) {
     mainWindow.setMinimumSize(...NORMAL_MIN_WINDOW_SIZE)
   }
   sendWindowState()
+  scheduleYouTubeQualityBoost(next ? 'focus-mode' : 'focus-mode-exited')
   return windowStateSnapshot()
 }
 
@@ -4128,6 +4178,7 @@ function setWindowPresentation(mode) {
   const shouldBeFullScreen = next !== 'windowed'
   if (mainWindow.isFullScreen() !== shouldBeFullScreen) mainWindow.setFullScreen(shouldBeFullScreen)
   else sendWindowState()
+  scheduleYouTubeQualityBoost(`presentation-${next}`, next === 'enhanced-fullscreen' ? 900 : 0)
   return windowStateSnapshot()
 }
 
@@ -4178,12 +4229,19 @@ function createWindow() {
     },
   })
 
-  mainWindow.on('resize', persistBounds)
+  mainWindow.on('resize', () => {
+    persistBounds()
+    scheduleYouTubeQualityBoost('window-resized')
+  })
   mainWindow.on('move',   persistBounds)
   mainWindow.setAlwaysOnTop(!!alwaysOnTop, process.platform === 'darwin' ? 'floating' : 'normal')
-  mainWindow.on('enter-full-screen', sendWindowState)
+  mainWindow.on('enter-full-screen', () => {
+    sendWindowState()
+    scheduleYouTubeQualityBoost('entered-full-screen', 900)
+  })
   mainWindow.on('leave-full-screen', () => {
     windowPresentation = 'windowed'
+    cancelYouTubeQualityBoost()
     sendWindowState()
   })
 

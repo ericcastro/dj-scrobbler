@@ -68,6 +68,17 @@ const btnVideoNativeFullscreen = document.getElementById('btn-video-native-fulls
 const btnVideoHide       = document.getElementById('btn-video-hide')
 const btnDisplayMenu     = document.getElementById('btn-display-menu')
 const displayMenu        = document.getElementById('display-menu')
+const btnImmersiveOptions = document.getElementById('btn-immersive-options')
+const immersiveOptionsWrap = document.getElementById('immersive-options-wrap')
+const immersiveOptionsMenu = document.getElementById('immersive-options-menu')
+const immersiveNowOpacity = document.getElementById('immersive-now-opacity')
+const immersiveNowOpacityValue = document.getElementById('immersive-now-opacity-value')
+const immersiveTracklistOpacity = document.getElementById('immersive-tracklist-opacity')
+const immersiveTracklistOpacityValue = document.getElementById('immersive-tracklist-opacity-value')
+const immersiveNowBlur = document.getElementById('immersive-now-blur')
+const immersiveNowBlurValue = document.getElementById('immersive-now-blur-value')
+const immersiveTracklistBlur = document.getElementById('immersive-tracklist-blur')
+const immersiveTracklistBlurValue = document.getElementById('immersive-tracklist-blur-value')
 const btnDevtools        = document.getElementById('btn-devtools')
 const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
 const sidebar            = document.getElementById('sidebar')
@@ -157,11 +168,31 @@ const immersiveOverlay      = document.getElementById('immersive-overlay')
 const immersiveNowPlaying   = document.getElementById('immersive-now-playing')
 const immersiveTracklistShell = document.getElementById('immersive-tracklist-shell')
 const immersiveTracklistList = document.getElementById('immersive-tracklist-list')
+const immersiveArtwork    = document.getElementById('immersive-artwork')
+const immersiveArtworkImage = document.getElementById('immersive-artwork-image')
+const immersiveTitleRow    = document.getElementById('immersive-title-row')
+const immersiveTitleContent = document.getElementById('immersive-title-content')
 const immersiveTrackNum   = document.getElementById('immersive-track-num')
 const immersiveTrackTitle = document.getElementById('immersive-track-title')
 const immersiveTrackArtist = document.getElementById('immersive-track-artist')
+const immersiveArtistSeparator = document.getElementById('immersive-artist-separator')
 const immersiveSetTitle   = document.getElementById('immersive-set-title')
+const immersiveProgress   = document.getElementById('immersive-progress')
+const immersiveProgressTrack = document.getElementById('immersive-progress-track')
 const immersiveProgressFill = document.getElementById('immersive-progress-fill')
+const immersiveProgressSegments = document.getElementById('immersive-progress-segments')
+const immersiveProgressThumb = document.getElementById('immersive-progress-thumb')
+const immersiveProgressTooltip = document.getElementById('immersive-progress-tooltip')
+const immersiveProgressTooltipArt = document.getElementById('immersive-progress-tooltip-art')
+const immersiveProgressTooltipTitle = document.getElementById('immersive-progress-tooltip-title')
+const immersiveProgressTooltipArtist = document.getElementById('immersive-progress-tooltip-artist')
+const immersivePrevTrack = document.getElementById('immersive-prev-track')
+const immersivePlayPause = document.getElementById('immersive-play-pause')
+const immersiveNextTrack = document.getElementById('immersive-next-track')
+const immersivePlaybackElapsed = document.getElementById('immersive-playback-elapsed')
+const immersivePlaybackRemaining = document.getElementById('immersive-playback-remaining')
+const immersiveScrobbleBadge = document.getElementById('immersive-scrobble-badge')
+const immersiveScrobbleLabel = document.getElementById('immersive-scrobble-label')
 const btnPlayPause          = document.getElementById('btn-playpause')
 const btnPrevTrack          = document.getElementById('btn-prev-track')
 const btnNextTrack          = document.getElementById('btn-next-track')
@@ -278,6 +309,8 @@ function spectrumBarsHtml(className = '') {
 const ICON = {
   play:     '<polygon points="5 3 19 12 5 21 5 3"/>',
   pause:    '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',
+  previous: '<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/>',
+  next:     '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>',
   heart:       '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
   heartFilled: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" fill="currentColor"/>',
   alertCircle: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
@@ -285,6 +318,8 @@ const ICON = {
   theater: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 21h10"/>',
   fullscreen: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   fullscreenExit: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
+  appView: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 8h18"/><path d="M9 8v13"/>',
+  layers: '<path d="m12 2 9 5-9 5-9-5 9-5"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   miniPlayer: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/>',
   audioOnly: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
@@ -445,6 +480,25 @@ function setNpArtwork(artUrl, artworkStatus = 'missing') {
 }
 
 npArtworkImage.addEventListener('error', () => setNpArtwork())
+
+function setImmersiveArtwork(artUrl, artworkStatus = 'missing') {
+  const url = String(artUrl || '').trim()
+  const loading = !url && artworkStatus === 'loading'
+  const showPlaceholder = !url && !loading && document.body.classList.contains('has-active-set')
+  const visible = immersiveSettingEnabled('immersiveNowPlayingArtworkVisible') && (!!url || loading || showPlaceholder)
+  immersiveArtwork.classList.toggle('hidden', !visible)
+  immersiveArtwork.classList.toggle('is-loading', loading)
+  immersiveArtwork.classList.toggle('is-empty', showPlaceholder)
+  immersiveNowPlaying.classList.toggle('has-artwork', visible)
+  immersiveArtworkImage.hidden = !url
+  if (url) {
+    if (immersiveArtworkImage.src !== url) immersiveArtworkImage.src = url
+  } else {
+    immersiveArtworkImage.removeAttribute('src')
+  }
+}
+
+immersiveArtworkImage.addEventListener('error', () => setImmersiveArtwork())
 
 const PARTY_EVENT_COUNTRY_GROUPS = [
   { continent: 'North America', codes: ['US', 'CA', 'MX'] },
@@ -1366,7 +1420,10 @@ function dragPoint(e) {
 }
 
 function startWindowDrag(e) {
-  if (e.button !== 0 || e.target.closest('.video-control-btn')) return
+  if (
+    e.button !== 0 ||
+    e.target.closest('button, input, select, textarea, a, [role="menu"], [data-no-window-drag]')
+  ) return
   if (currentWindowPresentation !== 'windowed') return
   e.preventDefault()
   window.api.windowDragStart(dragPoint(e))
@@ -1404,6 +1461,9 @@ function updateViewTabs() {
 function setTrackPlaying(playing) {
   state.isTrackPlaying = playing
   document.body.classList.toggle('is-track-playing', playing)
+  immersivePlayPause.innerHTML = icon(playing ? ICON.pause : ICON.play, 14)
+  immersivePlayPause.title = playing ? 'Pause' : 'Play'
+  immersivePlayPause.setAttribute('aria-label', playing ? 'Pause' : 'Play')
 }
 
 function showNowPlayingTrack() {
@@ -1686,11 +1746,12 @@ const IMMERSIVE_LAYOUT_DEFAULTS = {
   tracklist: { x: 76, y: 6.5, width: 21, height: 89 },
 }
 const IMMERSIVE_LAYOUT_LIMITS = {
-  'now-playing': { minWidth: 260, minHeight: 140 },
+  // Keep the card large enough to read, but stop a vertical resize from
+  // turning it into a mostly empty slab over the video.
+  'now-playing': { minWidth: 260, minHeight: 140, maxHeight: 38 },
   tracklist: { minWidth: 220, minHeight: 190 },
 }
 let immersiveInteraction = null
-let immersiveResizeObserver = null
 
 function finiteLayoutNumber(value, fallback) {
   const number = Number(value)
@@ -1715,7 +1776,8 @@ function normalizeImmersiveLayoutValue(id, value, viewport = immersiveOverlay.ge
   const minWidth = viewport.width ? (limits.minWidth / viewport.width) * 100 : 0
   const minHeight = viewport.height ? (limits.minHeight / viewport.height) * 100 : 0
   const width = Math.min(100, Math.max(minWidth, finiteLayoutNumber(candidate.width, defaults.width)))
-  const height = Math.min(100, Math.max(minHeight, finiteLayoutNumber(candidate.height, defaults.height)))
+  const maxHeight = Math.max(minHeight, Number.isFinite(limits.maxHeight) ? limits.maxHeight : 100)
+  const height = Math.min(maxHeight, Math.min(100, Math.max(minHeight, finiteLayoutNumber(candidate.height, defaults.height))))
   return {
     x: Math.max(0, Math.min(100 - width, finiteLayoutNumber(candidate.x, defaults.x))),
     y: Math.max(0, Math.min(100 - height, finiteLayoutNumber(candidate.y, defaults.y))),
@@ -1744,7 +1806,6 @@ function applyImmersiveLayout() {
       surface.dataset.layoutSaved = 'true'
     }
   }
-  updateImmersiveNowScale()
 }
 
 function persistImmersiveLayout() {
@@ -1764,13 +1825,6 @@ function persistImmersiveLayout() {
   if (!state.store.settings) state.store.settings = {}
   state.store.settings.immersiveOverlayLayout = next
   persist()
-}
-
-function updateImmersiveNowScale() {
-  if (!immersiveNowPlaying) return
-  const height = immersiveNowPlaying.getBoundingClientRect().height
-  const scale = Math.max(.62, Math.min(1.35, height / 300))
-  immersiveNowPlaying.style.setProperty('--immersive-now-scale', scale.toFixed(3))
 }
 
 function clampPercent(value, min, max) {
@@ -1816,7 +1870,11 @@ function moveImmersiveInteraction(event) {
   let top = active.top
   if (active.action === 'resize') {
     width = Math.max(min.minWidth, Math.min(active.viewport.width - active.left, active.width + dx))
-    height = Math.max(min.minHeight, Math.min(active.viewport.height - active.top, active.height + dy))
+    const maxHeight = Math.min(
+      active.viewport.height - active.top,
+      active.viewport.height * ((Number.isFinite(min.maxHeight) ? min.maxHeight : 100) / 100),
+    )
+    height = Math.max(min.minHeight, Math.min(maxHeight, active.height + dy))
   } else {
     left = clampPercent(active.left + dx, 0, active.viewport.width - active.width)
     top = clampPercent(active.top + dy, 0, active.viewport.height - active.height)
@@ -1825,7 +1883,6 @@ function moveImmersiveInteraction(event) {
   active.surface.style.top = `${(top / active.viewport.height) * 100}%`
   active.surface.style.width = `${(width / active.viewport.width) * 100}%`
   active.surface.style.height = `${(height / active.viewport.height) * 100}%`
-  updateImmersiveNowScale()
 }
 
 function endImmersiveInteraction() {
@@ -1849,11 +1906,11 @@ function initializeImmersiveOverlayControls() {
     handle.addEventListener('pointerdown', event => startImmersiveInteraction(event, handle.dataset.overlayResize, 'resize'))
   })
   immersiveNowPlaying.addEventListener('pointerdown', event => {
-    if (event.target.closest('button, a, input')) return
+    if (event.target.closest('button, a, input, #immersive-progress')) return
     startImmersiveInteraction(event, 'now-playing', 'drag')
   })
-  immersiveResizeObserver = new ResizeObserver(() => updateImmersiveNowScale())
-  immersiveResizeObserver.observe(immersiveNowPlaying)
+  wireOverflowMarquee(immersiveTitleContent, immersiveTitleRow, immersiveTitleRow, { automatic: true })
+  wireOverflowMarquee(immersiveSetTitle, immersiveSetTitle, immersiveSetTitle, { automatic: true })
   window.addEventListener('resize', applyImmersiveLayout)
 }
 
@@ -1948,9 +2005,8 @@ function updateVideoModeButtons() {
   btnVideoDock.innerHTML = icon(videoModeIcon(nextAction), 15)
   btnVideoDock.title = videoModeLabel(nextAction)
 
-  const focusAction = currentVideoMode === 'focus' ? 'inline' : 'focus'
-  btnVideoFullscreen.innerHTML = icon(currentVideoMode === 'focus' ? ICON.fullscreenExit : ICON.theater, 15)
-  btnVideoFullscreen.title = currentVideoMode === 'focus' ? 'Exit focus window' : 'Focus window'
+  btnVideoFullscreen.innerHTML = icon(currentVideoMode === 'focus' ? ICON.appView : ICON.theater, 15)
+  btnVideoFullscreen.title = currentVideoMode === 'focus' ? 'Return to app' : 'Focus window'
 
   const enhancedIsActive = currentWindowPresentation === 'enhanced-fullscreen'
   btnVideoNativeFullscreen.innerHTML = icon(enhancedIsActive ? ICON.fullscreenExit : ICON.fullscreen, 15)
@@ -1958,7 +2014,10 @@ function updateVideoModeButtons() {
 
   btnVideoHide.innerHTML = icon(ICON.x, 15)
   btnVideoHide.title = 'Audio only'
-  btnVideoFullscreen.dataset.mode = focusAction
+  btnImmersiveOptions.innerHTML = icon(ICON.layers, 15)
+  immersivePrevTrack.innerHTML = icon(ICON.previous, 14)
+  immersiveNextTrack.innerHTML = icon(ICON.next, 14)
+  immersivePlayPause.innerHTML = icon(state.isTrackPlaying ? ICON.pause : ICON.play, 14)
   btnDisplayMenu.classList.toggle('active', currentVideoMode === 'focus' || currentWindowPresentation !== 'windowed' || windowAlwaysOnTop)
   displayMenu.querySelector('[data-display-action="focus"]')?.classList.toggle('active', currentVideoMode === 'focus')
   displayMenu.querySelector('[data-display-action="enhanced-fullscreen"]')?.classList.toggle('active', enhancedIsActive)
@@ -1966,6 +2025,105 @@ function updateVideoModeButtons() {
   const alwaysOnTopItem = displayMenu.querySelector('[data-display-action="always-on-top"]')
   alwaysOnTopItem?.classList.toggle('active', windowAlwaysOnTop)
   alwaysOnTopItem?.setAttribute('aria-checked', String(windowAlwaysOnTop))
+  syncImmersiveOverlayVisibility()
+}
+
+const IMMERSIVE_SETTING_DEFAULTS = {
+  immersiveNowPlayingVisible: true,
+  immersiveTracklistVisible: true,
+  immersiveNowPlayingArtworkVisible: true,
+  immersiveTracklistArtworkVisible: false,
+  immersiveTracklistNumbersVisible: true,
+  immersiveTracklistTimestampsVisible: true,
+  immersiveNowPlayingControlsVisible: false,
+}
+
+function immersiveSettingEnabled(setting) {
+  const value = state.store.settings?.[setting]
+  return typeof value === 'boolean' ? value : IMMERSIVE_SETTING_DEFAULTS[setting] !== false
+}
+
+function immersiveOpacity(setting) {
+  const value = Number(state.store.settings?.[setting])
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 100
+}
+
+function immersiveBlur(setting) {
+  const value = Number(state.store.settings?.[setting])
+  return Number.isFinite(value) ? Math.max(0, Math.min(24, Math.round(value))) : 5
+}
+
+function syncImmersiveOverlayVisibility() {
+  const nowPlayingVisible = immersiveSettingEnabled('immersiveNowPlayingVisible')
+  const tracklistVisible = immersiveSettingEnabled('immersiveTracklistVisible')
+  const nowPlayingArtworkVisible = immersiveSettingEnabled('immersiveNowPlayingArtworkVisible')
+  const tracklistArtworkVisible = immersiveSettingEnabled('immersiveTracklistArtworkVisible')
+  const tracklistNumbersVisible = immersiveSettingEnabled('immersiveTracklistNumbersVisible')
+  const tracklistTimestampsVisible = immersiveSettingEnabled('immersiveTracklistTimestampsVisible')
+  const nowPlayingControlsVisible = immersiveSettingEnabled('immersiveNowPlayingControlsVisible')
+  document.body.classList.toggle('immersive-now-playing-hidden', !nowPlayingVisible)
+  document.body.classList.toggle('immersive-tracklist-hidden', !tracklistVisible)
+  document.body.classList.toggle('immersive-now-playing-artwork-hidden', !nowPlayingArtworkVisible)
+  document.body.classList.toggle('immersive-tracklist-artwork-hidden', !tracklistArtworkVisible)
+  document.body.classList.toggle('immersive-tracklist-numbers-hidden', !tracklistNumbersVisible)
+  document.body.classList.toggle('immersive-tracklist-timestamps-hidden', !tracklistTimestampsVisible)
+  document.body.classList.toggle('immersive-now-playing-controls-hidden', !nowPlayingControlsVisible)
+  for (const [action, visible] of [
+    ['toggle-now-playing-overlay', nowPlayingVisible],
+    ['toggle-tracklist-overlay', tracklistVisible],
+    ['toggle-now-playing-artwork', nowPlayingArtworkVisible],
+    ['toggle-tracklist-artwork', tracklistArtworkVisible],
+    ['toggle-tracklist-numbers', tracklistNumbersVisible],
+    ['toggle-tracklist-timestamps', tracklistTimestampsVisible],
+    ['toggle-now-playing-controls', nowPlayingControlsVisible],
+  ]) {
+    document.querySelectorAll(`[data-display-action="${action}"]`).forEach(item => {
+      item.classList.toggle('active', visible)
+      item.setAttribute('aria-checked', String(visible))
+    })
+  }
+  const nowOpacity = immersiveOpacity('immersiveNowPlayingIdleOpacity')
+  const tracklistOpacity = immersiveOpacity('immersiveTracklistIdleOpacity')
+  const nowBlur = immersiveBlur('immersiveNowPlayingBlur')
+  const tracklistBlur = immersiveBlur('immersiveTracklistBlur')
+  immersiveNowPlaying.style.setProperty('--immersive-idle-opacity', String(nowOpacity / 100))
+  immersiveTracklistShell.style.setProperty('--immersive-idle-opacity', String(tracklistOpacity / 100))
+  immersiveNowPlaying.style.setProperty('--immersive-blur', `${nowBlur}px`)
+  immersiveTracklistShell.style.setProperty('--immersive-blur', `${tracklistBlur}px`)
+  immersiveNowOpacity.value = String(nowOpacity)
+  immersiveNowOpacityValue.textContent = `${nowOpacity}%`
+  immersiveTracklistOpacity.value = String(tracklistOpacity)
+  immersiveTracklistOpacityValue.textContent = `${tracklistOpacity}%`
+  immersiveNowBlur.value = String(nowBlur)
+  immersiveNowBlurValue.textContent = `${nowBlur}px`
+  immersiveTracklistBlur.value = String(tracklistBlur)
+  immersiveTracklistBlurValue.textContent = `${tracklistBlur}px`
+  const track = immersiveTrackAtTime()
+  setImmersiveArtwork(
+    track?.isId ? null : track?.artUrl,
+    track?.isId ? 'missing' : track?.artworkStatus,
+  )
+}
+
+function toggleImmersiveOverlay(setting) {
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings[setting] = !immersiveSettingEnabled(setting)
+  syncImmersiveOverlayVisibility()
+  persist()
+}
+
+function setImmersiveOpacity(setting, value, { persistSetting = false } = {}) {
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings[setting] = Math.max(0, Math.min(100, Math.round(Number(value) || 0)))
+  syncImmersiveOverlayVisibility()
+  if (persistSetting) persist()
+}
+
+function setImmersiveBlur(setting, value, { persistSetting = false } = {}) {
+  if (!state.store.settings) state.store.settings = {}
+  state.store.settings[setting] = Math.max(0, Math.min(24, Math.round(Number(value) || 0)))
+  syncImmersiveOverlayVisibility()
+  if (persistSetting) persist()
 }
 
 function cycleVideoMode() {
@@ -1995,13 +2153,30 @@ function applyWindowState(windowState = {}) {
 
 function closeDisplayMenu() {
   displayMenu.classList.add('hidden')
+  document.body.classList.remove('display-menu-open')
   btnDisplayMenu.setAttribute('aria-expanded', 'false')
 }
 
 function toggleDisplayMenu() {
   const willOpen = displayMenu.classList.contains('hidden')
   displayMenu.classList.toggle('hidden', !willOpen)
+  document.body.classList.toggle('display-menu-open', willOpen)
   btnDisplayMenu.setAttribute('aria-expanded', String(willOpen))
+}
+
+function closeImmersiveOptionsMenu() {
+  immersiveOptionsMenu.classList.add('hidden')
+  immersiveOptionsWrap.classList.remove('menu-open')
+  document.body.classList.remove('immersive-options-open')
+  btnImmersiveOptions.setAttribute('aria-expanded', 'false')
+}
+
+function toggleImmersiveOptionsMenu() {
+  const willOpen = immersiveOptionsMenu.classList.contains('hidden')
+  immersiveOptionsMenu.classList.toggle('hidden', !willOpen)
+  immersiveOptionsWrap.classList.toggle('menu-open', willOpen)
+  document.body.classList.toggle('immersive-options-open', willOpen)
+  btnImmersiveOptions.setAttribute('aria-expanded', String(willOpen))
 }
 
 async function setPresentation(mode) {
@@ -2020,8 +2195,23 @@ async function handleDisplayAction(action) {
     await setPresentation(currentWindowPresentation === 'app-fullscreen' ? 'windowed' : 'app-fullscreen')
   } else if (action === 'always-on-top') {
     applyWindowState(await window.api.setAlwaysOnTop(!windowAlwaysOnTop))
+  } else if (action === 'toggle-now-playing-overlay') {
+    toggleImmersiveOverlay('immersiveNowPlayingVisible')
+  } else if (action === 'toggle-tracklist-overlay') {
+    toggleImmersiveOverlay('immersiveTracklistVisible')
+  } else if (action === 'toggle-now-playing-artwork') {
+    toggleImmersiveOverlay('immersiveNowPlayingArtworkVisible')
+  } else if (action === 'toggle-tracklist-artwork') {
+    toggleImmersiveOverlay('immersiveTracklistArtworkVisible')
+  } else if (action === 'toggle-tracklist-numbers') {
+    toggleImmersiveOverlay('immersiveTracklistNumbersVisible')
+  } else if (action === 'toggle-tracklist-timestamps') {
+    toggleImmersiveOverlay('immersiveTracklistTimestampsVisible')
+  } else if (action === 'toggle-now-playing-controls') {
+    toggleImmersiveOverlay('immersiveNowPlayingControlsVisible')
   }
   closeDisplayMenu()
+  if (!action.startsWith('toggle-')) closeImmersiveOptionsMenu()
 }
 
 // ── Lifetime listening stats ──────────────────────────────────────────────────
@@ -2076,11 +2266,17 @@ function updatePlaybackProgress(currentTime = state.playbackCurrentTime, duratio
   playbackProgressFill.style.width = `${pct * 100}%`
   immersiveProgressFill.style.width = `${pct * 100}%`
   playbackProgressThumb.style.left = `${pct * 100}%`
+  immersiveProgressThumb.style.left = `${pct * 100}%`
   playbackElapsed.textContent = formatPlaybackTime(safeCurrent)
+  immersivePlaybackElapsed.textContent = formatPlaybackTime(safeCurrent)
   playbackRemaining.textContent = hasDuration
     ? `-${formatPlaybackTime(Math.max(0, duration - safeCurrent))}`
     : '-00:00:00'
+  immersivePlaybackRemaining.textContent = hasDuration
+    ? `-${formatPlaybackTime(Math.max(0, duration - safeCurrent))}`
+    : '-00:00:00'
   playbackProgress.classList.toggle('has-duration', hasDuration)
+  immersiveProgress.classList.toggle('has-duration', hasDuration)
   renderPlaybackSegments()
 }
 
@@ -2216,7 +2412,9 @@ function updateImmersiveOverlay({ scroll = false } = {}) {
   immersiveTrackArtist.textContent = track?.isLongRecognitionGap
     ? 'Shazam could not identify this section'
     : (track?.artist || '')
+  immersiveArtistSeparator.classList.toggle('hidden', !immersiveTrackArtist.textContent)
   immersiveSetTitle.textContent = state.currentSetTitle || ''
+  setImmersiveArtwork(track?.isId ? null : track?.artUrl, track?.isId ? 'missing' : track?.artworkStatus)
 
   if (key === immersiveActiveTrackKey && !scroll) return
   immersiveActiveTrackKey = key
@@ -2239,10 +2437,21 @@ function renderImmersiveTracklist(tracks = state.currentTracks) {
     const row = document.createElement('li')
     row.className = `immersive-track-row${track.isId ? ' is-id' : ''}${track.isWWith ? ' is-with' : ''}`
     row.dataset.trackKey = immersiveTrackKey(track)
+    if (track.providerTrackId) row.dataset.providerTrackId = track.providerTrackId
 
     const number = document.createElement('span')
     number.className = 'immersive-track-number'
     number.textContent = track.isWWith ? 'w/' : (track.trackNum || '')
+    const artwork = document.createElement('span')
+    artwork.className = `immersive-track-art${track.artworkStatus === 'loading' ? ' is-loading' : ''}`
+    if (!track.isId && track.artUrl) {
+      const image = document.createElement('img')
+      image.src = track.artUrl
+      image.alt = ''
+      image.loading = 'lazy'
+      image.addEventListener('error', () => image.remove())
+      artwork.appendChild(image)
+    }
     const copy = document.createElement('span')
     copy.className = 'immersive-track-copy'
     const title = document.createElement('span')
@@ -2257,7 +2466,7 @@ function renderImmersiveTracklist(tracks = state.currentTracks) {
     const cue = document.createElement('span')
     cue.className = 'immersive-track-cue'
     cue.textContent = track.cueDisplay || ''
-    row.append(number, copy, cue)
+    row.append(number, artwork, copy, cue)
     wireOverflowMarquee(title, row, copy)
     if (track.cueDisplay && Number.isFinite(track.cueSeconds) && !track.noTimestamp && !track.isRecognitionCandidate) {
       row.addEventListener('click', () => playerSeek(track.cueSeconds))
@@ -2322,6 +2531,38 @@ function hideProgressSegmentTooltip() {
   playbackProgressTooltip.setAttribute('aria-hidden', 'true')
 }
 
+function updateImmersiveProgressTooltipPosition(e) {
+  const rect = immersiveProgressTrack.getBoundingClientRect()
+  const tooltipWidth = immersiveProgressTooltip.offsetWidth || 260
+  const rawX = e.clientX - rect.left
+  const paddedHalfWidth = (tooltipWidth / 2) + 8
+  const x = Math.max(paddedHalfWidth, Math.min(rect.width - paddedHalfWidth, rawX))
+  immersiveProgressTooltip.style.left = `${x}px`
+}
+
+function showImmersiveProgressTooltip(e, track) {
+  if (!track) return hideImmersiveProgressTooltip()
+  const hasArt = !!track.artUrl
+  immersiveProgressTooltipArt.toggleAttribute('hidden', !hasArt)
+  if (hasArt) immersiveProgressTooltipArt.src = track.artUrl
+  else immersiveProgressTooltipArt.removeAttribute('src')
+  immersiveProgressTooltipTitle.textContent = segmentTitle(track)
+  immersiveProgressTooltipArtist.textContent = track.artist || ''
+  immersiveProgressTooltip.classList.add('visible')
+  immersiveProgressTooltip.setAttribute('aria-hidden', 'false')
+  updateImmersiveProgressTooltipPosition(e)
+}
+
+function hideImmersiveProgressTooltip() {
+  immersiveProgressTooltip.classList.remove('visible')
+  immersiveProgressTooltip.setAttribute('aria-hidden', 'true')
+}
+
+function trackAtPlaybackSecond(seconds) {
+  const segments = playbackSegmentData()
+  return segments.find(({ start, end }) => seconds >= start && seconds < end)?.track || segments.at(-1)?.track || null
+}
+
 function renderPlaybackSegments(force = false) {
   const segments = playbackSegmentData()
   const duration = state.playbackDuration
@@ -2339,12 +2580,16 @@ function renderPlaybackSegments(force = false) {
   if (!force && key === progressSegmentKey) return
   progressSegmentKey = key
   playbackProgressSegments.innerHTML = ''
+  immersiveProgressSegments.innerHTML = ''
   playbackProgress.classList.toggle('has-segments', segments.length > 1)
+  immersiveProgress.classList.toggle('has-segments', segments.length > 1)
   hideProgressSegmentTooltip()
+  hideImmersiveProgressTooltip()
 
   if (!segments.length) return
 
   const fragment = document.createDocumentFragment()
+  const immersiveFragment = document.createDocumentFragment()
   segments.forEach(({ track, start, end }) => {
     const segment = document.createElement('div')
     segment.className = 'playback-progress-segment'
@@ -2354,8 +2599,46 @@ function renderPlaybackSegments(force = false) {
     segment.addEventListener('mousemove', updateProgressSegmentTooltipPosition)
     segment.addEventListener('mouseleave', hideProgressSegmentTooltip)
     fragment.appendChild(segment)
+
+    const immersiveSegment = document.createElement('div')
+    immersiveSegment.className = 'immersive-progress-segment'
+    immersiveSegment.style.left = `${(start / duration) * 100}%`
+    immersiveSegment.style.width = `${((end - start) / duration) * 100}%`
+    immersiveSegment.addEventListener('mouseenter', (e) => showImmersiveProgressTooltip(e, track))
+    immersiveSegment.addEventListener('mousemove', updateImmersiveProgressTooltipPosition)
+    immersiveSegment.addEventListener('mouseleave', hideImmersiveProgressTooltip)
+    immersiveFragment.appendChild(immersiveSegment)
   })
   playbackProgressSegments.appendChild(fragment)
+  immersiveProgressSegments.appendChild(immersiveFragment)
+}
+
+function seekFromImmersiveProgressEvent(e) {
+  if (!state.playbackDuration) return
+  const rect = immersiveProgressTrack.getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  const target = ratio * state.playbackDuration
+  state.playbackCurrentTime = target
+  updatePlaybackProgress(target, state.playbackDuration)
+  showImmersiveProgressTooltip(e, trackAtPlaybackSecond(target))
+  playerSeek(target)
+}
+
+function startImmersiveProgressDrag(e) {
+  if (e.button !== 0 || !state.playbackDuration) return
+  e.preventDefault()
+  e.stopPropagation()
+  seekFromImmersiveProgressEvent(e)
+  immersiveProgress.classList.add('dragging')
+  const onMove = moveEvent => seekFromImmersiveProgressEvent(moveEvent)
+  const onUp = () => {
+    immersiveProgress.classList.remove('dragging')
+    hideImmersiveProgressTooltip()
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
 }
 
 function seekRelativeTrack(direction) {
@@ -2707,6 +2990,14 @@ function wireMainEvents() {
       ? { ...track, artUrl: payload.artUrl || '', artworkStatus: payload.artworkStatus }
       : track
     )
+    const updatesCurrentTrack = ids.has(state.currentTrack?.providerTrackId)
+    if (updatesCurrentTrack) {
+      state.currentTrack = {
+        ...state.currentTrack,
+        artUrl: payload.artUrl || '',
+        artworkStatus: payload.artworkStatus,
+      }
+    }
     if (ids.has(state.nowPlaying?.providerTrackId)) {
       state.nowPlaying = {
         ...state.nowPlaying,
@@ -2714,6 +3005,9 @@ function wireMainEvents() {
         artworkStatus: payload.artworkStatus,
       }
       setNpArtwork(payload.artUrl, payload.artworkStatus)
+    }
+    if (updatesCurrentTrack) {
+      updateImmersiveOverlay()
     }
 
     for (const list of [tracklistList, tracklistCompactList]) {
@@ -2738,6 +3032,20 @@ function wireMainEvents() {
         }
       })
     }
+    immersiveTracklistList.querySelectorAll('.immersive-track-row').forEach(row => {
+      if (!ids.has(row.dataset.providerTrackId)) return
+      const artwork = row.querySelector('.immersive-track-art')
+      if (!artwork) return
+      artwork.replaceChildren()
+      artwork.classList.toggle('is-loading', payload.artworkStatus === 'loading')
+      if (!payload.artUrl) return
+      const image = document.createElement('img')
+      image.src = payload.artUrl
+      image.alt = ''
+      image.loading = 'lazy'
+      image.addEventListener('error', () => image.remove())
+      artwork.appendChild(image)
+    })
     renderPlaybackSegments(true)
   })
 
@@ -2849,6 +3157,10 @@ function refreshScrobbleBadge() {
   scrobbleBadge.title = cfg.label
   scrobbleBadge.setAttribute('aria-label', cfg.label)
   scrobbleLabel.textContent = cfg.label
+  immersiveScrobbleBadge.className = cfg.cls
+  immersiveScrobbleBadge.title = cfg.label
+  immersiveScrobbleBadge.setAttribute('aria-label', cfg.label)
+  immersiveScrobbleLabel.textContent = cfg.label
 }
 
 // ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -3704,7 +4016,7 @@ function renderHistory() {
   renderIntroResume()
 }
 
-function wireOverflowMarquee(target, hoverTarget = target, clipTarget = target) {
+function wireOverflowMarquee(target, hoverTarget = target, clipTarget = target, { automatic = false } = {}) {
   if (!target || target.dataset.marqueeWired === 'true') return
   target.dataset.marqueeWired = 'true'
 
@@ -3751,12 +4063,31 @@ function wireOverflowMarquee(target, hoverTarget = target, clipTarget = target) 
     }))
   }
 
-  hoverTarget.addEventListener('mouseenter', start)
-  hoverTarget.addEventListener('mouseleave', stop)
   target.addEventListener('transitionend', () => {
     target.style.transition = ''
     target.style.transform = ''
   })
+
+  if (automatic) {
+    let frame = null
+    const restart = () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = null
+        start()
+      })
+    }
+    const resizeObserver = new ResizeObserver(restart)
+    resizeObserver.observe(clipTarget)
+    if (target !== clipTarget) resizeObserver.observe(target)
+    new MutationObserver(restart).observe(target, { childList: true, characterData: true, subtree: true })
+    document.fonts?.ready.then(restart)
+    restart()
+    return
+  }
+
+  hoverTarget.addEventListener('mouseenter', start)
+  hoverTarget.addEventListener('mouseleave', stop)
 }
 
 function wireSetItemMarquee(li) {
@@ -4650,11 +4981,60 @@ function wireEvents() {
   btnTracklistToggle.addEventListener('click', () => toggleRightPanel())
   btnVideoMode.addEventListener('click', cycleVideoMode)
   btnVideoDock.addEventListener('click', () => applyVideoMode(videoModePrimaryAction()))
-  btnVideoFullscreen.addEventListener('click', () => applyVideoMode(btnVideoFullscreen.dataset.mode || 'focus'))
+  btnVideoFullscreen.addEventListener('click', () => {
+    handleDisplayAction('focus')
+      .catch(error => window.alert(error?.message || 'The display mode could not be changed.'))
+  })
   btnVideoNativeFullscreen.addEventListener('click', () => {
     setPresentation(currentWindowPresentation === 'enhanced-fullscreen' ? 'windowed' : 'enhanced-fullscreen')
       .catch(error => window.alert(error?.message || 'The display mode could not be changed.'))
   })
+  btnImmersiveOptions.addEventListener('click', (event) => {
+    event.stopPropagation()
+    toggleImmersiveOptionsMenu()
+  })
+  immersiveOptionsMenu.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-display-action]')
+    if (!item) return
+    handleDisplayAction(item.dataset.displayAction)
+      .catch(error => window.alert(error?.message || 'The overlay could not be changed.'))
+  })
+  document.querySelectorAll('[data-overlay-close]').forEach(button => {
+    button.addEventListener('click', () => {
+      const setting = button.dataset.overlayClose === 'tracklist'
+        ? 'immersiveTracklistVisible'
+        : 'immersiveNowPlayingVisible'
+      if (immersiveSettingEnabled(setting)) toggleImmersiveOverlay(setting)
+    })
+  })
+  immersiveNowOpacity.addEventListener('input', () => {
+    setImmersiveOpacity('immersiveNowPlayingIdleOpacity', immersiveNowOpacity.value)
+  })
+  immersiveNowOpacity.addEventListener('change', () => {
+    setImmersiveOpacity('immersiveNowPlayingIdleOpacity', immersiveNowOpacity.value, { persistSetting: true })
+  })
+  immersiveTracklistOpacity.addEventListener('input', () => {
+    setImmersiveOpacity('immersiveTracklistIdleOpacity', immersiveTracklistOpacity.value)
+  })
+  immersiveTracklistOpacity.addEventListener('change', () => {
+    setImmersiveOpacity('immersiveTracklistIdleOpacity', immersiveTracklistOpacity.value, { persistSetting: true })
+  })
+  immersiveNowBlur.addEventListener('input', () => {
+    setImmersiveBlur('immersiveNowPlayingBlur', immersiveNowBlur.value)
+  })
+  immersiveNowBlur.addEventListener('change', () => {
+    setImmersiveBlur('immersiveNowPlayingBlur', immersiveNowBlur.value, { persistSetting: true })
+  })
+  immersiveTracklistBlur.addEventListener('input', () => {
+    setImmersiveBlur('immersiveTracklistBlur', immersiveTracklistBlur.value)
+  })
+  immersiveTracklistBlur.addEventListener('change', () => {
+    setImmersiveBlur('immersiveTracklistBlur', immersiveTracklistBlur.value, { persistSetting: true })
+  })
+  immersivePlayPause.addEventListener('click', () => window.api.playerToggle())
+  immersivePrevTrack.addEventListener('click', () => seekRelativeTrack(-1))
+  immersiveNextTrack.addEventListener('click', () => seekRelativeTrack(1))
+  immersiveProgressTrack.addEventListener('mousedown', startImmersiveProgressDrag)
   btnVideoHide.addEventListener('click', () => applyVideoMode('hidden'))
   btnDisplayMenu.addEventListener('click', (event) => {
     event.stopPropagation()
@@ -4676,6 +5056,7 @@ function wireEvents() {
   window.api.on('window-state', applyWindowState)
   document.addEventListener('click', (event) => {
     if (!event.target.closest('#display-menu-wrap')) closeDisplayMenu()
+    if (!event.target.closest('#immersive-options-wrap')) closeImmersiveOptionsMenu()
   })
   window.addEventListener('resize', applyResponsiveSidebar)
   volumeControl.addEventListener('mouseenter', showVolumePopover)

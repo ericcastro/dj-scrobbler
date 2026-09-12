@@ -102,6 +102,10 @@ html, body {
   z-index: 10;
 }
 
+body.display-menu-open #topbar { z-index: 10000; }
+body.display-menu-open #webview-container,
+body.display-menu-open #video-controls { pointer-events: none; }
+
 body.platform-darwin #topbar {
   padding-left: 80px; /* macOS traffic lights */
 }
@@ -1644,6 +1648,58 @@ body.video-mode-hidden #main-content.has-tracklist #video-area {
   -webkit-app-region: no-drag;
 }
 
+body.immersive-options-open #video-controls { z-index: 90; }
+
+#immersive-options-wrap {
+  position: relative;
+  display: none;
+}
+
+body.video-mode-focus #immersive-options-wrap { display: block; }
+
+#immersive-options-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 238px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg2) 94%, transparent);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .42);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  pointer-events: auto;
+}
+
+.immersive-option-subgroup { padding: 2px 9px 5px 18px; }
+.immersive-option-subgroup label {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text2);
+  font-size: 9px;
+}
+.immersive-option-subgroup output { color: var(--accent); }
+.immersive-option-subgroup input[type="range"] {
+  width: 100%;
+  margin: 6px 0 4px;
+  accent-color: var(--accent);
+}
+.immersive-option-subgroup .display-menu-item {
+  min-height: 30px;
+  padding: 4px 0;
+  font-size: 10px;
+}
+
+#immersive-options-wrap.menu-open > .video-control-btn {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* Immersive video overlay — shared by the resizable focus window and native
    enhanced full screen. It stays absent from the normal application layout. */
 #immersive-overlay {
@@ -1659,55 +1715,210 @@ body.video-mode-hidden #main-content.has-tracklist #video-area {
 }
 
 body.video-mode-focus #immersive-overlay { display: block; }
+body.immersive-now-playing-hidden #immersive-now-playing { display: none; }
+body.immersive-tracklist-hidden #immersive-tracklist-shell { display: none; }
 
 #immersive-now-playing {
+  --immersive-inline-inset: 24px;
+  --immersive-leading-controls: 0px;
+  --immersive-transport-size: clamp(28px, 22cqh, 44px);
+  --immersive-play-size: clamp(40px, 30cqh, 58px);
+  --immersive-content-left: calc(var(--immersive-inline-inset) + var(--immersive-leading-controls));
+  --immersive-art-left: calc(var(--immersive-inline-inset) + var(--immersive-leading-controls));
+  --immersive-art-size: min(58cqh, 30cqw);
   position: absolute;
   left: clamp(22px, 3vw, 56px);
   right: clamp(330px, 37vw, 600px);
   bottom: clamp(24px, 5vh, 72px);
-  padding: clamp(22px, 3vw, 42px) clamp(24px, 3.2vw, 48px) clamp(20px, 2.5vw, 36px);
+  padding: 0;
   border-left: 3px solid var(--accent);
   border-radius: 4px 14px 14px 4px;
-  background: var(--immersive-surface);
-  backdrop-filter: blur(5px) saturate(.85);
-  -webkit-backdrop-filter: blur(5px) saturate(.85);
-  container-type: inline-size;
+  background: transparent;
+  container-type: size;
+  display: flex;
+  flex-direction: column;
+  min-height: 140px;
+  max-height: min(38vh, 420px);
   pointer-events: auto;
   overflow: hidden;
 }
 
-#immersive-kicker {
-  margin-bottom: 8px;
-  color: var(--accent);
-  font-size: clamp(9px, calc(.75cqw * var(--immersive-now-scale, 1)), 14px);
-  letter-spacing: .16em;
-  text-transform: uppercase;
+#immersive-now-playing.has-artwork {
+  --immersive-content-left: calc(var(--immersive-inline-inset) + var(--immersive-leading-controls) + var(--immersive-art-size) + 16px);
+}
+
+body:not(.immersive-now-playing-controls-hidden) #immersive-now-playing {
+  --immersive-leading-controls: calc(var(--immersive-transport-size) + var(--immersive-play-size) + var(--immersive-transport-size) + 28px);
+}
+
+#immersive-artwork {
+  position: absolute;
+  top: calc((80cqh - var(--immersive-art-size)) / 2);
+  left: var(--immersive-art-left);
+  width: var(--immersive-art-size);
+  height: var(--immersive-art-size);
+  overflow: hidden;
+  border: 1px solid var(--immersive-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg3) 88%, transparent);
+  pointer-events: none;
+}
+
+#immersive-artwork-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+#immersive-artwork-image[hidden] { display: none; }
+
+#immersive-artwork.is-empty::before {
+  content: '';
+  position: absolute;
+  inset: 30%;
+  border: 2px solid color-mix(in srgb, var(--text2) 45%, transparent);
+  border-radius: 50%;
+}
+
+#immersive-artwork.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-110%);
+  background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--text) 20%, transparent) 50%, transparent 80%);
+  animation: track-art-shimmer 1.25s ease-in-out infinite;
 }
 
 #immersive-title-row {
-  display: flex;
+  display: block;
+  width: auto;
   min-width: 0;
-  align-items: baseline;
-  gap: 10px;
-  font-size: clamp(20px, calc(3.8cqw * var(--immersive-now-scale, 1)), 46px);
+  margin: 22cqh var(--immersive-inline-inset) 0 var(--immersive-content-left);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   line-height: 1.08;
-  font-weight: 700;
 }
 
-#immersive-track-num { flex: none; color: var(--accent); }
-#immersive-track-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-#immersive-track-artist { margin-top: 8px; font-size: clamp(13px, calc(1.75cqw * var(--immersive-now-scale, 1)), 23px); color: rgba(255,255,255,.78); }
-#immersive-set-title { margin-top: 13px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: clamp(10px, calc(.85cqw * var(--immersive-now-scale, 1)), 16px); color: rgba(255,255,255,.48); }
+#immersive-title-row:has(#immersive-title-content.overflow-marquee) { text-overflow: clip; }
+#immersive-title-content { display: inline-block; width: max-content; white-space: nowrap; font-size: max(20px, 14.3cqh); font-weight: 700; }
+#immersive-track-num { display: inline; margin-right: 8px; color: var(--accent); }
+#immersive-track-title { display: inline; }
+#immersive-track-artist { display: inline; font-size: inherit; color: rgba(255,255,255,.78); }
+#immersive-artist-separator { display: inline; color: rgba(255,255,255,.78); font-size: inherit; }
+#immersive-set-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin: 9cqh var(--immersive-inline-inset) 0 var(--immersive-content-left);
+}
+#immersive-set-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: max(15px, 10.7cqh); color: rgba(255,255,255,.48); }
 
 #immersive-progress {
-  height: 2px;
-  margin-top: 18px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: rgba(255,255,255,.16);
+  position: relative;
+  z-index: 2;
+  height: 16px;
+  flex: none;
+  margin: auto var(--immersive-inline-inset) calc(20cqh - 7px);
+  overflow: visible;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 
-#immersive-progress-fill { width: 0; height: 100%; background: var(--accent); transition: width .35s linear; }
+#immersive-progress-track { position: absolute; inset: 0; height: 16px; cursor: pointer; }
+#immersive-progress-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(255,255,255,.16);
+  transition: top .12s, height .12s;
+}
+#immersive-progress-fill {
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: top .12s, height .12s;
+}
+#immersive-progress-segments { position: absolute; z-index: 2; inset: 0; }
+.immersive-progress-segment { position: absolute; top: 0; height: 16px; min-width: 2px; cursor: pointer; }
+.immersive-progress-segment::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 1px;
+  height: 2px;
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  opacity: .62;
+  transition: top .12s, height .12s, opacity .12s, background .12s;
+}
+.immersive-progress-segment:first-child::after { display: none; }
+#immersive-progress:hover .immersive-progress-segment::after,
+#immersive-progress.dragging .immersive-progress-segment::after { top: 5px; height: 6px; opacity: .8; }
+.immersive-progress-segment:hover::after { background: var(--accent2); opacity: 1; }
+#immersive-progress-thumb {
+  position: absolute;
+  z-index: 3;
+  top: 7px;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -4px) scale(0);
+  transition: transform .12s;
+}
+#immersive-progress:hover #immersive-progress-track::before,
+#immersive-progress.dragging #immersive-progress-track::before,
+#immersive-progress:hover #immersive-progress-fill,
+#immersive-progress.dragging #immersive-progress-fill { top: 6px; height: 4px; }
+#immersive-progress:hover #immersive-progress-thumb,
+#immersive-progress.dragging #immersive-progress-thumb { transform: translate(-50%, -4px) scale(1); }
+#immersive-progress:not(.has-duration) #immersive-progress-fill,
+#immersive-progress:not(.has-duration) #immersive-progress-thumb { opacity: 0; }
+
+#immersive-progress-tooltip {
+  position: absolute;
+  z-index: 5;
+  top: -8px;
+  left: 50%;
+  transform: translate(-50%, -100%) translateY(4px);
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(320px, calc(100cqw - 32px));
+  min-height: 46px;
+  padding: 6px 9px 6px 6px;
+  border: 1px solid var(--immersive-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg2) 94%, #000 6%);
+  box-shadow: 0 12px 28px rgba(0,0,0,.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s, transform .12s;
+}
+#immersive-progress-tooltip.visible { opacity: 1; transform: translate(-50%, -100%); }
+#immersive-progress-tooltip-art { width: 38px; height: 38px; border-radius: 5px; object-fit: cover; background: var(--bg); }
+#immersive-progress-tooltip-art[hidden] { display: none; }
+#immersive-progress-tooltip-art[hidden] + .immersive-progress-tooltip-copy { grid-column: 1 / -1; }
+.immersive-progress-tooltip-copy { min-width: 0; max-width: 250px; }
+#immersive-progress-tooltip-title,
+#immersive-progress-tooltip-artist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#immersive-progress-tooltip-title { color: var(--text); font-size: 12px; font-weight: 700; }
+#immersive-progress-tooltip-artist { margin-top: 3px; color: var(--text2); font-size: 10px; }
 
 #immersive-tracklist-shell {
   position: absolute;
@@ -1718,13 +1929,64 @@ body.video-mode-focus #immersive-overlay { display: block; }
   box-sizing: border-box;
   padding: 7px 5px 7px 10px;
   overflow: hidden;
-  border: 1px solid var(--immersive-border);
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--immersive-surface);
-  backdrop-filter: blur(5px) saturate(.85);
-  -webkit-backdrop-filter: blur(5px) saturate(.85);
+  background: transparent;
   pointer-events: auto;
 }
+
+.immersive-glass {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: transparent;
+  backdrop-filter: blur(var(--immersive-blur, 5px)) saturate(.85);
+  -webkit-backdrop-filter: blur(var(--immersive-blur, 5px)) saturate(.85);
+  pointer-events: none;
+}
+
+.immersive-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  background: var(--immersive-surface);
+  opacity: var(--immersive-idle-opacity, 1);
+  transition: opacity .18s ease;
+}
+
+#immersive-tracklist-shell > .immersive-glass::before {
+  border: 1px solid var(--immersive-border);
+  border-radius: inherit;
+}
+
+.immersive-overlay-surface:hover > .immersive-glass::before { opacity: 1; }
+.immersive-overlay-surface > :not(.immersive-glass) { z-index: 1; }
+
+.immersive-overlay-close {
+  position: absolute !important;
+  z-index: 4 !important;
+  top: 8px;
+  right: 8px;
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg2) 72%, transparent);
+  color: var(--text2);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity .14s, color .14s, border-color .14s;
+}
+
+.immersive-overlay-surface:hover > .immersive-overlay-close,
+.immersive-overlay-close:focus-visible { opacity: .9; }
+.immersive-overlay-close:hover { color: var(--accent); border-color: var(--immersive-border); }
 
 .immersive-overlay-drag-handle,
 .immersive-overlay-resize-handle {
@@ -1738,10 +2000,10 @@ body.video-mode-focus #immersive-overlay { display: block; }
 }
 
 .immersive-overlay-drag-handle {
-  top: 6px;
+  top: 0;
   left: 50%;
-  width: 38px;
-  height: 8px;
+  width: 62px;
+  height: 18px;
   transform: translateX(-50%);
 }
 
@@ -1750,7 +2012,7 @@ body.video-mode-focus #immersive-overlay { display: block; }
   display: block;
   width: 24px;
   height: 2px;
-  margin: 3px auto;
+  margin: 7px auto;
   border-radius: 2px;
   background: var(--text2);
 }
@@ -1789,6 +2051,7 @@ body.video-mode-focus #immersive-overlay { display: block; }
 .immersive-overlay-surface.is-interacting { transition: none; }
 
 #immersive-tracklist-list {
+  position: relative;
   height: 100%;
   margin: 0;
   padding: 4vh 4px;
@@ -1805,7 +2068,7 @@ body.video-mode-focus #immersive-overlay { display: block; }
 .immersive-track-row {
   min-height: 42px;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 30px 32px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   padding: 7px 9px;
@@ -1815,6 +2078,114 @@ body.video-mode-focus #immersive-overlay { display: block; }
   transition: opacity .18s, background .18s, border-color .18s, transform .18s;
   cursor: pointer;
 }
+
+.immersive-track-art {
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg3) 78%, transparent);
+}
+.immersive-track-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.immersive-track-art.is-loading { animation: track-art-pulse 1.4s ease-in-out infinite; }
+body.immersive-tracklist-artwork-hidden .immersive-track-art { display: none; }
+body.immersive-tracklist-artwork-hidden .immersive-track-row { grid-template-columns: 30px minmax(0, 1fr) auto; }
+body.immersive-tracklist-numbers-hidden .immersive-track-number { display: none; }
+body.immersive-tracklist-timestamps-hidden .immersive-track-cue { display: none; }
+body.immersive-tracklist-numbers-hidden .immersive-track-row { grid-template-columns: 32px minmax(0, 1fr) auto; }
+body.immersive-tracklist-timestamps-hidden .immersive-track-row { grid-template-columns: 30px 32px minmax(0, 1fr); }
+body.immersive-tracklist-numbers-hidden.immersive-tracklist-timestamps-hidden .immersive-track-row { grid-template-columns: 32px minmax(0, 1fr); }
+body.immersive-tracklist-numbers-hidden.immersive-tracklist-artwork-hidden .immersive-track-row { grid-template-columns: minmax(0, 1fr) auto; }
+body.immersive-tracklist-timestamps-hidden.immersive-tracklist-artwork-hidden .immersive-track-row { grid-template-columns: 30px minmax(0, 1fr); }
+body.immersive-tracklist-numbers-hidden.immersive-tracklist-timestamps-hidden.immersive-tracklist-artwork-hidden .immersive-track-row { grid-template-columns: minmax(0, 1fr); }
+body.immersive-now-playing-artwork-hidden #immersive-artwork { display: none; }
+
+#immersive-playback-controls {
+  position: absolute;
+  left: var(--immersive-inline-inset);
+  top: calc(40cqh - (var(--immersive-play-size) / 2));
+  display: grid;
+  grid-template-columns: var(--immersive-transport-size) var(--immersive-play-size) var(--immersive-transport-size);
+  grid-template-rows: var(--immersive-play-size);
+  align-items: center;
+  justify-items: center;
+  gap: 4px;
+}
+#immersive-playback-elapsed {
+  position: absolute;
+  bottom: 7cqh;
+  left: var(--immersive-inline-inset);
+  color: color-mix(in srgb, var(--text2) 88%, transparent);
+  font-size: clamp(8px, 5.7cqh, 11px);
+  line-height: 1;
+  letter-spacing: .04em;
+  text-align: left;
+}
+
+#immersive-playback-remaining {
+  position: absolute;
+  right: var(--immersive-inline-inset);
+  bottom: 7cqh;
+  color: color-mix(in srgb, var(--text2) 88%, transparent);
+  font-size: clamp(8px, 5.7cqh, 11px);
+  line-height: 1;
+  letter-spacing: .04em;
+  text-align: right;
+}
+
+#immersive-scrobble-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  flex: none;
+  padding: clamp(3px, 2.5cqh, 5px) clamp(8px, 6cqh, 12px);
+  box-sizing: border-box;
+  border: 1px solid var(--immersive-border);
+  border-radius: 999px;
+  color: var(--text2);
+  background: color-mix(in srgb, var(--bg3) 58%, transparent);
+}
+
+#immersive-scrobble-dot { flex: none; font-size: clamp(8px, 6cqh, 11px); line-height: 1; }
+#immersive-scrobble-label {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: clamp(9px, 7cqh, 12px);
+  line-height: 1;
+  letter-spacing: .06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+#immersive-scrobble-badge.ok { color: var(--green); border-color: var(--green); }
+#immersive-scrobble-badge.error { color: var(--red); border-color: var(--red); }
+#immersive-scrobble-badge.dim { border-style: dashed; }
+#immersive-playback-controls button {
+  width: var(--immersive-transport-size);
+  height: var(--immersive-transport-size);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--immersive-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+}
+#immersive-playback-controls button svg { width: 48%; height: 48%; }
+#immersive-play-pause {
+  width: var(--immersive-play-size) !important;
+  height: var(--immersive-play-size) !important;
+  border-width: 2px !important;
+  border-color: var(--accent) !important;
+  color: var(--accent) !important;
+}
+#immersive-playback-controls button:hover { color: var(--accent); border-color: var(--accent); }
+body.immersive-now-playing-controls-hidden #immersive-playback-controls,
+body.immersive-now-playing-controls-hidden #immersive-playback-elapsed,
+body.immersive-now-playing-controls-hidden #immersive-playback-remaining { display: none; }
 
 .immersive-track-row:hover { opacity: .78; background: rgba(255,255,255,.07); }
 .immersive-track-row.not-seekable { cursor: default; }
@@ -1843,7 +2214,7 @@ body.video-mode-focus #immersive-overlay { display: block; }
     left: 12px;
     right: 12px;
     bottom: 12px;
-    padding: 16px 18px;
+    padding: 0;
   }
   #immersive-tracklist-shell {
     top: 48px;
@@ -3941,6 +4312,7 @@ body.compact-layout #scrobble-badge.dim::after {
 
 @media (prefers-reduced-motion: reduce) {
   #np-artwork.is-loading::after,
+  #immersive-artwork.is-loading::after,
   .track-art-loading::after,
   .set-event-activity-dot,
   .set-availability-pill.status-checking,

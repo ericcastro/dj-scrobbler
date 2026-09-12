@@ -50,13 +50,20 @@
         </button>
         <div id="display-menu" class="hidden" role="menu" aria-label="Display options">
           <button class="display-menu-item" data-display-action="focus" role="menuitem">
-            <span>focus window</span><small>video + tracklist</small>
+            <span>focus window</span><small>video + optional overlays</small>
           </button>
           <button class="display-menu-item" data-display-action="enhanced-fullscreen" role="menuitem">
-            <span>enhanced full screen</span><small>video + tracklist</small>
+            <span>enhanced full screen</span><small>video + optional overlays</small>
           </button>
           <button class="display-menu-item" data-display-action="app-fullscreen" role="menuitem">
             <span>app full screen</span><small>the entire workspace</small>
+          </button>
+          <div class="display-menu-rule"></div>
+          <button class="display-menu-item display-menu-toggle" data-display-action="toggle-now-playing-overlay" role="menuitemcheckbox" aria-checked="true">
+            <span>now playing overlay</span><span class="display-toggle-mark" aria-hidden="true"></span>
+          </button>
+          <button class="display-menu-item display-menu-toggle" data-display-action="toggle-tracklist-overlay" role="menuitemcheckbox" aria-checked="true">
+            <span>tracklist overlay</span><span class="display-toggle-mark" aria-hidden="true"></span>
           </button>
           <div class="display-menu-rule"></div>
           <button class="display-menu-item display-menu-toggle" data-display-action="always-on-top" role="menuitemcheckbox" aria-checked="false">
@@ -524,24 +531,102 @@
         </div>
         <section id="immersive-overlay" aria-label="Current track and tracklist">
           <div id="immersive-now-playing" class="immersive-overlay-surface">
+            <div class="immersive-glass" aria-hidden="true"></div>
             <button class="immersive-overlay-drag-handle" data-overlay-drag="now-playing" title="Move now-playing overlay" aria-label="Move now-playing overlay"></button>
             <button class="immersive-overlay-resize-handle" data-overlay-resize="now-playing" title="Resize now-playing overlay" aria-label="Resize now-playing overlay"></button>
-            <div id="immersive-kicker">now playing</div>
-            <div id="immersive-title-row">
-              <span id="immersive-track-num"></span>
-              <span id="immersive-track-title">—</span>
+            <button class="immersive-overlay-close" data-overlay-close="now-playing" title="Hide now playing" aria-label="Hide now playing">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <div id="immersive-artwork" class="hidden" aria-hidden="true">
+              <img id="immersive-artwork-image" alt="" />
             </div>
-            <div id="immersive-track-artist"></div>
-            <div id="immersive-set-title"></div>
-            <div id="immersive-progress"><div id="immersive-progress-fill"></div></div>
+            <div id="immersive-title-row">
+              <span id="immersive-title-content">
+                <span id="immersive-track-num"></span>
+                <span id="immersive-track-artist"></span>
+                <span id="immersive-artist-separator" class="hidden" aria-hidden="true"> - </span>
+                <span id="immersive-track-title">—</span>
+              </span>
+            </div>
+            <div id="immersive-set-row">
+              <div id="immersive-set-title"></div>
+              <div id="immersive-scrobble-badge" title="Scrobbling not configured" aria-label="Scrobbling not configured">
+                <span id="immersive-scrobble-dot">●</span>
+                <span id="immersive-scrobble-label">Scrobbling not configured</span>
+              </div>
+            </div>
+            <span id="immersive-playback-elapsed">00:00:00</span>
+            <div id="immersive-playback-controls" aria-label="Playback controls">
+              <button id="immersive-prev-track" title="Previous track" aria-label="Previous track"></button>
+              <button id="immersive-play-pause" title="Play" aria-label="Play"></button>
+              <button id="immersive-next-track" title="Next track" aria-label="Next track"></button>
+            </div>
+            <span id="immersive-playback-remaining">-00:00:00</span>
+            <div id="immersive-progress">
+              <div id="immersive-progress-track">
+                <div id="immersive-progress-fill"></div>
+                <div id="immersive-progress-segments"></div>
+                <div id="immersive-progress-thumb"></div>
+              </div>
+              <div id="immersive-progress-tooltip" aria-hidden="true">
+                <img id="immersive-progress-tooltip-art" alt="" />
+                <div class="immersive-progress-tooltip-copy">
+                  <div id="immersive-progress-tooltip-title"></div>
+                  <div id="immersive-progress-tooltip-artist"></div>
+                </div>
+              </div>
+            </div>
           </div>
           <div id="immersive-tracklist-shell" class="immersive-overlay-surface">
+            <div class="immersive-glass" aria-hidden="true"></div>
             <button class="immersive-overlay-drag-handle" data-overlay-drag="tracklist" title="Move tracklist overlay" aria-label="Move tracklist overlay"></button>
             <button class="immersive-overlay-resize-handle" data-overlay-resize="tracklist" title="Resize tracklist overlay" aria-label="Resize tracklist overlay"></button>
+            <button class="immersive-overlay-close" data-overlay-close="tracklist" title="Hide tracklist" aria-label="Hide tracklist">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
             <ol id="immersive-tracklist-list"></ol>
           </div>
         </section>
         <div id="video-controls" aria-label="Video controls">
+          <div id="immersive-options-wrap">
+            <button class="video-control-btn" id="btn-immersive-options" title="Overlay options" aria-label="Overlay options" aria-haspopup="menu" aria-expanded="false"></button>
+            <div id="immersive-options-menu" class="hidden" role="menu" aria-label="Overlay options">
+              <button class="display-menu-item display-menu-toggle" data-display-action="toggle-now-playing-overlay" role="menuitemcheckbox" aria-checked="true">
+                <span>now playing</span><span class="display-toggle-mark" aria-hidden="true"></span>
+              </button>
+              <div class="immersive-option-subgroup">
+                <label for="immersive-now-opacity"><span>idle opacity</span><output id="immersive-now-opacity-value">100%</output></label>
+                <input id="immersive-now-opacity" type="range" min="0" max="100" step="5" value="100" />
+                <label for="immersive-now-blur"><span>blur</span><output id="immersive-now-blur-value">5px</output></label>
+                <input id="immersive-now-blur" type="range" min="0" max="24" step="1" value="5" />
+                <button class="display-menu-item display-menu-toggle" data-display-action="toggle-now-playing-artwork" role="menuitemcheckbox" aria-checked="true">
+                  <span>artwork</span><span class="display-toggle-mark" aria-hidden="true"></span>
+                </button>
+                <button class="display-menu-item display-menu-toggle" data-display-action="toggle-now-playing-controls" role="menuitemcheckbox" aria-checked="false">
+                  <span>playback controls</span><span class="display-toggle-mark" aria-hidden="true"></span>
+                </button>
+              </div>
+              <div class="display-menu-rule"></div>
+              <button class="display-menu-item display-menu-toggle" data-display-action="toggle-tracklist-overlay" role="menuitemcheckbox" aria-checked="true">
+                <span>tracklist</span><span class="display-toggle-mark" aria-hidden="true"></span>
+              </button>
+              <div class="immersive-option-subgroup">
+                <label for="immersive-tracklist-opacity"><span>idle opacity</span><output id="immersive-tracklist-opacity-value">100%</output></label>
+                <input id="immersive-tracklist-opacity" type="range" min="0" max="100" step="5" value="100" />
+                <label for="immersive-tracklist-blur"><span>blur</span><output id="immersive-tracklist-blur-value">5px</output></label>
+                <input id="immersive-tracklist-blur" type="range" min="0" max="24" step="1" value="5" />
+                <button class="display-menu-item display-menu-toggle" data-display-action="toggle-tracklist-artwork" role="menuitemcheckbox" aria-checked="false">
+                  <span>artwork</span><span class="display-toggle-mark" aria-hidden="true"></span>
+                </button>
+                <button class="display-menu-item display-menu-toggle" data-display-action="toggle-tracklist-numbers" role="menuitemcheckbox" aria-checked="true">
+                  <span>track numbers</span><span class="display-toggle-mark" aria-hidden="true"></span>
+                </button>
+                <button class="display-menu-item display-menu-toggle" data-display-action="toggle-tracklist-timestamps" role="menuitemcheckbox" aria-checked="true">
+                  <span>timestamps</span><span class="display-toggle-mark" aria-hidden="true"></span>
+                </button>
+              </div>
+            </div>
+          </div>
           <button class="video-control-btn" id="btn-video-dock" title="Mini-player mode"></button>
           <button class="video-control-btn" id="btn-video-fullscreen" title="Focus window"></button>
           <button class="video-control-btn" id="btn-video-native-fullscreen" title="Enhanced full screen"></button>

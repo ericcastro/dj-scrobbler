@@ -68,6 +68,14 @@ test('focus window mode locks a resizable window to the video aspect ratio', () 
   assert.match(preloadJs, /setFocusWindowMode: \(enabled\) => ipcRenderer\.invoke\('window-focus-mode-set'/)
 })
 
+test('immersive playback keeps YouTube controls scrapeable and requests higher quality', () => {
+  assert.match(mainJs, /embed\/youtube\?id=.*&controls=1&hl=en/)
+  assert.match(mainJs, /forceYouTubePlaybackQuality/)
+  assert.match(mainJs, /focusWindowMode \|\| windowPresentation !== 'windowed'/)
+  assert.match(mainJs, /scheduleYouTubeQualityBoost\('window-resized'/)
+  assert.match(mainJs, /scheduleYouTubeQualityBoost\('player-loaded'/)
+})
+
 test('set-theme IPC handler delegates to setTitleBarTheme which calls setTitleBarOverlay on Windows', () => {
   // The handler calls a dedicated helper
   assert.match(mainJs, /ipcMain\.handle\('set-theme'/)

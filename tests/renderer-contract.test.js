@@ -89,7 +89,23 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
     'display-menu',
     'immersive-overlay',
     'immersive-now-playing',
+    'immersive-artwork',
+    'immersive-artwork-image',
     'immersive-tracklist-list',
+    'btn-immersive-options',
+    'immersive-options-menu',
+    'immersive-now-opacity',
+    'immersive-tracklist-opacity',
+    'immersive-now-blur',
+    'immersive-tracklist-blur',
+    'immersive-playback-controls',
+    'immersive-playback-elapsed',
+    'immersive-playback-remaining',
+    'immersive-scrobble-badge',
+    'immersive-progress-track',
+    'immersive-progress-segments',
+    'immersive-progress-thumb',
+    'immersive-progress-tooltip',
     'btn-video-native-fullscreen',
   ]) {
     assert.equal(indexHtml.includes(`id="${id}"`), true, `${id} missing from index.html`)
@@ -98,15 +114,79 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
   assert.match(appJs, /setWindowPresentation\(mode\)/)
   assert.match(appJs, /setFocusWindowMode\(enabled\)/)
   assert.match(appJs, /immersiveOverlayLayout/)
-  assert.match(appJs, /ResizeObserver/)
+  assert.match(appJs, /wireOverflowMarquee\(immersiveTitleContent, immersiveTitleRow, immersiveTitleRow, \{ automatic: true \}\)/)
+  assert.match(appJs, /wireOverflowMarquee\(immersiveSetTitle, immersiveSetTitle, immersiveSetTitle, \{ automatic: true \}\)/)
+  assert.match(appJs, /if \(automatic\) \{[\s\S]*new ResizeObserver\(restart\)[\s\S]*new MutationObserver\(restart\)/)
   assert.match(indexHtml, /data-overlay-drag="now-playing"/)
   assert.match(indexHtml, /data-overlay-resize="now-playing"/)
+  assert.match(indexHtml, /id="immersive-title-content"[\s\S]*id="immersive-track-artist"[\s\S]*id="immersive-track-title"/)
+  assert.match(indexHtml, /id="immersive-artist-separator"/)
   assert.match(indexHtml, /data-overlay-drag="tracklist"/)
   assert.match(indexHtml, /data-overlay-resize="tracklist"/)
   assert.match(appJs, /setAlwaysOnTop\(!windowAlwaysOnTop\)/)
+  assert.match(appJs, /currentVideoMode === 'focus' \? ICON\.appView : ICON\.theater/)
+  assert.match(appJs, /btnVideoFullscreen\.addEventListener\('click',[\s\S]*handleDisplayAction\('focus'\)/)
+  assert.match(appJs, /setImmersiveArtwork\(track\?\.isId \? null : track\?\.artUrl/)
+  assert.match(appJs, /document\.body\.classList\.toggle\('display-menu-open', willOpen\)/)
+  assert.match(indexHtml, /data-display-action="toggle-now-playing-overlay"/)
+  assert.match(indexHtml, /data-display-action="toggle-tracklist-overlay"/)
+  assert.match(appJs, /toggleImmersiveOverlay\('immersiveNowPlayingVisible'\)/)
+  assert.match(appJs, /toggleImmersiveOverlay\('immersiveTracklistVisible'\)/)
+  assert.match(appJs, /state\.store\.settings\[setting\] = !immersiveSettingEnabled\(setting\)/)
+  assert.match(indexHtml, /data-overlay-close="now-playing"/)
+  assert.match(indexHtml, /data-overlay-close="tracklist"/)
+  assert.match(indexHtml, /data-display-action="toggle-now-playing-artwork"/)
+  assert.match(indexHtml, /data-display-action="toggle-tracklist-artwork"/)
+  assert.match(indexHtml, /data-display-action="toggle-tracklist-numbers"/)
+  assert.match(indexHtml, /data-display-action="toggle-tracklist-timestamps"/)
+  assert.match(indexHtml, /data-display-action="toggle-now-playing-controls"/)
+  assert.match(appJs, /setImmersiveOpacity\('immersiveNowPlayingIdleOpacity'/)
+  assert.match(appJs, /toggleImmersiveOverlay\('immersiveTracklistNumbersVisible'\)/)
+  assert.match(appJs, /toggleImmersiveOverlay\('immersiveTracklistTimestampsVisible'\)/)
+  assert.match(appJs, /setImmersiveOpacity\('immersiveTracklistIdleOpacity'/)
+  assert.match(appJs, /setImmersiveBlur\('immersiveNowPlayingBlur'/)
+  assert.match(appJs, /setImmersiveBlur\('immersiveTracklistBlur'/)
+  assert.match(appJs, /immersivePlayPause\.addEventListener\('click', \(\) => window\.api\.playerToggle\(\)\)/)
+  assert.match(appJs, /immersiveProgressTrack\.addEventListener\('mousedown', startImmersiveProgressDrag\)/)
+  assert.match(appJs, /immersivePlaybackRemaining\.textContent = hasDuration/)
+  assert.match(appJs, /immersiveScrobbleBadge\.className = cfg\.cls/)
+  assert.match(appJs, /showImmersiveProgressTooltip\(e, trackAtPlaybackSecond\(target\)\)/)
+  assert.match(appJs, /closest\('button, input, select, textarea, a, \[role="menu"\], \[data-no-window-drag\]'\)/)
   assert.match(styleCss, /body\.video-mode-focus #immersive-overlay\s*\{\s*display:\s*block/)
-  assert.match(styleCss, /container-type:\s*inline-size/)
-  assert.match(styleCss, /font-size:\s*clamp\(20px,\s*calc\(3\.8cqw/)
+  assert.match(styleCss, /body\.immersive-now-playing-hidden #immersive-now-playing\s*\{\s*display:\s*none/)
+  assert.match(styleCss, /body\.immersive-tracklist-hidden #immersive-tracklist-shell\s*\{\s*display:\s*none/)
+  assert.match(styleCss, /\.immersive-overlay-surface:hover > \.immersive-glass::before\s*\{\s*opacity:\s*1/)
+  assert.match(styleCss, /opacity:\s*var\(--immersive-idle-opacity,\s*1\)/)
+  assert.match(styleCss, /body\.immersive-tracklist-artwork-hidden \.immersive-track-art\s*\{\s*display:\s*none/)
+  assert.match(styleCss, /body\.immersive-tracklist-numbers-hidden \.immersive-track-number\s*\{\s*display:\s*none/)
+  assert.match(styleCss, /body\.immersive-tracklist-timestamps-hidden \.immersive-track-cue\s*\{\s*display:\s*none/)
+  assert.match(styleCss, /body\.immersive-now-playing-controls-hidden #immersive-playback-controls,[\s\S]*body\.immersive-now-playing-controls-hidden #immersive-playback-remaining\s*\{\s*display:\s*none/)
+  assert.match(styleCss, /#immersive-progress:hover #immersive-progress-thumb,[\s\S]*#immersive-progress\.dragging #immersive-progress-thumb/)
+  assert.match(styleCss, /\.immersive-progress-segment::after/)
+  assert.match(styleCss, /\.immersive-overlay-drag-handle\s*\{[^}]*width:\s*62px[^}]*height:\s*18px/s)
+  assert.match(styleCss, /#immersive-playback-controls\s*\{[^}]*left:\s*var\(--immersive-inline-inset\)[^}]*grid-template-columns:\s*var\(--immersive-transport-size\) var\(--immersive-play-size\) var\(--immersive-transport-size\)/s)
+  assert.match(styleCss, /#immersive-playback-controls\s*\{[^}]*top:\s*calc\(40cqh - \(var\(--immersive-play-size\) \/ 2\)\)/s)
+  assert.match(styleCss, /#immersive-playback-elapsed\s*\{[^}]*left:\s*var\(--immersive-inline-inset\)[^}]*text-align:\s*left/s)
+  assert.match(styleCss, /#immersive-tracklist-shell > \.immersive-glass::before\s*\{[^}]*border:\s*1px solid var\(--immersive-border\)/s)
+  assert.match(styleCss, /body\.video-mode-focus #immersive-options-wrap\s*\{\s*display:\s*block/)
+  assert.match(styleCss, /body\.immersive-options-open #video-controls\s*\{\s*z-index:\s*90/)
+  assert.match(appJs, /document\.body\.classList\.toggle\('immersive-options-open', willOpen\)/)
+  assert.match(styleCss, /body\.display-menu-open #topbar\s*\{\s*z-index:\s*10000/)
+  assert.match(styleCss, /body\.display-menu-open #webview-container,[\s\S]*body\.display-menu-open #video-controls\s*\{\s*pointer-events:\s*none/)
+  assert.match(styleCss, /container-type:\s*size/)
+  assert.match(styleCss, /--immersive-inline-inset:\s*24px/)
+  assert.match(styleCss, /#immersive-artwork\s*\{[^}]*width:\s*var\(--immersive-art-size\)[^}]*height:\s*var\(--immersive-art-size\)/s)
+  assert.match(styleCss, /#immersive-title-content[^}]*font-size:\s*max\(20px,\s*14\.3cqh\)/s)
+  assert.match(styleCss, /#immersive-track-artist[^}]*font-size:\s*inherit/s)
+  assert.match(styleCss, /#immersive-artist-separator[^}]*font-size:\s*inherit/s)
+  assert.match(styleCss, /#immersive-set-row[^}]*margin:\s*9cqh var\(--immersive-inline-inset\) 0 var\(--immersive-content-left\)/s)
+  assert.match(styleCss, /#immersive-set-title[^}]*font-size:\s*max\(15px,\s*10\.7cqh\)/s)
+  assert.match(styleCss, /#immersive-now-playing\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column/s)
+  assert.match(styleCss, /#immersive-now-playing\s*\{[^}]*min-height:\s*140px/s)
+  assert.match(styleCss, /#immersive-now-playing\s*\{[^}]*max-height:\s*min\(38vh,\s*420px\)/s)
+  assert.match(styleCss, /#immersive-title-row\s*\{[^}]*margin:\s*22cqh var\(--immersive-inline-inset\) 0 var\(--immersive-content-left\)/s)
+  assert.match(styleCss, /#immersive-progress\s*\{[^}]*margin:\s*auto var\(--immersive-inline-inset\) calc\(20cqh - 7px\)/s)
+  assert.doesNotMatch(indexHtml, /id="immersive-kicker"/)
   assert.match(styleCss, /\.immersive-overlay-resize-handle/)
   assert.doesNotMatch(styleCss, /body\.video-mode-fullscreen/)
 })
@@ -114,7 +194,7 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
 test('CSS custom properties are defined or supplied by renderer code', () => {
   const definitions = new Set([...styleCss.matchAll(/--([\w-]+)\s*:/g)].map(match => match[1]))
   const references = new Set([...styleCss.matchAll(/var\(--([\w-]+)/g)].map(match => match[1]))
-  const rendererSupplied = new Set(['marquee-dist', 'scroll-fade-size', 'immersive-now-scale'])
+  const rendererSupplied = new Set(['marquee-dist', 'scroll-fade-size', 'immersive-idle-opacity', 'immersive-blur'])
   const missing = [...references].filter(name => !definitions.has(name) && !rendererSupplied.has(name))
 
   assert.deepEqual(missing, [])

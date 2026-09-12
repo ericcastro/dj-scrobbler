@@ -3,9 +3,13 @@ const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
 const vm = require('node:vm')
 const {
+  buildYouTubeQualityScript,
+  chooseYouTubeQuality,
+  forceYouTubePlaybackQuality,
   wireYouTubePlayerUi,
   isYouTubePlayerUrl,
   isYouTubeEmbedUrl,
+  isYouTubeControlsEmbedUrl,
   YOUTUBE_PLAYER_UI_SCRIPT,
   LEGACY_WRAPPER_UI_SCRIPT,
 } = require('../lib/youtube-player-ui')
@@ -63,6 +67,9 @@ function fixture({ role = 'player', url = PLAYER_URL, embedUrl = EMBED_URL } = {
 test('only app-owned HTTPS wrappers and exact YouTube embed paths are eligible', () => {
   assert.equal(isYouTubePlayerUrl(PLAYER_URL), true)
   assert.equal(isYouTubePlayerUrl('https://djscrobbler.com/embed/youtube/?controls=1'), true)
+  assert.equal(isYouTubeEmbedUrl(EMBED_URL.replace('controls=0', 'controls=1')), true)
+  assert.equal(isYouTubeControlsEmbedUrl(EMBED_URL), false)
+  assert.equal(isYouTubeControlsEmbedUrl(EMBED_URL.replace('controls=0', 'controls=1')), true)
   for (const value of [
     'http://www.djscrobbler.com/embed/youtube',
     'https://djscrobbler.com.evil.test/embed/youtube',
@@ -80,7 +87,6 @@ test('only app-owned HTTPS wrappers and exact YouTube embed paths are eligible',
     'https://www.youtube.com.evil.test/embed/abcdefghijk',
     'https://www.youtube.com:444/embed/abcdefghijk',
     'http://www.youtube.com/embed/abcdefghijk',
-    `${EMBED_URL.replace('controls=0', 'controls=1')}`,
   ]) assert.equal(isYouTubeEmbedUrl(value), false, value)
 })
 
@@ -110,10 +116,74 @@ test('browser webviews and foreign wrappers never receive player styling', () =>
   }
 })
 
-test('native controls opt-in leaves the actual YouTube UI available', () => {
+test('controls-enabled embeds retain the DOM but receive visually hidden player styling', () => {
   const { child } = fixture({ embedUrl: EMBED_URL.replace('controls=0', 'controls=1') })
   child.emit('dom-ready')
-  assert.equal(child.calls, 0)
+  assert.ok(child.calls > 0)
+  assert.match(child.document.children[0].textContent, /player-control-overlay/)
+})
+
+test('quality selection picks the smallest explicit resolution meeting the target', () => {
+  const labels = ['Auto (480p)', '2160p', '720p', '1080p Premium', '1080p', '1440p']
+  assert.deepEqual(chooseYouTubeQuality(labels, 1080), { label: '1080p', height: 1080 })
+  assert.deepEqual(chooseYouTubeQuality(labels, 2000), { label: '2160p', height: 2160 })
+  assert.equal(chooseYouTubeQuality(['Auto', 'Higher picture quality'], 1080), null)
+})
+
+test('quality script drives the controls menu and verifies the decoded resolution', async () => {
+  let menu = 'closed'
+  const video = { clientHeight: 720, videoHeight: 480 }
+  const element = (label, click) => ({
+    textContent: label,
+    getAttribute: name => name === 'aria-label' ? label : null,
+    click,
+  })
+  const settings = element('Playback settings', () => { menu = 'settings' })
+  const quality = element('Quality 480p', () => { menu = 'quality' })
+  const p720 = element('720p', () => { video.videoHeight = 720 })
+  const p1080 = element('1080p', () => { video.videoHeight = 1080 })
+  const document = {
+    documentElement: { clientHeight: 720 },
+    querySelector: selector => {
+      if (selector === 'video') return video
+      if (selector === '#player-controls-a11y-toggle') return null
+      if (selector.includes('Playback settings')) return settings
+      return null
+    },
+    querySelectorAll: () => menu === 'settings' ? [quality] : menu === 'quality' ? [p720, p1080] : [],
+  }
+  const result = await vm.runInNewContext(buildYouTubeQualityScript(1080), {
+    location: { href: EMBED_URL.replace('controls=0', 'controls=1') },
+    URL,
+    document,
+    devicePixelRatio: 1,
+    setTimeout,
+  })
+  assert.equal(result.status, 'selected')
+  assert.equal(result.selectedHeight, 1080)
+  assert.equal(result.afterHeight, 1080)
+  assert.equal(result.verified, true)
+})
+
+test('quality driver executes only in the exact controls-enabled YouTube subframe', async () => {
+  const main = new Frame(PLAYER_URL)
+  const decoy = new Frame('https://www.youtube.com/watch?v=abcdefghijk')
+  const target = new Frame(EMBED_URL.replace('controls=0', 'controls=1'))
+  let userGesture = null
+  target.executeJavaScript = async (_script, gesture) => {
+    userGesture = gesture
+    return { status: 'selected', selectedHeight: 1080 }
+  }
+  main.framesInSubtree = [main, decoy, target]
+  const contents = {
+    mainFrame: main,
+    getURL: () => PLAYER_URL,
+    isDestroyed: () => false,
+  }
+  const result = await forceYouTubePlaybackQuality(contents, { attempts: 1 })
+  assert.equal(result.selectedHeight, 1080)
+  assert.equal(userGesture, true)
+  assert.equal(decoy.calls, 0)
 })
 
 test('late-created, navigated, and replaced subframes are styled after readiness', () => {
