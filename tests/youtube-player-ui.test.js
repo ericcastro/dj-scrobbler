@@ -4,6 +4,7 @@ const { EventEmitter } = require('node:events')
 const vm = require('node:vm')
 const {
   buildYouTubeQualityScript,
+  buildYouTubeWrapperQualityMaskScript,
   chooseYouTubeQuality,
   forceYouTubePlaybackQuality,
   wireYouTubePlayerUi,
@@ -211,6 +212,7 @@ test('quality driver executes only in the exact controls-enabled YouTube subfram
   const decoy = new Frame('https://www.youtube.com/watch?v=abcdefghijk')
   const target = new Frame(EMBED_URL.replace('controls=0', 'controls=1'))
   let userGesture = null
+  const wrapperScripts = []
   target.executeJavaScript = async (_script, gesture) => {
     userGesture = gesture
     return { status: 'selected', selectedHeight: 1080 }
@@ -220,11 +222,33 @@ test('quality driver executes only in the exact controls-enabled YouTube subfram
     mainFrame: main,
     getURL: () => PLAYER_URL,
     isDestroyed: () => false,
+    executeJavaScript: async script => {
+      wrapperScripts.push(script)
+      return true
+    },
   }
   const result = await forceYouTubePlaybackQuality(contents, { attempts: 1 })
   assert.equal(result.selectedHeight, 1080)
   assert.equal(userGesture, true)
   assert.equal(decoy.calls, 0)
+  assert.match(wrapperScripts[0], /setDjScrobblerQualityAutomationActive\?\.\(true\)/)
+  assert.match(wrapperScripts[1], /setDjScrobblerQualityAutomationActive\?\.\(false\)/)
+})
+
+test('wrapper quality mask script is scoped to the hosted player', () => {
+  for (const active of [true, false]) {
+    const script = buildYouTubeWrapperQualityMaskScript(active)
+    assert.equal(vm.runInNewContext(script, {
+      location: { href: PLAYER_URL },
+      URL,
+      window: { setDjScrobblerQualityAutomationActive: value => value },
+    }), active)
+    assert.equal(vm.runInNewContext(script, {
+      location: { href: 'https://example.com/embed/youtube' },
+      URL,
+      window: { setDjScrobblerQualityAutomationActive: () => true },
+    }), false)
+  }
 })
 
 test('late-created, navigated, and replaced subframes are styled after readiness', () => {
