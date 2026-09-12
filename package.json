@@ -12,6 +12,7 @@
     "poc:shazam": "electron . --developer --shazam-poc",
     "poc:shazam:validate": "electron . --developer --shazam-validation",
     "poc:next-dj": "node scripts/pocs/next-dj.js",
+    "poc:cast:hls": "node scripts/pocs/hls-cast.js",
     "test": "node --test tests/run-tests.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",

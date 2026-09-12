@@ -1,6 +1,12 @@
 # TV casting plan
 
-Status: researched; implementation has not started.
+Status: phase 1 in progress. The tokenized LAN HLS server, shared FFmpeg
+encoder lifecycle, and a synthetic live-stream probe are implemented on the
+`codex/hls-casting` branch. Receiver discovery and CASTV2 control are next.
+
+Run `npm run poc:cast:hls` and open the printed LAN URL from another device on
+the same network. The probe uses `DJ_SCROBBLER_FFMPEG` when set and otherwise
+expects `ffmpeg` on `PATH`. Add `-- --duration=10` for a self-terminating run.
 
 ## Product contract
 
