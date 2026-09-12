@@ -191,6 +191,27 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
   assert.doesNotMatch(styleCss, /body\.video-mode-fullscreen/)
 })
 
+test('one TV control unifies remembered Chromecast and discovered AirPlay targets', () => {
+  for (const id of [
+    'btn-cast',
+    'casting-menu',
+    'casting-status',
+    'casting-devices',
+    'btn-casting-refresh',
+    'casting-airplay-note',
+  ]) assert.equal(indexHtml.includes(`id="${id}"`), true, `${id} missing from index.html`)
+  assert.match(appJs, /async function startCasting\(targetId\)/)
+  assert.match(appJs, /navigator\.mediaDevices\.getDisplayMedia/)
+  assert.match(appJs, /new MediaRecorder\(/)
+  assert.match(appJs, /if \(preferred\) \{[\s\S]*await startCasting\(preferred\.id\)/)
+  assert.match(appJs, /if \(castingIsActive\(\)\) \{[\s\S]*await stopCasting\(\)/)
+  assert.match(appJs, /btnCast\.addEventListener\('contextmenu'/)
+  assert.match(appJs, /device\.protocol === 'airplay'/)
+  assert.match(appJs, /casting\.status === 'choosing'/)
+  assert.match(styleCss, /#casting-menu/)
+  assert.match(styleCss, /#btn-cast\.casting #casting-button-dot/)
+})
+
 test('CSS custom properties are defined or supplied by renderer code', () => {
   const definitions = new Set([...styleCss.matchAll(/--([\w-]+)\s*:/g)].map(match => match[1]))
   const references = new Set([...styleCss.matchAll(/var\(--([\w-]+)/g)].map(match => match[1]))

@@ -103,8 +103,11 @@ html, body {
 }
 
 body.display-menu-open #topbar { z-index: 10000; }
+body.casting-menu-open #topbar { z-index: 10000; }
 body.display-menu-open #webview-container,
 body.display-menu-open #video-controls { pointer-events: none; }
+body.casting-menu-open #webview-container,
+body.casting-menu-open #video-controls { pointer-events: none; }
 
 body.platform-darwin #topbar {
   padding-left: 80px; /* macOS traffic lights */
@@ -248,7 +251,134 @@ body.platform-win32 #topbar {
 
 #header-actions { display: flex; gap: 6px; flex-shrink: 0; }
 
-#display-menu-wrap { position: relative; }
+#display-menu-wrap,
+#casting-menu-wrap { position: relative; }
+
+#btn-cast { position: relative; }
+#casting-button-dot {
+  display: none;
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent2);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent2) 75%, transparent);
+}
+#btn-cast.casting #casting-button-dot { display: block; }
+#btn-cast.busy svg { animation: casting-pulse 1.2s ease-in-out infinite; }
+
+@keyframes casting-pulse {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+
+#casting-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 9000;
+  width: 286px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg2) 96%, transparent);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, .46);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  -webkit-app-region: no-drag;
+}
+#casting-menu.hidden { display: none; }
+.casting-menu-heading {
+  min-height: 42px;
+  padding: 3px 5px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.casting-menu-heading strong,
+.casting-menu-heading small { display: block; }
+.casting-menu-heading strong { color: var(--text); font-size: 12px; font-weight: 700; }
+.casting-menu-heading small { margin-top: 3px; color: var(--text2); font-size: 9px; opacity: .72; }
+#btn-casting-refresh {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text2);
+  background: var(--bg3);
+  cursor: pointer;
+}
+#btn-casting-refresh:hover { color: var(--accent2); border-color: var(--accent2); }
+#btn-casting-refresh.refreshing svg { animation: set-metadata-spin .8s linear infinite; }
+#casting-status {
+  min-height: 26px;
+  padding: 9px 6px 5px;
+  color: var(--text2);
+  font-size: 9px;
+}
+#casting-status.error { color: var(--accent); }
+#casting-devices { display: flex; flex-direction: column; gap: 3px; }
+.casting-device-empty {
+  padding: 12px 7px 10px;
+  color: var(--text2);
+  font-size: 9px;
+  line-height: 1.45;
+  opacity: .72;
+}
+.casting-device {
+  width: 100%;
+  min-height: 48px;
+  padding: 7px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text2);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.casting-device:hover:not(:disabled) { background: var(--bg3); }
+.casting-device.preferred { background: color-mix(in srgb, var(--accent2) 8%, transparent); }
+.casting-device.active {
+  color: var(--accent2);
+  background: color-mix(in srgb, var(--accent2) 13%, var(--bg3));
+}
+.casting-device:disabled { cursor: default; opacity: .5; }
+.casting-device-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.casting-device-copy { min-width: 0; }
+.casting-device-name,
+.casting-device-detail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.casting-device-name { color: var(--text); font-size: 11px; }
+.casting-device-detail { margin-top: 2px; font-size: 8px; opacity: .68; }
+.casting-device-action { color: var(--accent2); font-size: 8px; text-transform: uppercase; }
+#casting-airplay-note {
+  margin: 7px 5px 2px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 8px;
+  line-height: 1.45;
+  opacity: .72;
+}
 
 #display-menu {
   position: absolute;

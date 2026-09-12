@@ -55,6 +55,13 @@ function collectSignablePaths(root) {
   }
 }
 
+function buildAirPlayHelper(appPath, projectDir = path.join(__dirname, '..'), execImpl = execFileSync) {
+  const destination = path.join(appPath, 'Contents', 'Resources', 'bin', 'dj-scrobbler-airplay')
+  const buildScript = path.join(projectDir, 'scripts', 'build-airplay-helper.sh')
+  execImpl('/bin/bash', [buildScript, destination, '--universal'], { stdio: 'inherit' })
+  return destination
+}
+
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return
 
@@ -63,6 +70,10 @@ exports.default = async function afterPack(context) {
     `${context.packager.appInfo.productName}.app`
   )
   console.log(`\n[afterPack] ad-hoc signing ${appPath}\n`)
+
+  // AirPlay route selection must use Apple's AVRoutePickerView. Compile the
+  // tiny native bridge into Resources before collecting the signing inventory.
+  buildAirPlayHelper(appPath)
 
   // A dynamic walk covers framework helpers such as Squirrel's ShipIt and
   // remains correct when Electron changes its nested component inventory.
@@ -76,4 +87,4 @@ exports.default = async function afterPack(context) {
   console.log('\n[afterPack] signature verified\n')
 }
 
-exports._test = { collectSignablePaths }
+exports._test = { buildAirPlayHelper, collectSignablePaths }

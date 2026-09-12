@@ -13,6 +13,7 @@ test('HLS encoder uses short aligned segments and a bounded rolling playlist', (
   assert.equal(args[args.indexOf('-g') + 1], '30')
   assert.equal(args[args.indexOf('-hls_time') + 1], '1')
   assert.equal(args[args.indexOf('-hls_list_size') + 1], '6')
+  assert.equal(args[args.indexOf('-b:v') + 1], '5M')
   assert.match(args[args.indexOf('-hls_flags') + 1], /delete_segments/)
   assert.equal(args.at(-1), path.join(directory, 'index.m3u8'))
 })

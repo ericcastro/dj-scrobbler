@@ -1,19 +1,26 @@
 # TV casting plan
 
-Status: phase 1 in progress. The tokenized LAN HLS server, shared FFmpeg
-encoder lifecycle, and a synthetic live-stream probe are implemented on the
-`codex/hls-casting` branch. Receiver discovery and CASTV2 control are next.
+Status: phases 1–2 are implemented on `codex/hls-casting`: the tokenized LAN
+HLS server, shared FFmpeg encoder, protocol-neutral TV chooser and discovery,
+CASTV2 control, focus-view capture, and the macOS AirPlay route-picker bridge.
+Physical receiver validation and a dedicated offscreen TV compositor remain.
 
 Run `npm run poc:cast:hls` and open the printed LAN URL from another device on
 the same network. The probe uses `DJ_SCROBBLER_FFMPEG` when set and otherwise
 expects `ffmpeg` on `PATH`. Add `-- --duration=10` for a self-terminating run.
+
+The integrated development path has the same encoder requirement today. A
+release must ship a signed, architecture-correct FFmpeg executable (and its
+license/source obligations) before TV casting qualifies as zero-setup for end
+users; silently relying on a Homebrew installation is not an acceptable final
+state.
 
 ## Product contract
 
 - The TV must receive the configured focus/enhanced view, including both overlays.
 - After a target has been chosen once, the Cast button is a true toggle: click to start on that TV, click again to stop.
 - If there is no saved target, selecting one from discovery starts playback immediately. If the saved target is unavailable, discovery replaces a failed silent guess.
-- The desktop remains the playback controller. A context menu can change the preferred TV without complicating the primary button.
+- The desktop remains the playback controller. Right-clicking the Cast button (or Shift/Option-clicking it) reopens the chooser without complicating the primary button.
 
 ## What established products do
 
@@ -29,20 +36,25 @@ This app cannot simply launch YouTube's Cast receiver because a separate receive
 4. Discover Cast targets over mDNS and persist the selected device identity rather than its changeable IP address.
 5. Launch Google's Default Media Receiver over CASTV2 and load the local HLS URL. A connected click sends stop and tears down capture, encoder, files, HTTP server, and Cast session.
 
+AirPlay consumes that same HLS URL through a tiny native AVPlayer helper. The
+chooser exposes one stable “AirPlay…” action because Apple—not the app—owns the
+actual route list and selection UI. Once playback starts, the shared header
+button tears down either protocol through the same lifecycle.
+
 The Default Media Receiver supports HLS and needs no receiver registration. Electron still does not expose Chrome's Media Router, so the sender side needs a small CASTV2 integration. The existing `node-castv2-client` proves the protocol route, but it is old; prefer a small audited/vendored adapter with contract tests over letting an abandoned dependency own application state.
 
 ## Delivery phases
 
 ### 1. Device and transport spike
 
-- Discover receivers, select one, persist it, launch/stop the Default Media Receiver.
-- Serve a generated HLS test card containing moving overlay-like content and audio.
+- **Implemented:** discover receivers, select one, persist it, and launch/stop the Default Media Receiver.
+- **Implemented:** serve a generated HLS test card containing moving overlay-like content and audio.
 - Measure start time, steady latency, reconnect behavior, and teardown on macOS plus at least one Cast target.
 
 ### 2. Existing-window capture
 
-- Capture the current focus/enhanced window using Electron's frame/window capture support.
-- Feed the unified audio/video stream to the encoder and Cast target.
+- **Implemented:** capture the current focus/enhanced window using Electron's frame/window capture support.
+- **Implemented:** feed the unified audio/video stream to the encoder and selected TV adapter.
 - This proves the full path with the real overlays before building a second renderer.
 
 ### 3. Dedicated TV compositor
@@ -53,7 +65,7 @@ The Default Media Receiver supports HLS and needs no receiver registration. Elec
 
 ### 4. AirPlay adapter
 
-- Reuse the same HLS output with a small macOS AVPlayer/AVRoutePickerView helper.
+- **Implemented:** reuse the same HLS output with a universal macOS AVPlayer/AVRoutePickerView helper that is built and signed with the app.
 - Apple deliberately owns route selection UI, so the first connection cannot be silently targeted through public APIs. Chromecast remains the path that can most closely satisfy the saved-target, one-click toggle.
 
 ## Rejected primary approaches

@@ -28,6 +28,15 @@ const {
 const { classifyMetadataOutlook } = require('./lib/metadata-outlook')
 const { mergeConfirmedYouTubeArtists } = require('./lib/youtube-page-data')
 const { writeJsonAtomic } = require('./lib/atomic-json')
+const { startFfmpegHls } = require('./lib/hls-encoder')
+const { startHlsServer } = require('./lib/hls-server')
+const { CastV2Client, selectDeviceAddress, selectPlaybackUrl } = require('./lib/castv2')
+const { buildTvTargets, TvDiscovery } = require('./lib/tv-discovery')
+const {
+  airPlayHelperAvailable,
+  resolveAirPlayHelperPath,
+  startAirPlayHelper,
+} = require('./lib/airplay-helper')
 const {
   migrateStats,
   recordListening,
@@ -174,6 +183,10 @@ let browserWvContents = null
 let pendingSourceUrl = null
 const attachedWebviews = new Map()
 let playerAudioCaptureGrant = null
+let castingCaptureGrant = null
+let tvDiscovery = null
+let castingSession = null
+let castingStatus = { status: 'idle', error: null }
 let shazamPocRun = null
 let windowPresentation = 'windowed'
 let focusWindowMode = false
@@ -2603,6 +2616,27 @@ async function runShazamValidation() {
 function installPlayerAudioCaptureHandler(electronSession) {
   electronSession.setDisplayMediaRequestHandler((request, callback) => {
     const requestingContents = request.frame ? webContents.fromFrame(request.frame) : null
+    const castGrant = castingCaptureGrant
+    const castingAllowed = !!(
+      castGrant &&
+      castGrant.expiresAt >= Date.now() &&
+      request.audioRequested &&
+      request.videoRequested &&
+      requestingContents?.id === castGrant.webContentsId &&
+      mainWindow?.webContents.id === castGrant.webContentsId
+    )
+    if (castingAllowed && request.frame) {
+      log(`[casting:capture] granted renderer=${requestingContents.id} audio=${playerWvContents?.id || requestingContents.id}`)
+      castingCaptureGrant = null
+      callback({
+        video: request.frame,
+        audio: playerWvContents?.mainFrame || request.frame,
+        // Avoid hearing the local player several seconds ahead of the TV.
+        // The capture track still carries the player audio into HLS.
+        enableLocalEcho: false,
+      })
+      return
+    }
     const grant = playerAudioCaptureGrant
     const allowed = !!(
       grant &&
@@ -4279,6 +4313,200 @@ function createWindow() {
   })
 }
 
+// ── TV casting ───────────────────────────────────────────────────────────────
+
+function preferredCastingTarget() {
+  return readStore().settings?.preferredCastingTarget || null
+}
+
+function airPlayHelperPath() {
+  return resolveAirPlayHelperPath({
+    overridePath: process.env.DJ_SCROBBLER_AIRPLAY_HELPER,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    appPath: __dirname,
+  })
+}
+
+function castingDevicesSnapshot() {
+  const devices = tvDiscovery?.snapshot() || []
+  const available = process.platform === 'darwin' && airPlayHelperAvailable(airPlayHelperPath())
+  return buildTvTargets(devices, { canAirPlay: available })
+}
+
+function castingStateSnapshot() {
+  return {
+    ...castingStatus,
+    devices: castingDevicesSnapshot(),
+    preferredTarget: preferredCastingTarget(),
+    target: castingSession?.target || castingStatus.target || null,
+  }
+}
+
+function sendCastingState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send('casting-state', castingStateSnapshot())
+}
+
+function setCastingStatus(status, detail = {}) {
+  castingStatus = { status, error: null, ...detail }
+  sendCastingState()
+}
+
+function initializeTvDiscovery() {
+  if (tvDiscovery) return
+  tvDiscovery = new TvDiscovery()
+  tvDiscovery.on('devices', () => sendCastingState())
+  tvDiscovery.on('error-state', error => {
+    log('[casting:discovery]', error)
+    sendCastingState()
+  })
+  try {
+    tvDiscovery.start()
+  } catch (error) {
+    log('[casting:discovery]', error?.stack || error?.message || error)
+  }
+}
+
+function rememberCastingTarget(target) {
+  const store = readStore()
+  if (!store.settings) store.settings = {}
+  store.settings.preferredCastingTarget = {
+    id: target.id,
+    protocol: target.protocol,
+    name: target.name,
+  }
+  writeStore(store)
+}
+
+async function disposeCastingSession(finalStatus = { status: 'idle', error: null }) {
+  const session = castingSession
+  castingSession = null
+  castingCaptureGrant = null
+  if (session) {
+    await Promise.all([
+      session.client?.stop().catch(() => {}),
+      session.airplay?.stop().catch(() => {}),
+      session.encoder?.stop().catch(() => {}),
+      session.server?.stop().catch(() => {}),
+    ])
+    try { fs.rmSync(session.directory, { recursive: true, force: true }) } catch {}
+  }
+  castingStatus = finalStatus
+  sendCastingState()
+  return castingStateSnapshot()
+}
+
+async function failCastingSession(error) {
+  const message = error?.message || String(error)
+  const target = castingSession?.target || castingStatus.target || null
+  log('[casting:error]', error?.stack || message)
+  return disposeCastingSession({ status: 'error', error: message, target })
+}
+
+async function prepareCastingSession(targetId) {
+  initializeTvDiscovery()
+  const target = castingDevicesSnapshot().find(device => device.id === targetId)
+  if (!target) throw new Error('That TV is no longer available. Refresh the device list and try again.')
+  if (!target.canConnect) throw new Error(`${target.name} cannot be connected yet.`)
+  if (!mainWindow || mainWindow.isDestroyed() || !playerWvContents || playerWvContents.isDestroyed()) {
+    throw new Error('Open a DJ set before sending it to a TV.')
+  }
+
+  await disposeCastingSession()
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dj-scrobbler-cast-'))
+  let server = null
+  let encoder = null
+  try {
+    server = await startHlsServer({ directory })
+    const hlsUrl = selectPlaybackUrl(server.playbackUrls, target)
+    if (!hlsUrl) throw new Error('No LAN address is available for the TV to reach this Mac.')
+    encoder = startFfmpegHls({
+      directory,
+      pipeInput: true,
+      videoCodec: process.platform === 'darwin' ? 'h264_videotoolbox' : 'libx264',
+      inputArgs: [
+        '-fflags', '+nobuffer',
+        '-thread_queue_size', '1024',
+        '-f', 'webm',
+        '-i', 'pipe:0',
+        '-map', '0:v:0',
+        '-map', '0:a:0?',
+      ],
+      onLog: chunk => log('[casting:ffmpeg]', chunk.trim()),
+    })
+    const sessionId = crypto.randomUUID()
+    castingSession = { sessionId, target, directory, server, encoder, hlsUrl, client: null, airplay: null }
+    castingCaptureGrant = {
+      webContentsId: mainWindow.webContents.id,
+      expiresAt: Date.now() + 15_000,
+    }
+    rememberCastingTarget(target)
+    setCastingStatus('preparing', { target })
+    return { ...castingStateSnapshot(), sessionId }
+  } catch (error) {
+    await Promise.all([
+      encoder?.stop().catch(() => {}),
+      server?.stop().catch(() => {}),
+    ])
+    try { fs.rmSync(directory, { recursive: true, force: true }) } catch {}
+    await failCastingSession(error)
+    throw error
+  }
+}
+
+async function startPreparedCastingSession(sessionId) {
+  const session = castingSession
+  if (!session || session.sessionId !== sessionId) throw new Error('The casting session has expired.')
+  try {
+    setCastingStatus('buffering', { target: session.target })
+    await session.encoder.ready
+    if (castingSession !== session) return castingStateSnapshot()
+
+    if (session.target.protocol === 'airplay') {
+      setCastingStatus('choosing', { target: session.target })
+      const helper = startAirPlayHelper({
+        helperPath: airPlayHelperPath(),
+        hlsUrl: session.hlsUrl,
+      })
+      session.airplay = helper
+      helper.events.on('status', event => {
+        if (castingSession !== session) return
+        if (event.status === 'casting') setCastingStatus('casting', { target: session.target })
+        if (event.status === 'stopped') disposeCastingSession().catch(() => {})
+        if (event.status === 'error') failCastingSession(new Error(event.message || 'AirPlay stopped unexpectedly.')).catch(() => {})
+      })
+      helper.exit.then(({ code, signal }) => {
+        if (castingSession !== session) return
+        if (castingStatus.status === 'casting') disposeCastingSession().catch(() => {})
+        else failCastingSession(new Error(`The AirPlay picker closed before a display was selected (${code ?? signal}).`)).catch(() => {})
+      })
+      await helper.ready
+      return castingStateSnapshot()
+    }
+
+    setCastingStatus('connecting', { target: session.target })
+    const address = selectDeviceAddress(session.target)
+    if (!address) throw new Error('The Chromecast did not advertise a reachable address.')
+    const client = new CastV2Client()
+    session.client = client
+    client.once('failure', error => {
+      if (castingSession === session) failCastingSession(error)
+    })
+    await client.connect(address, session.target.port || 8009)
+    await client.launchAndLoad(session.hlsUrl, {
+      title: currentSetTitle || 'DJ Scrobbler',
+      subtitle: 'Live from DJ Scrobbler',
+    })
+    if (castingSession !== session) return castingStateSnapshot()
+    setCastingStatus('casting', { target: session.target })
+    return castingStateSnapshot()
+  } catch (error) {
+    await failCastingSession(error)
+    throw error
+  }
+}
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -4292,6 +4520,7 @@ app.whenReady().then(() => {
   setDockIcon(theme)
   buildMenu()
   createWindow()
+  initializeTvDiscovery()
 
   // Clicking the dock icon shows the window if it's hidden
   app.on('activate', () => {
@@ -4305,6 +4534,8 @@ app.on('before-quit', () => {
   stopAutomaticRecognition('app-quit')
   clearTimeout(saveBoundsTimer) // prevent in-flight timer from firing on a destroyed window
   persistStatsNow()
+  tvDiscovery?.stop()
+  disposeCastingSession()
 })
 
 app.on('window-all-closed', () => {
@@ -4511,6 +4742,34 @@ ipcMain.handle('window-state-get', () => windowStateSnapshot())
 ipcMain.handle('window-presentation-set', (_event, mode) => setWindowPresentation(mode))
 ipcMain.handle('window-focus-mode-set', (_event, enabled) => setFocusWindowMode(enabled))
 ipcMain.handle('window-always-on-top-set', (_event, enabled) => setWindowAlwaysOnTop(enabled))
+ipcMain.handle('casting-state-get', () => {
+  initializeTvDiscovery()
+  return castingStateSnapshot()
+})
+ipcMain.handle('casting-discovery-refresh', () => {
+  initializeTvDiscovery()
+  tvDiscovery.refresh()
+  return castingStateSnapshot()
+})
+ipcMain.handle('casting-session-prepare', (_event, targetId) => prepareCastingSession(String(targetId || '')))
+ipcMain.handle('casting-capture-started', (_event, sessionId) => startPreparedCastingSession(String(sessionId || '')))
+ipcMain.handle('casting-session-stop', () => disposeCastingSession())
+ipcMain.handle('casting-capture-error', (_event, sessionId, message) => {
+  if (!castingSession || castingSession.sessionId !== sessionId) return castingStateSnapshot()
+  return failCastingSession(new Error(String(message || 'The focus window capture stopped.')))
+})
+ipcMain.on('casting-capture-chunk', (event, sessionId, bytes) => {
+  const session = castingSession
+  if (
+    !session ||
+    session.sessionId !== sessionId ||
+    event.sender.id !== mainWindow?.webContents.id ||
+    !bytes
+  ) return
+  const chunk = Buffer.from(bytes)
+  if (!chunk.length || chunk.length > 8 * 1024 * 1024) return
+  session.encoder.write(chunk)
+})
 ipcMain.handle('window-drag-start', (_event, point) => {
   if (!mainWindow || mainWindow.isFullScreen()) return false
   windowDragStart = { point, bounds: mainWindow.getBounds() }

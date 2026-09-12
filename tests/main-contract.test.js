@@ -76,6 +76,25 @@ test('immersive playback keeps YouTube controls scrapeable and requests higher q
   assert.match(mainJs, /scheduleYouTubeQualityBoost\('player-loaded'/)
 })
 
+test('TV casting shares one HLS capture path with protocol-neutral discovery', () => {
+  assert.match(mainJs, /require\(['"]\.\/lib\/hls-encoder['"]\)/)
+  assert.match(mainJs, /require\(['"]\.\/lib\/hls-server['"]\)/)
+  assert.match(mainJs, /require\(['"]\.\/lib\/castv2['"]\)/)
+  assert.match(mainJs, /require\(['"]\.\/lib\/tv-discovery['"]\)/)
+  assert.match(mainJs, /require\(['"]\.\/lib\/airplay-helper['"]\)/)
+  assert.match(mainJs, /function prepareCastingSession\(targetId\)/)
+  assert.match(mainJs, /target\.protocol === 'airplay'/)
+  assert.match(mainJs, /startAirPlayHelper\(/)
+  assert.match(mainJs, /video:\s*request\.frame/)
+  assert.match(mainJs, /audio:\s*playerWvContents\?\.mainFrame \|\| request\.frame/)
+  assert.match(mainJs, /enableLocalEcho:\s*false/)
+  assert.match(mainJs, /ipcMain\.handle\('casting-session-prepare'/)
+  assert.match(mainJs, /ipcMain\.on\('casting-capture-chunk'/)
+  assert.match(preloadJs, /castingSessionPrepare:/)
+  assert.match(preloadJs, /castingCaptureChunk:/)
+  assert.match(preloadJs, /'casting-state'/)
+})
+
 test('set-theme IPC handler delegates to setTitleBarTheme which calls setTitleBarOverlay on Windows', () => {
   // The handler calls a dedicated helper
   assert.match(mainJs, /ipcMain\.handle\('set-theme'/)

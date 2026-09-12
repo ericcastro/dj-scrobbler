@@ -4,7 +4,19 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { collectSignablePaths } = require('../scripts/afterPack')._test
+const { buildAirPlayHelper, collectSignablePaths } = require('../scripts/afterPack')._test
+
+test('macOS packaging builds the universal AirPlay helper into app resources', () => {
+  const calls = []
+  const appPath = path.join('/tmp', 'DJ Scrobbler.app')
+  const destination = buildAirPlayHelper(appPath, '/project', (...args) => calls.push(args))
+  assert.equal(destination, path.join(appPath, 'Contents', 'Resources', 'bin', 'dj-scrobbler-airplay'))
+  assert.deepEqual(calls, [[
+    '/bin/bash',
+    ['/project/scripts/build-airplay-helper.sh', destination, '--universal'],
+    { stdio: 'inherit' },
+  ]])
+})
 
 test('macOS signing inventory is collected inside-out without following symlinks', {
   skip: process.platform !== 'darwin',

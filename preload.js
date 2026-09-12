@@ -12,6 +12,13 @@ contextBridge.exposeInMainWorld('api', {
   setWindowPresentation: (mode) => ipcRenderer.invoke('window-presentation-set', mode),
   setFocusWindowMode: (enabled) => ipcRenderer.invoke('window-focus-mode-set', enabled),
   setAlwaysOnTop: (enabled) => ipcRenderer.invoke('window-always-on-top-set', enabled),
+  castingStateGet: () => ipcRenderer.invoke('casting-state-get'),
+  castingDiscoveryRefresh: () => ipcRenderer.invoke('casting-discovery-refresh'),
+  castingSessionPrepare: (targetId) => ipcRenderer.invoke('casting-session-prepare', targetId),
+  castingCaptureStarted: (sessionId) => ipcRenderer.invoke('casting-capture-started', sessionId),
+  castingCaptureChunk: (sessionId, bytes) => ipcRenderer.send('casting-capture-chunk', sessionId, bytes),
+  castingCaptureError: (sessionId, message) => ipcRenderer.invoke('casting-capture-error', sessionId, message),
+  castingSessionStop: () => ipcRenderer.invoke('casting-session-stop'),
   windowDragStart: (point) => ipcRenderer.invoke('window-drag-start', point),
   windowDragMove:  (point) => ipcRenderer.invoke('window-drag-move', point),
   windowDragEnd:   ()      => ipcRenderer.invoke('window-drag-end'),
@@ -55,7 +62,7 @@ contextBridge.exposeInMainWorld('api', {
   on: (channel, callback) => {
     const allowed = ['now-playing', 'wv-status', 'tracklist-loaded', 'tracklist-data', 'track-artwork', 'tracklist-options', 'set-metadata', 'source-metadata', 'set-availability', 'event-lookup-progress', 'recognition-state', 'stats-updated',
                      'lfm-status', 'menu-toggle-sidebar', 'menu-reload', 'playback-progress',
-                     'fallback-progress', 'tl-progress', 'update-status', 'window-state']
+                     'fallback-progress', 'tl-progress', 'update-status', 'window-state', 'casting-state']
     if (!allowed.includes(channel)) return
     ipcRenderer.on(channel, (_event, ...args) => callback(...args))
   },

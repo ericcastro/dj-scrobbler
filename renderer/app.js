@@ -68,6 +68,12 @@ const btnVideoNativeFullscreen = document.getElementById('btn-video-native-fulls
 const btnVideoHide       = document.getElementById('btn-video-hide')
 const btnDisplayMenu     = document.getElementById('btn-display-menu')
 const displayMenu        = document.getElementById('display-menu')
+const btnCast            = document.getElementById('btn-cast')
+const castingMenu        = document.getElementById('casting-menu')
+const castingDevices     = document.getElementById('casting-devices')
+const castingStatus      = document.getElementById('casting-status')
+const castingAirplayNote = document.getElementById('casting-airplay-note')
+const btnCastingRefresh  = document.getElementById('btn-casting-refresh')
 const btnImmersiveOptions = document.getElementById('btn-immersive-options')
 const immersiveOptionsWrap = document.getElementById('immersive-options-wrap')
 const immersiveOptionsMenu = document.getElementById('immersive-options-menu')
@@ -323,6 +329,8 @@ const ICON = {
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   miniPlayer: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/>',
   audioOnly: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+  cast: '<path d="M2 16.1a5 5 0 0 1 5 5"/><path d="M2 12.1a9 9 0 0 1 9 9"/><path d="M2 8.1a13 13 0 0 1 13 13"/><path d="M5 3h14a2 2 0 0 1 2 2v12"/>',
+  airplay: '<path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="m12 15 5 6H7l5-6z"/>',
   volume: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>',
   volume2: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>',
   volumeX: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>',
@@ -1560,6 +1568,7 @@ async function init() {
   restoreSidebarWidth()
   applyVideoMode(state.store.settings?.videoMode || 'inline', false)
   applyWindowState(await window.api.getWindowState())
+  renderCastingState(await window.api.castingStateGet())
   applyResponsiveSidebar()
   restoreRightPanelWidth()
   playerVolume = Math.max(0, Math.min(100, Math.round(Number(state.store.settings?.playerVolume ?? 80) || 0)))
@@ -1740,6 +1749,11 @@ let loadingWatchdogTimer = null
 const LOADING_WATCHDOG_MS = 15_000
 let pendingKeyboardSeekTarget = null
 let pendingKeyboardVolumeTarget = null
+let currentCastingState = { status: 'idle', devices: [], preferredTarget: null, target: null, error: null }
+let castingMediaRecorder = null
+let castingMediaStream = null
+let castingCaptureSessionId = null
+let castingChunkQueue = Promise.resolve()
 
 const IMMERSIVE_LAYOUT_DEFAULTS = {
   'now-playing': { x: 3.5, y: 66, width: 60, height: 27 },
@@ -2151,6 +2165,195 @@ function applyWindowState(windowState = {}) {
   updateVideoModeButtons()
 }
 
+function castingIsActive(status = currentCastingState.status) {
+  return ['preparing', 'buffering', 'choosing', 'connecting', 'casting'].includes(status)
+}
+
+function closeCastingMenu() {
+  castingMenu.classList.add('hidden')
+  document.body.classList.remove('casting-menu-open')
+  btnCast.setAttribute('aria-expanded', 'false')
+}
+
+function toggleCastingMenu() {
+  const willOpen = castingMenu.classList.contains('hidden')
+  castingMenu.classList.toggle('hidden', !willOpen)
+  document.body.classList.toggle('casting-menu-open', willOpen)
+  btnCast.setAttribute('aria-expanded', String(willOpen))
+  if (willOpen) {
+    closeDisplayMenu()
+    window.api.castingDiscoveryRefresh()
+      .then(renderCastingState)
+      .catch(error => renderCastingState({ ...currentCastingState, status: 'error', error: error?.message || String(error) }))
+  }
+}
+
+function castingStatusText(casting) {
+  const name = casting.target?.name || 'TV'
+  if (casting.status === 'preparing') return 'Preparing the focus view…'
+  if (casting.status === 'buffering') return 'Building the live stream…'
+  if (casting.status === 'choosing') return 'Choose an AirPlay display in Apple’s picker…'
+  if (casting.status === 'connecting') return `Connecting to ${name}…`
+  if (casting.status === 'casting') return `Playing on ${name}. Click again to stop.`
+  if (casting.status === 'error') return casting.error || 'The TV connection failed.'
+  if (!casting.devices?.length) return 'No TVs found yet.'
+  return 'Choose a TV. It will be remembered for next time.'
+}
+
+function renderCastingState(next = {}) {
+  currentCastingState = {
+    status: next.status || 'idle',
+    devices: Array.isArray(next.devices) ? next.devices : [],
+    preferredTarget: next.preferredTarget || null,
+    target: next.target || null,
+    error: next.error || null,
+  }
+  if (state.store.settings && currentCastingState.preferredTarget) {
+    state.store.settings.preferredCastingTarget = currentCastingState.preferredTarget
+  }
+  const active = castingIsActive()
+  btnCast.classList.toggle('active', active)
+  btnCast.classList.toggle('busy', ['preparing', 'buffering', 'choosing', 'connecting'].includes(currentCastingState.status))
+  btnCast.classList.toggle('casting', currentCastingState.status === 'casting')
+  btnCast.title = active
+    ? `Stop sending to ${currentCastingState.target?.name || 'TV'}`
+    : (currentCastingState.preferredTarget ? 'Send to TV · right-click to choose another' : 'Send to TV')
+  btnCast.setAttribute('aria-label', btnCast.title)
+  castingStatus.textContent = castingStatusText(currentCastingState)
+  castingStatus.classList.toggle('error', currentCastingState.status === 'error')
+  castingDevices.replaceChildren()
+
+  const hasAirPlay = currentCastingState.devices.some(device => device.protocol === 'airplay')
+  castingAirplayNote.classList.toggle('hidden', !hasAirPlay)
+  for (const device of currentCastingState.devices) {
+    const isCurrent = active && currentCastingState.target?.id === device.id
+    const isPreferred = currentCastingState.preferredTarget?.id === device.id
+    const button = document.createElement('button')
+    button.className = `casting-device${isCurrent ? ' active' : ''}${isPreferred ? ' preferred' : ''}`
+    button.type = 'button'
+    button.disabled = !device.canConnect && !isCurrent
+    button.dataset.castingTarget = device.id
+
+    const deviceIcon = document.createElement('span')
+    deviceIcon.className = 'casting-device-icon'
+    deviceIcon.innerHTML = icon(device.protocol === 'airplay' ? ICON.airplay : ICON.cast, 14)
+    const copy = document.createElement('span')
+    copy.className = 'casting-device-copy'
+    const name = document.createElement('span')
+    name.className = 'casting-device-name'
+    name.textContent = device.name
+    const detail = document.createElement('span')
+    detail.className = 'casting-device-detail'
+    detail.textContent = device.model || (device.protocol === 'airplay' ? 'Apple AirPlay' : 'Chromecast')
+    copy.append(name, detail)
+    const action = document.createElement('span')
+    action.className = 'casting-device-action'
+    action.textContent = isCurrent ? 'stop' : (isPreferred ? 'default' : '')
+    button.append(deviceIcon, copy, action)
+    castingDevices.appendChild(button)
+  }
+
+  if (!currentCastingState.devices.length) {
+    const empty = document.createElement('div')
+    empty.className = 'casting-device-empty'
+    empty.textContent = 'Make sure the TV is awake and on the same network.'
+    castingDevices.appendChild(empty)
+  }
+
+  if (!active && castingMediaStream) stopLocalCastingCapture()
+}
+
+function stopLocalCastingCapture() {
+  const recorder = castingMediaRecorder
+  const stream = castingMediaStream
+  castingMediaRecorder = null
+  castingMediaStream = null
+  castingCaptureSessionId = null
+  if (recorder && recorder.state !== 'inactive') {
+    try { recorder.stop() } catch {}
+  }
+  stream?.getTracks().forEach(track => track.stop())
+}
+
+async function stopCasting() {
+  stopLocalCastingCapture()
+  renderCastingState(await window.api.castingSessionStop())
+}
+
+function supportedCastingMimeType() {
+  return [
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9,opus',
+    'video/webm',
+  ].find(type => MediaRecorder.isTypeSupported(type)) || ''
+}
+
+async function settleFocusComposition() {
+  if (currentWindowPresentation === 'app-fullscreen') await setPresentation('windowed')
+  if (currentVideoMode !== 'focus') applyVideoMode('focus')
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+}
+
+async function startCasting(targetId) {
+  closeCastingMenu()
+  await settleFocusComposition()
+  const prepared = await window.api.castingSessionPrepare(targetId)
+  const sessionId = prepared.sessionId
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30, max: 30 },
+      },
+      audio: true,
+    })
+    if (!stream.getVideoTracks().length) throw new Error('The focus window capture has no video track.')
+    if (!stream.getAudioTracks().length) throw new Error('The player capture has no audio track.')
+    const mimeType = supportedCastingMimeType()
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 8_000_000 } : undefined)
+    castingMediaStream = stream
+    castingMediaRecorder = recorder
+    castingCaptureSessionId = sessionId
+    castingChunkQueue = Promise.resolve()
+    recorder.addEventListener('dataavailable', event => {
+      if (!event.data?.size) return
+      castingChunkQueue = castingChunkQueue.then(async () => {
+        const bytes = await event.data.arrayBuffer()
+        window.api.castingCaptureChunk(sessionId, bytes)
+      })
+    })
+    recorder.addEventListener('error', event => {
+      window.api.castingCaptureError(sessionId, event.error?.message || 'The focus window recorder failed.')
+    })
+    for (const track of stream.getTracks()) {
+      track.addEventListener('ended', () => {
+        if (castingCaptureSessionId === sessionId && castingIsActive()) stopCasting().catch(() => {})
+      }, { once: true })
+    }
+    recorder.start(250)
+    renderCastingState(await window.api.castingCaptureStarted(sessionId))
+  } catch (error) {
+    stopLocalCastingCapture()
+    await window.api.castingCaptureError(sessionId, error?.message || String(error)).catch(() => {})
+    throw error
+  }
+}
+
+async function handleCastButton() {
+  if (castingIsActive()) {
+    await stopCasting()
+    return
+  }
+  const preferredId = currentCastingState.preferredTarget?.id
+  const preferred = currentCastingState.devices.find(device => device.id === preferredId && device.canConnect)
+  if (preferred) {
+    await startCasting(preferred.id)
+    return
+  }
+  toggleCastingMenu()
+}
+
 function closeDisplayMenu() {
   displayMenu.classList.add('hidden')
   document.body.classList.remove('display-menu-open')
@@ -2162,6 +2365,7 @@ function toggleDisplayMenu() {
   displayMenu.classList.toggle('hidden', !willOpen)
   document.body.classList.toggle('display-menu-open', willOpen)
   btnDisplayMenu.setAttribute('aria-expanded', String(willOpen))
+  if (willOpen) closeCastingMenu()
 }
 
 function closeImmersiveOptionsMenu() {
@@ -4980,6 +5184,41 @@ function wireEvents() {
   btnSidebarToggle.addEventListener('click', () => toggleSidebar())
   btnTracklistToggle.addEventListener('click', () => toggleRightPanel())
   btnVideoMode.addEventListener('click', cycleVideoMode)
+  btnCast.addEventListener('click', (event) => {
+    event.stopPropagation()
+    if (!castingIsActive() && (event.altKey || event.shiftKey)) {
+      toggleCastingMenu()
+      return
+    }
+    handleCastButton().catch(error => {
+      renderCastingState({ ...currentCastingState, status: 'error', error: error?.message || String(error) })
+      toggleCastingMenu()
+    })
+  })
+  btnCast.addEventListener('contextmenu', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!castingIsActive()) toggleCastingMenu()
+  })
+  btnCastingRefresh.addEventListener('click', (event) => {
+    event.stopPropagation()
+    btnCastingRefresh.classList.add('refreshing')
+    window.api.castingDiscoveryRefresh()
+      .then(renderCastingState)
+      .catch(error => renderCastingState({ ...currentCastingState, status: 'error', error: error?.message || String(error) }))
+      .finally(() => btnCastingRefresh.classList.remove('refreshing'))
+  })
+  castingDevices.addEventListener('click', (event) => {
+    const target = event.target.closest('[data-casting-target]')
+    if (!target || target.disabled) return
+    const action = castingIsActive() && currentCastingState.target?.id === target.dataset.castingTarget
+      ? stopCasting()
+      : startCasting(target.dataset.castingTarget)
+    action.catch(error => {
+      renderCastingState({ ...currentCastingState, status: 'error', error: error?.message || String(error) })
+      if (castingMenu.classList.contains('hidden')) toggleCastingMenu()
+    })
+  })
   btnVideoDock.addEventListener('click', () => applyVideoMode(videoModePrimaryAction()))
   btnVideoFullscreen.addEventListener('click', () => {
     handleDisplayAction('focus')
@@ -5054,8 +5293,10 @@ function wireEvents() {
   })
   videoControls.addEventListener('mousedown', startWindowDrag)
   window.api.on('window-state', applyWindowState)
+  window.api.on('casting-state', renderCastingState)
   document.addEventListener('click', (event) => {
     if (!event.target.closest('#display-menu-wrap')) closeDisplayMenu()
+    if (!event.target.closest('#casting-menu-wrap')) closeCastingMenu()
     if (!event.target.closest('#immersive-options-wrap')) closeImmersiveOptionsMenu()
   })
   window.addEventListener('resize', applyResponsiveSidebar)
