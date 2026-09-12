@@ -212,6 +212,14 @@ test('one TV control unifies remembered Chromecast and discovered AirPlay target
   assert.match(styleCss, /#btn-cast\.casting #casting-button-dot/)
 })
 
+test('TV capture preserves high-quality stereo music audio', () => {
+  assert.match(appJs, /audioBitsPerSecond:\s*320_000/)
+  assert.match(appJs, /sampleRate:\s*\{\s*ideal:\s*48_000\s*\}/)
+  assert.match(appJs, /echoCancellation:\s*false/)
+  assert.match(appJs, /noiseSuppression:\s*false/)
+  assert.match(appJs, /autoGainControl:\s*false/)
+})
+
 test('CSS custom properties are defined or supplied by renderer code', () => {
   const definitions = new Set([...styleCss.matchAll(/--([\w-]+)\s*:/g)].map(match => match[1]))
   const references = new Set([...styleCss.matchAll(/var\(--([\w-]+)/g)].map(match => match[1]))

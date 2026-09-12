@@ -14,8 +14,21 @@ test('HLS encoder uses short aligned segments and a bounded rolling playlist', (
   assert.equal(args[args.indexOf('-hls_time') + 1], '1')
   assert.equal(args[args.indexOf('-hls_list_size') + 1], '6')
   assert.equal(args[args.indexOf('-b:v') + 1], '5M')
+  assert.equal(args[args.indexOf('-profile:a') + 1], 'aac_low')
+  assert.equal(args[args.indexOf('-b:a') + 1], '320k')
+  assert.equal(args[args.indexOf('-ar') + 1], '48000')
+  assert.equal(args[args.indexOf('-ac') + 1], '2')
   assert.match(args[args.indexOf('-hls_flags') + 1], /delete_segments/)
   assert.equal(args.at(-1), path.join(directory, 'index.m3u8'))
+})
+
+test('HLS encoder does not apply an AAC profile to another audio codec', () => {
+  const args = buildHlsOutputArgs({
+    directory: path.join(os.tmpdir(), 'hls-output'),
+    audioCodec: 'libopus',
+  })
+  assert.equal(args[args.indexOf('-c:a') + 1], 'libopus')
+  assert.equal(args.includes('-profile:a'), false)
 })
 
 test('HLS readiness requires both a manifest entry and its completed segment', async () => {

@@ -165,6 +165,47 @@ test('quality script drives the controls menu and verifies the decoded resolutio
   assert.equal(result.verified, true)
 })
 
+test('quality script follows the newer sheet menu through Advanced', async () => {
+  let menu = 'closed'
+  const video = { clientHeight: 1080, videoHeight: 480 }
+  const element = (label, click) => ({
+    textContent: label,
+    getAttribute: name => name === 'aria-label' ? label : null,
+    closest() { return this },
+    click,
+  })
+  const settings = element('Playback settings', () => { menu = 'settings' })
+  const quality = element('Quality 480p', () => { menu = 'policy' })
+  const advanced = element('Advanced', () => { menu = 'quality' })
+  const p1080 = element('1080p', () => { video.videoHeight = 1080 })
+  const p1440 = element('1440p', () => { video.videoHeight = 1440 })
+  const document = {
+    documentElement: { clientHeight: 1080 },
+    querySelector: selector => {
+      if (selector === 'video') return video
+      if (selector === '#player-controls-a11y-toggle') return null
+      if (selector.includes('Playback settings')) return settings
+      return null
+    },
+    querySelectorAll: () => {
+      if (menu === 'settings') return [quality]
+      if (menu === 'policy') return [advanced]
+      if (menu === 'quality') return [p1080, p1440]
+      return []
+    },
+  }
+  const result = await vm.runInNewContext(buildYouTubeQualityScript(1080), {
+    location: { href: EMBED_URL.replace('controls=0', 'controls=1') },
+    URL,
+    document,
+    devicePixelRatio: 1,
+    setTimeout,
+  })
+  assert.equal(result.status, 'selected')
+  assert.equal(result.selectedHeight, 1080)
+  assert.equal(result.verified, true)
+})
+
 test('quality driver executes only in the exact controls-enabled YouTube subframe', async () => {
   const main = new Frame(PLAYER_URL)
   const decoy = new Frame('https://www.youtube.com/watch?v=abcdefghijk')

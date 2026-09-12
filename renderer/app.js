@@ -2306,12 +2306,26 @@ async function startCasting(targetId) {
         height: { ideal: 1080 },
         frameRate: { ideal: 30, max: 30 },
       },
-      audio: true,
+      // Preserve music rather than letting capture defaults treat it like a
+      // microphone. Chromium may ignore unsupported display-audio hints, but
+      // the non-processing intent is explicit wherever the platform supports it.
+      audio: {
+        channelCount: { ideal: 2 },
+        sampleRate: { ideal: 48_000 },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
     })
     if (!stream.getVideoTracks().length) throw new Error('The focus window capture has no video track.')
     if (!stream.getAudioTracks().length) throw new Error('The player capture has no audio track.')
     const mimeType = supportedCastingMimeType()
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 8_000_000 } : undefined)
+    const recorderOptions = {
+      videoBitsPerSecond: 8_000_000,
+      audioBitsPerSecond: 320_000,
+      ...(mimeType ? { mimeType } : {}),
+    }
+    const recorder = new MediaRecorder(stream, recorderOptions)
     castingMediaStream = stream
     castingMediaRecorder = recorder
     castingCaptureSessionId = sessionId
