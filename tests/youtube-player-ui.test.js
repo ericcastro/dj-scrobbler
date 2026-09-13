@@ -168,6 +168,7 @@ test('quality script drives the controls menu and verifies the decoded resolutio
 
 test('quality script follows the newer sheet menu through Advanced', async () => {
   let menu = 'closed'
+  let menuDismissed = false
   const video = { clientHeight: 1080, videoHeight: 480 }
   const element = (label, click) => ({
     textContent: label,
@@ -176,6 +177,18 @@ test('quality script follows the newer sheet menu through Advanced', async () =>
     click,
   })
   const settings = element('Playback settings', () => { menu = 'settings' })
+  settings.getAttribute = name => {
+    if (name === 'aria-label') return 'Playback settings'
+    if (name === 'aria-expanded') return menu === 'closed' ? 'false' : 'true'
+    return null
+  }
+  settings.click = () => {
+    if (menu === 'closed') menu = 'settings'
+    else {
+      menu = 'closed'
+      menuDismissed = true
+    }
+  }
   const quality = element('Quality 480p', () => { menu = 'policy' })
   const advanced = element('Advanced', () => { menu = 'quality' })
   const p1080 = element('1080p', () => { video.videoHeight = 1080 })
@@ -185,7 +198,10 @@ test('quality script follows the newer sheet menu through Advanced', async () =>
     querySelector: selector => {
       if (selector === 'video') return video
       if (selector === '#player-controls-a11y-toggle') return null
-      if (selector.includes('Playback settings')) return settings
+      if (selector.includes('Playback settings')) {
+        if (selector.includes('aria-expanded')) return menu === 'closed' ? null : settings
+        return settings
+      }
       return null
     },
     querySelectorAll: () => {
@@ -205,6 +221,7 @@ test('quality script follows the newer sheet menu through Advanced', async () =>
   assert.equal(result.status, 'selected')
   assert.equal(result.selectedHeight, 1080)
   assert.equal(result.verified, true)
+  assert.equal(menuDismissed, true)
 })
 
 test('quality driver executes only in the exact controls-enabled YouTube subframe', async () => {
