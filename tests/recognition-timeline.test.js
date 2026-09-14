@@ -33,6 +33,24 @@ test('only two equal Shazam results become a muted analysis candidate', () => {
   assert.equal(segmentAtTime(two, 35), null)
 })
 
+test('one Shazam response with several internal matches is strong enough to commit', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'Cloudy', 'Pulse', '1', { matchCount: 3 }),
+  ], { sessionStartSeconds: 0 })
+
+  assert.equal(timeline.length, 1)
+  assert.equal(timeline[0].title, 'Pulse')
+  assert.equal(timeline[0].autoRecognized, true)
+})
+
+test('one weak Shazam response still stays out of the public timeline', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'Noise', 'Maybe', 'x', { matchCount: 2 }),
+  ], { sessionStartSeconds: 0 })
+
+  assert.equal(timeline.length, 0)
+})
+
 test('two equal Shazam results graduate when their sixty-second window closes', () => {
   const timeline = buildRecognitionTimeline([
     match(10, 'Cloudy', 'Pulse', '1'),

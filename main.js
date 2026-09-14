@@ -127,6 +127,8 @@ const AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS = 10
 const AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS = 15
 const AUTOMATIC_RECOGNITION_CLIP_SECONDS = 10
 const AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 9_500
+const AUTOMATIC_RECOGNITION_POLL_TIMEOUT_MS = 5_000
+const AUTOMATIC_RECOGNITION_CAPTURE_GRACE_MS = 12_000
 const AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000
 const AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS = 2_500
 const AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS = 60
@@ -1284,6 +1286,16 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+function withTimeout(promise, timeoutMs, message = 'Operation timed out.') {
+  let timer = null
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), Math.max(1, Number(timeoutMs) || 1))
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
 async function waitForYouTubePlayer({ sourceUrl = null, timeoutMs = 30_000 } = {}) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -1336,9 +1348,13 @@ async function captureYouTubePlayerAudio(contents, clipSeconds = SHAZAM_POC_CLIP
   }
   try {
     log(`[recognition:capture] requesting ${clipSeconds}s from player webContents=${contents.id}`)
-    const capture = await contents.executeJavaScript(
-      buildFrameAudioCaptureScript({ clipSeconds, sampleRate: 16_000 }),
-      true
+    const capture = await withTimeout(
+      contents.executeJavaScript(
+        buildFrameAudioCaptureScript({ clipSeconds, sampleRate: 16_000 }),
+        true
+      ),
+      clipSeconds * 1000 + AUTOMATIC_RECOGNITION_CAPTURE_GRACE_MS,
+      'Audio capture timed out.',
     )
     if (!capture) throw new Error('The player returned no capture result.')
     log(`[recognition:capture] frames=${capture.frameCount} input=${capture.inputSampleRate}Hz/${capture.inputChannels}ch output=${capture.sampleRate}Hz peak=${Number(capture.peak).toFixed(5)} rms=${Number(capture.rms).toFixed(5)} track="${capture.audioTrackLabel || ''}"`)
@@ -1422,6 +1438,18 @@ function sendAutomaticRecognitionState(patch = {}) {
       AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS,
     ],
     nextSampleAt: session?.nextSampleAt || null,
+    lastAttemptAt: session?.lastAttemptAt || null,
+    lastResult: session?.lastResult || null,
+    lastError: session?.lastError || null,
+    sampleCount: session?.sampleCount || 0,
+    candidate: session?.candidate
+      ? {
+          artist: session.candidate.artist || '',
+          title: session.candidate.title || '',
+          count: session.candidate.recognitionCandidateCount || 0,
+          requiredCount: session.candidate.recognitionRequiredCount || 3,
+        }
+      : null,
     ...patch,
   }
   const serialized = JSON.stringify(payload)
@@ -1562,9 +1590,24 @@ async function requestAutomaticRecognition(reason = 'interval') {
   const contents = playerWvContents
   if (!contents || contents.isDestroyed() || session.sourceUrl !== currentSourceUrl) return false
   session.polling = true
-  const before = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+  const before = await withTimeout(
+    contents.executeJavaScript(YT_POLL_SCRIPT),
+    AUTOMATIC_RECOGNITION_POLL_TIMEOUT_MS,
+    'Player state check timed out.',
+  ).catch(error => {
+    session.lastAttemptAt = Date.now()
+    session.lastResult = 'error'
+    session.lastError = error?.message || String(error)
+    log(`[recognition] poll failed reason=${reason}: ${session.lastError}`)
+    return null
+  })
   session.polling = false
   if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
+  if (!before) {
+    session.phase = 'listening'
+    sendAutomaticRecognitionState()
+    return false
+  }
   if (!before?.isPlaying) {
     session.phase = 'paused'
     sendAutomaticRecognitionState()
@@ -1574,6 +1617,7 @@ async function requestAutomaticRecognition(reason = 'interval') {
   session.busy = true
   session.phase = 'recognizing'
   session.lastRequestAt = now
+  session.lastAttemptAt = now
   lastRecognitionRequestAt = now
   session.nextSampleAt = null
   sendAutomaticRecognitionState({ reason })
@@ -1620,6 +1664,9 @@ async function requestAutomaticRecognition(reason = 'interval') {
       capturedAt: new Date().toISOString(),
       recognition: recognized.result,
     })
+    session.lastResult = recognized.result.matched ? 'match' : 'no-match'
+    session.lastError = null
+    session.sampleCount = session.observations.length
     writeAutomaticRecognitionObservations(session.sourceUrl, session.observations, session.setEndSeconds)
     refreshAutomaticRecognitionTimeline(session)
     if (recognized.result.matched) {
@@ -1642,7 +1689,11 @@ async function requestAutomaticRecognition(reason = 'interval') {
       session.lastCandidateNowPlayingKey = null
       lfmUpdateNowPlaying(newlyCommitted.artist, newlyCommitted.title)
       lfmScrobble(newlyCommitted.artist, newlyCommitted.title, inferredStartedAt, currentSetTitle)
-      log(`[recognition] confidence confirmed track="${newlyCommitted.raw}" matches=3`)
+      const shazamMatchCount = Number(newlyCommitted.recognition?.matchCount) || 0
+      const confidenceEvidence = shazamMatchCount >= 3
+        ? `shazamMatches=${shazamMatchCount}`
+        : 'repeatSamples=true'
+      log(`[recognition] confidence confirmed track="${newlyCommitted.raw}" ${confidenceEvidence}`)
     } else if (session.candidate) {
       if (session.lastCandidateNowPlayingKey !== session.candidate.key) {
         lfmUpdateNowPlaying(session.candidate.artist, session.candidate.title)
@@ -1661,6 +1712,10 @@ async function requestAutomaticRecognition(reason = 'interval') {
     // Capture/network failures are not timeline evidence. Only a valid Shazam
     // no-match response creates or extends an unresolved region.
     applyRecognitionServiceBackoff(session, error)
+    session.lastResult = 'error'
+    session.lastError = error?.name === 'AbortError'
+      ? 'Recognition request timed out.'
+      : (error?.message || String(error))
     log(`[recognition] sample failed reason=${reason}: ${error?.name === 'AbortError' ? 'request timed out' : (error?.message || error)}`)
     sendAutomaticRecognitionState({ error: error?.message || String(error) })
     return false
@@ -1680,6 +1735,7 @@ async function startAutomaticRecognition() {
   const generation = automaticRecognitionGeneration
   const cachedRecognition = readAutomaticRecognitionObservations(sourceUrl)
   const observations = cachedRecognition.observations
+  const latestCachedObservation = observations[observations.length - 1] || null
   let player = null
   try {
     player = await waitForYouTubePlayer({ sourceUrl, timeoutMs: 15_000 })
@@ -1739,6 +1795,14 @@ async function startAutomaticRecognition() {
     polling: false,
     phase: player.poll.isEnded ? 'complete' : (player.poll.isPlaying ? 'listening' : 'paused'),
     inUnidentified: observations.length === 0,
+    lastAttemptAt: latestCachedObservation
+      ? Date.parse(latestCachedObservation.capturedAt || latestCachedObservation.recognition?.recognizedAt || '') || null
+      : null,
+    lastResult: latestCachedObservation
+      ? (latestCachedObservation.recognition?.matched ? 'match' : 'no-match')
+      : null,
+    lastError: null,
+    sampleCount: observations.length,
     fromCache: observations.length > 0,
     wasPlaying: !!player.poll.isPlaying,
   }

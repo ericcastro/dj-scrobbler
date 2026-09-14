@@ -247,6 +247,9 @@ test('automatic recognition requires repeated confidence and finalizes unresolve
   assert.match(mainJs, /setEndSeconds: session\.atEnd \? session\.setEndSeconds : null/)
   assert.match(mainJs, /still analyzing track=/)
   assert.match(mainJs, /!track\.isRecognitionCandidate/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_POLL_TIMEOUT_MS = 5_000/)
+  assert.match(mainJs, /Audio capture timed out\./)
+  assert.match(mainJs, /lastResult: session\?\.lastResult/)
 })
 
 test('automatic recognition observations are a private bounded cache', () => {

@@ -2984,6 +2984,12 @@ function renderRecognitionStatus() {
   if (recognition.phase === 'recognizing') message = 'Identifying this audio…'
   else if (recognition.phase === 'complete') message = 'Shazam identification complete'
   else if (recognition.phase === 'paused') message = 'Shazam identification pauses with playback'
+  else if (recognition.candidate?.count) {
+    const label = [recognition.candidate.artist, recognition.candidate.title].filter(Boolean).join(' — ')
+    message = `Confirming ${label || 'this track'} (${recognition.candidate.count}/${recognition.candidate.requiredCount || 3})…`
+  }
+  else if (recognition.lastResult === 'error') message = 'Shazam capture failed — retrying…'
+  else if (recognition.lastResult === 'no-match') message = 'No match yet — Shazam is still listening…'
   else if (recognition.inUnidentified) message = 'Listening inside an unidentified section…'
   else message = 'Listening for the next track…'
 
