@@ -65,6 +65,7 @@ const {
   buildRecognitionTimeline,
   carryForwardRecognitionDecision,
   randomSampleIntervalSeconds,
+  recognitionRecoveryPoints,
   recognitionKey,
   segmentAtTime,
   upsertRecognitionObservation,
@@ -127,11 +128,15 @@ const AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS = 10
 const AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS = 15
 const AUTOMATIC_RECOGNITION_CLIP_SECONDS = 10
 const AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS = 9_500
+const AUTOMATIC_RECOGNITION_MIN_RMS = 0.0005
 const AUTOMATIC_RECOGNITION_POLL_TIMEOUT_MS = 5_000
 const AUTOMATIC_RECOGNITION_CAPTURE_GRACE_MS = 12_000
 const AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000
 const AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS = 2_500
 const AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS = 60
+const AUTOMATIC_RECOGNITION_RECOVERY_GAP_SECONDS = 45
+const AUTOMATIC_RECOGNITION_RECOVERY_SPACING_SECONDS = 90
+const AUTOMATIC_RECOGNITION_RETRY_AFTER_MS = 24 * 60 * 60 * 1000
 const PUBLISHED_UNIDENTIFIED_RETRY_MS = 24 * 60 * 60 * 1000
 // The first fresh sample after reopening can be separated from the final
 // cached sample by more than the normal 60-second confidence window. Only
@@ -1309,6 +1314,46 @@ async function waitForYouTubePlayer({ sourceUrl = null, timeoutMs = 30_000 } = {
   throw new Error('Timed out waiting for the YouTube player.')
 }
 
+async function waitForYouTubeContents(contents, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!contents || contents.isDestroyed()) break
+    const poll = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+    if (poll && poll.duration > 0) return poll
+    await delay(250)
+  }
+  throw new Error('Timed out waiting for the recovery player.')
+}
+
+async function seekPausedYouTubePlayer(contents, seconds) {
+  const target = Math.max(0, Number(seconds) || 0)
+  const accepted = await contents.executeJavaScript(`
+    (() => {
+      const p = window.ytPlayer
+      if (!p || typeof p.seekTo !== 'function') return false
+      p.seekTo(${target}, true)
+      // YouTube does not reliably fetch a distant seek while paused. This is
+      // the isolated recovery player and its BrowserWindow remains muted, so
+      // let it run only long enough to buffer the requested historical point.
+      if (typeof p.playVideo === 'function') p.playVideo()
+      return true
+    })()
+  `, true)
+  if (!accepted) throw new Error('The recovery player was not ready to seek.')
+
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    const poll = await contents.executeJavaScript(YT_POLL_SCRIPT).catch(() => null)
+    if (poll?.isPlaying && Math.abs(Number(poll.currentTime) - target) < 8) {
+      await contents.executeJavaScript(YT_PAUSE_SCRIPT).catch(() => {})
+      await delay(AUTOMATIC_RECOGNITION_SEEK_SETTLE_MS)
+      return poll
+    }
+    await delay(250)
+  }
+  throw new Error(`Timed out preparing recovery sample at ${target}s.`)
+}
+
 async function seekYouTubePlayerForPoc(contents, seconds) {
   const target = Math.max(0, Number(seconds) || 0)
   await contents.executeJavaScript(`
@@ -1340,17 +1385,21 @@ function decodeCapturedFloat32(capture) {
   return new Float32Array(arrayBuffer)
 }
 
-async function captureYouTubePlayerAudio(contents, clipSeconds = SHAZAM_POC_CLIP_SECONDS) {
+async function captureYouTubePlayerAudio(contents, clipSeconds = SHAZAM_POC_CLIP_SECONDS, {
+  drivePlayback = false,
+  enableLocalEcho = true,
+} = {}) {
   if (!contents || contents.isDestroyed()) throw new Error('The YouTube player webview is unavailable.')
   playerAudioCaptureGrant = {
     webContentsId: contents.id,
     expiresAt: Date.now() + 5_000,
+    enableLocalEcho: !!enableLocalEcho,
   }
   try {
     log(`[recognition:capture] requesting ${clipSeconds}s from player webContents=${contents.id}`)
     const capture = await withTimeout(
       contents.executeJavaScript(
-        buildFrameAudioCaptureScript({ clipSeconds, sampleRate: 16_000 }),
+        buildFrameAudioCaptureScript({ clipSeconds, sampleRate: 16_000, drivePlayback }),
         true
       ),
       clipSeconds * 1000 + AUTOMATIC_RECOGNITION_CAPTURE_GRACE_MS,
@@ -1358,13 +1407,86 @@ async function captureYouTubePlayerAudio(contents, clipSeconds = SHAZAM_POC_CLIP
     )
     if (!capture) throw new Error('The player returned no capture result.')
     log(`[recognition:capture] frames=${capture.frameCount} input=${capture.inputSampleRate}Hz/${capture.inputChannels}ch output=${capture.sampleRate}Hz peak=${Number(capture.peak).toFixed(5)} rms=${Number(capture.rms).toFixed(5)} track="${capture.audioTrackLabel || ''}"`)
-    if (!(Number(capture.rms) > 0.00001)) {
+    if (!(Number(capture.rms) > AUTOMATIC_RECOGNITION_MIN_RMS)) {
       throw new Error('Captured PCM is silent; no recognition request was sent.')
     }
     return { capture, samples: decodeCapturedFloat32(capture) }
   } finally {
     playerAudioCaptureGrant = null
   }
+}
+
+function closeAutomaticRecognitionRecoveryWindow(session) {
+  const window = session?.recoveryWindow
+  if (session) session.recoveryWindow = null
+  if (window && !window.isDestroyed()) window.destroy()
+}
+
+async function automaticRecognitionRecoveryContents(session) {
+  const existing = session?.recoveryWindow
+  if (existing && !existing.isDestroyed()) return existing.webContents
+  const videoId = extractVideoId(session?.sourceUrl)
+  if (!videoId) throw new Error('Recovery requires a YouTube source.')
+
+  const recoveryWindow = new BrowserWindow({
+    show: false,
+    width: 960,
+    height: 540,
+    backgroundColor: '#000000',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      backgroundThrottling: false,
+      // Keep YouTube's shared volume/quality preferences in the recovery
+      // player from ever muting or reconfiguring the visible player.
+      partition: 'dj-scrobbler-recognition-recovery',
+    },
+  })
+  session.recoveryWindow = recoveryWindow
+  installPlayerAudioCaptureHandler(recoveryWindow.webContents.session)
+  recoveryWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  recoveryWindow.webContents.setAudioMuted(true)
+  recoveryWindow.once('closed', () => {
+    if (session.recoveryWindow === recoveryWindow) session.recoveryWindow = null
+  })
+  await recoveryWindow.loadURL(youtubePlayerUrl(videoId))
+  await waitForYouTubeContents(recoveryWindow.webContents)
+  return recoveryWindow.webContents
+}
+
+function refreshAutomaticRecognitionRecoveryQueue(session, coverageEndSeconds) {
+  if (!session || !Number.isFinite(Number(coverageEndSeconds))) return
+  const queued = recognitionRecoveryPoints(session.observations, Number(coverageEndSeconds), {
+    maximumObservedGapSeconds: AUTOMATIC_RECOGNITION_RECOVERY_GAP_SECONDS,
+    sampleSpacingSeconds: AUTOMATIC_RECOGNITION_RECOVERY_SPACING_SECONDS,
+    edgePaddingSeconds: 30,
+    staleAfterMs: AUTOMATIC_RECOGNITION_RETRY_AFTER_MS,
+    maximumPoints: 24,
+  })
+  const existing = new Set((session.recoveryQueue || []).map(item => Math.round(item.seconds)))
+  session.recoveryQueue = session.recoveryQueue || []
+  for (const anchor of queued) {
+    for (const offset of [0, 12, 24]) {
+      const seconds = anchor + offset
+      if (seconds + AUTOMATIC_RECOGNITION_CLIP_SECONDS > Number(coverageEndSeconds)) continue
+      if (existing.has(Math.round(seconds))) continue
+      session.recoveryQueue.push({ seconds, attempts: 0 })
+      existing.add(Math.round(seconds))
+    }
+  }
+  session.recoveryQueue.sort((left, right) => left.seconds - right.seconds)
+}
+
+async function prepareAutomaticRecognitionRecoverySample(session, item) {
+  const contents = await automaticRecognitionRecoveryContents(session)
+  if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) {
+    throw new Error('Recognition recovery session changed.')
+  }
+  contents.setAudioMuted(true)
+  await seekPausedYouTubePlayer(contents, item.seconds)
+  contents.setAudioMuted(false)
+  return contents
 }
 
 function automaticRecognitionCacheKey(sourceUrl) {
@@ -1427,6 +1549,13 @@ function sendAutomaticRecognitionState(patch = {}) {
   // cadence for one unresolved row. The renderer treats both paths as one
   // small, unobtrusive "identifying" state.
   const session = automaticRecognition || targetedRecognition
+  const candidate = session?.candidate
+  const candidateIsRelevant = !!candidate && (
+    session?.recoveryActive ||
+    !Number.isFinite(Number(session?.lastPlaybackPollSeconds)) ||
+    Math.abs(Number(session.lastPlaybackPollSeconds) - Number(candidate.observedEndSeconds)) <=
+      AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS
+  )
   const payload = {
     active: !!session,
     mode: session ? (session === targetedRecognition ? 'targeted' : 'timeline') : null,
@@ -1442,12 +1571,14 @@ function sendAutomaticRecognitionState(patch = {}) {
     lastResult: session?.lastResult || null,
     lastError: session?.lastError || null,
     sampleCount: session?.sampleCount || 0,
-    candidate: session?.candidate
+    recoveringHistory: !!session?.recoveryActive,
+    recoveryPending: session?.recoveryQueue?.length || 0,
+    candidate: candidateIsRelevant
       ? {
-          artist: session.candidate.artist || '',
-          title: session.candidate.title || '',
-          count: session.candidate.recognitionCandidateCount || 0,
-          requiredCount: session.candidate.recognitionRequiredCount || 3,
+          artist: candidate.artist || '',
+          title: candidate.title || '',
+          count: candidate.recognitionCandidateCount || 0,
+          requiredCount: candidate.recognitionRequiredCount || 3,
         }
       : null,
     ...patch,
@@ -1513,6 +1644,7 @@ function stopAutomaticRecognition(reason = 'stopped', { stopTargeted = true } = 
   automaticRecognition = null
   if (session?.timer) clearTimeout(session.timer)
   if (session?.seekTimer) clearTimeout(session.seekTimer)
+  closeAutomaticRecognitionRecoveryWindow(session)
   if (session) log(`[recognition] stopped reason=${reason}`)
   if (stopTargeted && targetedRecognition) stopTargetedRecognition(reason)
   lastAutomaticRecognitionState = ''
@@ -1587,11 +1719,11 @@ async function requestAutomaticRecognition(reason = 'interval') {
     return false
   }
 
-  const contents = playerWvContents
-  if (!contents || contents.isDestroyed() || session.sourceUrl !== currentSourceUrl) return false
+  const liveContents = playerWvContents
+  if (!liveContents || liveContents.isDestroyed() || session.sourceUrl !== currentSourceUrl) return false
   session.polling = true
   const before = await withTimeout(
-    contents.executeJavaScript(YT_POLL_SCRIPT),
+    liveContents.executeJavaScript(YT_POLL_SCRIPT),
     AUTOMATIC_RECOGNITION_POLL_TIMEOUT_MS,
     'Player state check timed out.',
   ).catch(error => {
@@ -1614,30 +1746,44 @@ async function requestAutomaticRecognition(reason = 'interval') {
     return false
   }
 
+  const recoveryItem = session.liveSamplesSinceRecovery > 0 && session.recoveryQueue?.length
+    ? session.recoveryQueue.shift()
+    : null
+
   session.busy = true
+  session.recoveryActive = !!recoveryItem
   session.phase = 'recognizing'
   session.lastRequestAt = now
   session.lastAttemptAt = now
   lastRecognitionRequestAt = now
   session.nextSampleAt = null
   sendAutomaticRecognitionState({ reason })
-  log(`[recognition] sample start reason=${reason} playback=${Number(before.currentTime).toFixed(1)}s`)
+  log(`[recognition] sample start reason=${recoveryItem ? 'history-recovery' : reason} playback=${Number(recoveryItem?.seconds ?? before.currentTime).toFixed(1)}s`)
 
   try {
     const committedBefore = new Set(currentTracks
       .filter(track => !track.isId && !track.isRecognitionCandidate)
       .map(track => track.providerTrackId))
-    const { capture, samples } = await captureYouTubePlayerAudio(contents, AUTOMATIC_RECOGNITION_CLIP_SECONDS)
+    const captureContents = recoveryItem
+      ? await prepareAutomaticRecognitionRecoverySample(session, recoveryItem)
+      : liveContents
+    const { capture, samples } = await captureYouTubePlayerAudio(
+      captureContents,
+      AUTOMATIC_RECOGNITION_CLIP_SECONDS,
+      recoveryItem
+        ? { drivePlayback: true, enableLocalEcho: false }
+        : undefined,
+    )
     if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
     const playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
       ? (capture.playbackStartedAt + capture.playbackEndedAt) / 2
-      : Number(before.currentTime) + AUTOMATIC_RECOGNITION_CLIP_SECONDS / 2
+      : Number(recoveryItem?.seconds ?? before.currentTime) + AUTOMATIC_RECOGNITION_CLIP_SECONDS / 2
     const recognized = await recognizeFloat32(samples, capture.sampleRate, {
       endpointCountry: endpointCountryForRecognition(),
     })
     if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
 
-    const resumeContinuation = session.resumeContinuation
+    const resumeContinuation = recoveryItem ? null : session.resumeContinuation
     if (resumeContinuation) {
       if (playbackTimestamp > resumeContinuation.expiresAtPlayback) {
         session.resumeContinuation = null
@@ -1662,17 +1808,31 @@ async function requestAutomaticRecognition(reason = 'interval') {
     upsertRecognitionObservation(session.observations, {
       playbackTimestamp,
       capturedAt: new Date().toISOString(),
+      capture: {
+        rms: Number(capture.rms) || 0,
+        peak: Number(capture.peak) || 0,
+        inputSampleRate: Number(capture.inputSampleRate) || null,
+        inputChannels: Number(capture.inputChannels) || null,
+        audioTrackLabel: capture.audioTrackLabel || null,
+        pcmDigest: crypto.createHash('sha256')
+          .update(Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength))
+          .digest('hex')
+          .slice(0, 16),
+      },
       recognition: recognized.result,
     })
     session.lastResult = recognized.result.matched ? 'match' : 'no-match'
     session.lastError = null
     session.sampleCount = session.observations.length
+    session.liveSamplesSinceRecovery = recoveryItem
+      ? 0
+      : (session.liveSamplesSinceRecovery || 0) + 1
     writeAutomaticRecognitionObservations(session.sourceUrl, session.observations, session.setEndSeconds)
     refreshAutomaticRecognitionTimeline(session)
     if (recognized.result.matched) {
-      log(`[recognition] match playback=${playbackTimestamp.toFixed(1)}s artist="${recognized.result.artist}" title="${recognized.result.title}"`)
+      log(`[recognition] ${recoveryItem ? 'recovered match' : 'match'} playback=${playbackTimestamp.toFixed(1)}s artist="${recognized.result.artist}" title="${recognized.result.title}"`)
     } else {
-      log(`[recognition] no-match playback=${playbackTimestamp.toFixed(1)}s; keeping region unresolved`)
+      log(`[recognition] ${recoveryItem ? 'recovered no-match' : 'no-match'} playback=${playbackTimestamp.toFixed(1)}s; keeping region unresolved`)
     }
 
     const newlyCommitted = currentTracks.find(track => (
@@ -1680,7 +1840,9 @@ async function requestAutomaticRecognition(reason = 'interval') {
       !track.isRecognitionCandidate &&
       !committedBefore.has(track.providerTrackId)
     ))
-    if (newlyCommitted) {
+    if (recoveryItem) {
+      if (newlyCommitted) log(`[recognition] history recovery confirmed track="${newlyCommitted.raw}"`)
+    } else if (newlyCommitted) {
       const inferredStartedAt = Date.now() - Math.max(
         0,
         (playbackTimestamp - newlyCommitted.observedStartSeconds) * 1000,
@@ -1689,12 +1851,12 @@ async function requestAutomaticRecognition(reason = 'interval') {
       session.lastCandidateNowPlayingKey = null
       lfmUpdateNowPlaying(newlyCommitted.artist, newlyCommitted.title)
       lfmScrobble(newlyCommitted.artist, newlyCommitted.title, inferredStartedAt, currentSetTitle)
-      const shazamMatchCount = Number(newlyCommitted.recognition?.matchCount) || 0
-      const confidenceEvidence = shazamMatchCount >= 3
-        ? `shazamMatches=${shazamMatchCount}`
-        : 'repeatSamples=true'
-      log(`[recognition] confidence confirmed track="${newlyCommitted.raw}" ${confidenceEvidence}`)
-    } else if (session.candidate) {
+      log(`[recognition] confidence confirmed track="${newlyCommitted.raw}" repeatSamples=true`)
+    } else if (
+      session.candidate &&
+      Math.abs(Number(before.currentTime) - Number(session.candidate.observedEndSeconds)) <=
+        AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS
+    ) {
       if (session.lastCandidateNowPlayingKey !== session.candidate.key) {
         lfmUpdateNowPlaying(session.candidate.artist, session.candidate.title)
         session.lastCandidateNowPlayingKey = session.candidate.key
@@ -1709,6 +1871,7 @@ async function requestAutomaticRecognition(reason = 'interval') {
     }
     return recognized.result
   } catch (error) {
+    if (session !== automaticRecognition || session.generation !== automaticRecognitionGeneration) return false
     // Capture/network failures are not timeline evidence. Only a valid Shazam
     // no-match response creates or extends an unresolved region.
     applyRecognitionServiceBackoff(session, error)
@@ -1716,11 +1879,23 @@ async function requestAutomaticRecognition(reason = 'interval') {
     session.lastError = error?.name === 'AbortError'
       ? 'Recognition request timed out.'
       : (error?.message || String(error))
+    if (recoveryItem) {
+      session.liveSamplesSinceRecovery = 0
+      if (recoveryItem.attempts < 2) {
+        session.recoveryQueue.push({ ...recoveryItem, attempts: recoveryItem.attempts + 1 })
+        session.recoveryQueue.sort((left, right) => left.seconds - right.seconds)
+      }
+      closeAutomaticRecognitionRecoveryWindow(session)
+    }
     log(`[recognition] sample failed reason=${reason}: ${error?.name === 'AbortError' ? 'request timed out' : (error?.message || error)}`)
     sendAutomaticRecognitionState({ error: error?.message || String(error) })
     return false
   } finally {
     if (session === automaticRecognition && session.generation === automaticRecognitionGeneration) {
+      if (recoveryItem && session.recoveryWindow && !session.recoveryWindow.isDestroyed()) {
+        session.recoveryWindow.webContents.setAudioMuted(true)
+      }
+      session.recoveryActive = false
       session.busy = false
       session.phase = session.atEnd ? 'complete' : 'listening'
       sendAutomaticRecognitionState()
@@ -1803,6 +1978,11 @@ async function startAutomaticRecognition() {
       : null,
     lastError: null,
     sampleCount: observations.length,
+    recoveryQueue: [],
+    recoveryWindow: null,
+    recoveryActive: false,
+    liveSamplesSinceRecovery: 0,
+    lastPlaybackPollSeconds: resumedAtSeconds,
     fromCache: observations.length > 0,
     wasPlaying: !!player.poll.isPlaying,
   }
@@ -1810,6 +1990,7 @@ async function startAutomaticRecognition() {
   currentTracklistProvider = AUTOMATIC_RECOGNITION_PROVIDER.id
   const artworkToken = ++currentArtworkToken
   automaticRecognition.artworkToken = artworkToken
+  refreshAutomaticRecognitionRecoveryQueue(automaticRecognition, resumedAtSeconds)
   registerAutomaticTracklistOption()
   currentTracks = []
   resetTimelineState()
@@ -1823,7 +2004,7 @@ async function startAutomaticRecognition() {
   refreshAutomaticRecognitionTimeline(automaticRecognition)
   sendAutomaticRecognitionState()
   mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-  log(`[recognition] started interval=${AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS}-${AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS}s cachedObservations=${observations.length}`)
+  log(`[recognition] started interval=${AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS}-${AUTOMATIC_RECOGNITION_MAX_INTERVAL_SECONDS}s cachedObservations=${observations.length} recoverySamples=${automaticRecognition.recoveryQueue.length}`)
 
   if (!automaticRecognition.atEnd) {
     setImmediate(() => runAutomaticRecognitionCycle(automaticRecognition, 'start')
@@ -1847,6 +2028,17 @@ async function resetAutomaticRecognition() {
 function handleAutomaticRecognitionPlayback(poll) {
   const session = automaticRecognition
   if (!session) return
+  const playbackSeconds = Number(poll?.currentTime)
+  if (
+    Number.isFinite(playbackSeconds) &&
+    Number.isFinite(session.lastPlaybackPollSeconds) &&
+    playbackSeconds - session.lastPlaybackPollSeconds > AUTOMATIC_RECOGNITION_RECOVERY_GAP_SECONDS
+  ) {
+    const previousCount = session.recoveryQueue.length
+    refreshAutomaticRecognitionRecoveryQueue(session, playbackSeconds)
+    if (session.recoveryQueue.length !== previousCount) sendAutomaticRecognitionState()
+  }
+  if (Number.isFinite(playbackSeconds)) session.lastPlaybackPollSeconds = playbackSeconds
   if (poll.isEnded && poll.duration > 0 && (!session.atEnd || session.setEndSeconds !== poll.duration)) {
     session.atEnd = true
     session.setEndSeconds = poll.duration
@@ -2708,8 +2900,7 @@ function installPlayerAudioCaptureHandler(electronSession) {
       request.userGesture &&
       request.audioRequested &&
       request.videoRequested &&
-      requestingContents?.id === grant.webContentsId &&
-      playerWvContents?.id === grant.webContentsId
+      requestingContents?.id === grant.webContentsId
     )
     log(`[recognition:capture] display request origin=${request.securityOrigin} player=${requestingContents?.id || 'none'} audio=${request.audioRequested} video=${request.videoRequested} gesture=${request.userGesture} allowed=${allowed}`)
     if (!allowed || !request.frame) {
@@ -2720,7 +2911,7 @@ function installPlayerAudioCaptureHandler(electronSession) {
     callback({
       video: request.frame,
       audio: request.frame,
-      enableLocalEcho: true,
+      enableLocalEcho: grant.enableLocalEcho !== false,
     })
   })
 }

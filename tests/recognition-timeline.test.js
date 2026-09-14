@@ -6,6 +6,7 @@ const {
   buildRecognitionTimeline,
   carryForwardRecognitionDecision,
   randomSampleIntervalSeconds,
+  recognitionRecoveryPoints,
   segmentAtTime,
   upsertRecognitionObservation,
 } = require('../lib/recognition-timeline')
@@ -33,22 +34,60 @@ test('only two equal Shazam results become a muted analysis candidate', () => {
   assert.equal(segmentAtTime(two, 35), null)
 })
 
-test('one Shazam response with several internal matches is strong enough to commit', () => {
+test('one Shazam response stays out of the public timeline regardless of internal match count', () => {
   const timeline = buildRecognitionTimeline([
-    match(10, 'Cloudy', 'Pulse', '1', { matchCount: 3 }),
-  ], { sessionStartSeconds: 0 })
-
-  assert.equal(timeline.length, 1)
-  assert.equal(timeline[0].title, 'Pulse')
-  assert.equal(timeline[0].autoRecognized, true)
-})
-
-test('one weak Shazam response still stays out of the public timeline', () => {
-  const timeline = buildRecognitionTimeline([
-    match(10, 'Noise', 'Maybe', 'x', { matchCount: 2 }),
+    match(10, 'Noise', 'Maybe', 'x', { matchCount: 4 }),
   ], { sessionStartSeconds: 0 })
 
   assert.equal(timeline.length, 0)
+})
+
+test('cached observations retain audio-capture diagnostics', () => {
+  const observations = []
+  upsertRecognitionObservation(observations, {
+    ...miss(10),
+    capture: { rms: 0.12, peak: 0.8, pcmDigest: 'abc123' },
+  })
+
+  assert.deepEqual(observations[0].capture, {
+    rms: 0.12,
+    peak: 0.8,
+    pcmDigest: 'abc123',
+  })
+})
+
+test('recovery points cover playback spans that were never sampled', () => {
+  const points = recognitionRecoveryPoints([
+    miss(10),
+    miss(25),
+    miss(310),
+  ], 325, {
+    maximumObservedGapSeconds: 45,
+    sampleSpacingSeconds: 90,
+    edgePaddingSeconds: 15,
+    staleAfterMs: 0,
+  })
+
+  assert.deepEqual(points, [40, 130, 220])
+})
+
+test('old no-match observations are retried while confirmed regions are left alone', () => {
+  const capturedAt = '2026-01-01T00:00:00.000Z'
+  const observations = [
+    { ...miss(10), capturedAt },
+    { ...match(100, 'Cloudy', 'Pulse', '1'), capturedAt },
+    { ...match(110, 'Cloudy', 'Pulse', '1'), capturedAt },
+    { ...match(120, 'Cloudy', 'Pulse', '1'), capturedAt },
+    { ...miss(400), capturedAt },
+  ]
+  const points = recognitionRecoveryPoints(observations, 410, {
+    maximumObservedGapSeconds: 500,
+    sampleSpacingSeconds: 60,
+    staleAfterMs: 24 * 60 * 60 * 1000,
+    now: Date.parse('2026-01-03T00:00:00.000Z'),
+  })
+
+  assert.deepEqual(points, [10, 400])
 })
 
 test('two equal Shazam results graduate when their sixty-second window closes', () => {

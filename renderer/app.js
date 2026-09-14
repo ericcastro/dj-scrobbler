@@ -2981,7 +2981,8 @@ function renderRecognitionStatus() {
     state.currentTracklistProvider === 'shazam' || recognition.mode === 'targeted'
   )
   let message = ''
-  if (recognition.phase === 'recognizing') message = 'Identifying this audio…'
+  if (recognition.phase === 'recognizing' && recognition.recoveringHistory) message = 'Recovering an earlier gap with Shazam…'
+  else if (recognition.phase === 'recognizing') message = 'Identifying this audio…'
   else if (recognition.phase === 'complete') message = 'Shazam identification complete'
   else if (recognition.phase === 'paused') message = 'Shazam identification pauses with playback'
   else if (recognition.candidate?.count) {

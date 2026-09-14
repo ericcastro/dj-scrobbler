@@ -187,14 +187,13 @@ test('YouTube playback starts before either automatic tracklist result is awaite
     'tracklist providers must not gate player navigation')
 })
 
-test('the Shazam POC captures only the armed player frame and keeps playback audible', () => {
+test('Shazam captures only its armed frame and explicitly controls local echo', () => {
   assert.match(mainJs, /setDisplayMediaRequestHandler/)
   assert.match(mainJs, /request\.userGesture/)
   assert.match(mainJs, /requestingContents\?\.id === grant\.webContentsId/)
-  assert.match(mainJs, /playerWvContents\?\.id === grant\.webContentsId/)
   assert.match(mainJs, /video: request\.frame/)
   assert.match(mainJs, /audio: request\.frame/)
-  assert.match(mainJs, /enableLocalEcho: true/)
+  assert.match(mainJs, /enableLocalEcho: grant\.enableLocalEcho !== false/)
   assert.match(mainJs, /buildFrameAudioCaptureScript/)
   assert.doesNotMatch(mainJs, /getUserMedia/)
 })
@@ -250,6 +249,15 @@ test('automatic recognition requires repeated confidence and finalizes unresolve
   assert.match(mainJs, /AUTOMATIC_RECOGNITION_POLL_TIMEOUT_MS = 5_000/)
   assert.match(mainJs, /Audio capture timed out\./)
   assert.match(mainJs, /lastResult: session\?\.lastResult/)
+  assert.match(mainJs, /function automaticRecognitionRecoveryContents/)
+  assert.match(mainJs, /recognitionRecoveryPoints\(session\.observations/)
+  assert.match(mainJs, /show: false/)
+  assert.match(mainJs, /partition: 'dj-scrobbler-recognition-recovery'/)
+  assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_RMS = 0\.0005/)
+  assert.match(mainJs, /p\.seekTo\(\$\{target\}, true\)[\s\S]*p\.playVideo\(\)/)
+  assert.match(mainJs, /drivePlayback: true, enableLocalEcho: false/)
+  assert.match(mainJs, /pcmDigest: crypto\.createHash\('sha256'\)/)
+  assert.match(mainJs, /history recovery confirmed track=/)
 })
 
 test('automatic recognition observations are a private bounded cache', () => {

@@ -38,6 +38,7 @@ test('automatic recognition has marked tracks, editable matches, retryable gaps,
   assert.match(appJs, /Listening inside an unidentified section/)
   assert.match(appJs, /No match yet — Shazam is still listening/)
   assert.match(appJs, /Shazam capture failed — retrying/)
+  assert.match(appJs, /Recovering an earlier gap with Shazam/)
   assert.match(appJs, /Confirming \$\{label \|\| 'this track'\}/)
   assert.match(appJs, /data-action="wrong"/)
   assert.match(appJs, /data-action="delete"/)
