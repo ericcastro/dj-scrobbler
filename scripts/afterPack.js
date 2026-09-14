@@ -24,6 +24,9 @@
 const { execFileSync } = require('child_process')
 const path = require('path')
 const fs = require('fs')
+const { prepareMediaTools } = require('./prepare-media-tools')
+
+const ARCH_NAMES = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }
 
 function sign(target) {
   execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', target], { stdio: 'pipe' })
@@ -63,12 +66,18 @@ function buildAirPlayHelper(appPath, projectDir = path.join(__dirname, '..'), ex
 }
 
 exports.default = async function afterPack(context) {
-  if (context.electronPlatformName !== 'darwin') return
+  const platform = context.electronPlatformName
+  const arch = ARCH_NAMES[context.arch]
+  if (!arch) throw new Error(`Unknown electron-builder architecture: ${context.arch}`)
 
-  const appPath = path.join(
-    context.appOutDir,
-    `${context.packager.appInfo.productName}.app`
-  )
+  const resourcesPath = platform === 'darwin'
+    ? path.join(context.appOutDir, `${context.packager.appInfo.productName}.app`, 'Contents', 'Resources')
+    : path.join(context.appOutDir, 'resources')
+  await prepareMediaTools({ platform, arch, destination: path.join(resourcesPath, 'bin') })
+
+  if (platform !== 'darwin') return
+
+  const appPath = path.join(context.appOutDir, `${context.packager.appInfo.productName}.app`)
   console.log(`\n[afterPack] ad-hoc signing ${appPath}\n`)
 
   // AirPlay route selection must use Apple's AVRoutePickerView. Compile the
