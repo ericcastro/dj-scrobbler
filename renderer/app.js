@@ -2981,24 +2981,27 @@ function renderRecognitionStatus() {
     state.currentTracklistProvider === 'shazam' || recognition.mode === 'targeted'
   )
   let message = ''
-  if (recognition.phase === 'recognizing' && recognition.recoveringHistory) message = 'Recovering an earlier gap with Shazam…'
-  else if (recognition.phase === 'recognizing') message = 'Identifying this audio…'
+  if (recognition.phase === 'preparing') message = 'Preparing audio for background Shazam…'
+  else if (recognition.phase === 'recognizing' || recognition.phase === 'analyzing') {
+    const remaining = Number(recognition.recoveryPending) || 0
+    message = remaining ? `Building the tracklist with Shazam… ${remaining} samples left` : 'Building the tracklist with Shazam…'
+  }
   else if (recognition.phase === 'complete') message = 'Shazam identification complete'
-  else if (recognition.phase === 'paused') message = 'Shazam identification pauses with playback'
+  else if (recognition.phase === 'error') message = 'Background Shazam could not prepare this set'
   else if (recognition.candidate?.count) {
     const label = [recognition.candidate.artist, recognition.candidate.title].filter(Boolean).join(' — ')
     message = `Confirming ${label || 'this track'} (${recognition.candidate.count}/${recognition.candidate.requiredCount || 3})…`
   }
   else if (recognition.lastResult === 'error') message = 'Shazam capture failed — retrying…'
-  else if (recognition.lastResult === 'no-match') message = 'No match yet — Shazam is still listening…'
-  else if (recognition.inUnidentified) message = 'Listening inside an unidentified section…'
-  else message = 'Listening for the next track…'
+  else if (recognition.lastResult === 'no-match') message = 'No match yet — background Shazam will keep trying…'
+  else if (recognition.inUnidentified) message = 'This section is still unidentified…'
+  else message = 'Shazam is analyzing this set…'
 
   for (const element of [recognitionStatus, recognitionCompactStatus]) {
     if (!element) continue
     element.classList.toggle('hidden', !active)
-    element.classList.toggle('is-active', active && recognition.phase !== 'paused')
-    element.classList.toggle('is-recognizing', recognition.phase === 'recognizing')
+    element.classList.toggle('is-active', active && recognition.phase !== 'complete')
+    element.classList.toggle('is-recognizing', ['preparing', 'recognizing', 'analyzing'].includes(recognition.phase))
     element.innerHTML = active ? `${spectrumBarsHtml('recognition-indicator')}<span>${escHtml(message)}</span>` : ''
   }
 }

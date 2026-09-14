@@ -215,7 +215,7 @@ test('cross-set Shazam validation compares cached identified tracklist moments',
   assert.match(mainJs, /Validate Shazam Against Saved Tracklists/)
 })
 
-test('empty published tracklists activate jittered automatic recognition without blocking playback', () => {
+test('empty published tracklists activate background recognition without blocking playback', () => {
   const fallback = mainJs.slice(mainJs.indexOf('function sendTracklistFallback'), mainJs.indexOf('/** Manual retry path'))
   assert.match(fallback, /startAutomaticRecognition\(\)/)
   assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_INTERVAL_SECONDS = 10/)
@@ -224,40 +224,37 @@ test('empty published tracklists activate jittered automatic recognition without
   assert.match(mainJs, /AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS = 15_000/)
   assert.match(mainJs, /randomSampleIntervalSeconds\(Math\.random/)
   assert.match(mainJs, /setImmediate\(\(\) => runAutomaticRecognitionCycle\(automaticRecognition, 'start'\)/)
-  assert.match(mainJs, /runAutomaticRecognitionCycle\(session, 'unidentified-seek'\)/)
+  assert.match(mainJs, /buildBackgroundRecognitionQueue\(setEndSeconds, observations/)
+  assert.match(mainJs, /new BackgroundAudioSource\(sourceUrl\)/)
+  assert.match(mainJs, /reason: 'unidentified-seek'/)
   assert.match(mainJs, /applyRecognitionServiceBackoff\(session, error\)/)
 })
 
-test('automatic matches scrobble while unidentified regions remain excluded', () => {
+test('background matches scrobble only when visible playback reaches them', () => {
   const scrobble = mainJs.slice(mainJs.indexOf('function scrobbleLastTrackIfReady'), mainJs.indexOf('function stopMonitoring'))
   const emit = mainJs.slice(mainJs.indexOf('function emitTimelineTrack'), mainJs.indexOf('function handlePlaybackPoll'))
   assert.doesNotMatch(scrobble, /lastTrackData\.autoRecognized/)
   assert.match(scrobble, /lastTrackData\.scrobbledOnConfirmation/)
   assert.match(emit, /if \(!data\.isId\) lfmUpdateNowPlaying/)
-  assert.match(mainJs, /lfmScrobble\(newlyCommitted\.artist, newlyCommitted\.title/)
+  assert.doesNotMatch(mainJs, /lfmScrobble\(newlyCommitted\.artist, newlyCommitted\.title/)
   assert.match(mainJs, /track\?\.isId \|\| track\?\.isRecognitionUnidentified/)
 })
 
-test('automatic recognition requires repeated confidence and finalizes unresolved audio at set end', () => {
+test('automatic recognition requires repeated confidence and finalizes the background queue', () => {
   assert.match(mainJs, /isEnded: state === 0/)
-  assert.match(mainJs, /session\.setEndSeconds = poll\.duration/)
   assert.match(mainJs, /session\.phase = 'complete'/)
-  assert.match(mainJs, /session\.phase = session\.atEnd \? 'complete' : 'listening'/)
+  assert.match(mainJs, /session\.phase = session\.atEnd \? 'complete' : 'analyzing'/)
   assert.match(mainJs, /setEndSeconds: session\.atEnd \? session\.setEndSeconds : null/)
   assert.match(mainJs, /still analyzing track=/)
   assert.match(mainJs, /!track\.isRecognitionCandidate/)
-  assert.match(mainJs, /AUTOMATIC_RECOGNITION_POLL_TIMEOUT_MS = 5_000/)
-  assert.match(mainJs, /Audio capture timed out\./)
+  assert.match(mainJs, /session\.audioSource\.sample\(sampleItem\.seconds/)
   assert.match(mainJs, /lastResult: session\?\.lastResult/)
-  assert.match(mainJs, /function automaticRecognitionRecoveryContents/)
-  assert.match(mainJs, /recognitionRecoveryPoints\(session\.observations/)
-  assert.match(mainJs, /show: false/)
-  assert.match(mainJs, /partition: 'dj-scrobbler-recognition-recovery'/)
+  assert.doesNotMatch(mainJs, /function automaticRecognitionRecoveryContents/)
+  assert.doesNotMatch(mainJs, /partition: 'dj-scrobbler-recognition-recovery'/)
   assert.match(mainJs, /AUTOMATIC_RECOGNITION_MIN_RMS = 0\.0005/)
-  assert.match(mainJs, /p\.seekTo\(\$\{target\}, true\)[\s\S]*p\.playVideo\(\)/)
-  assert.match(mainJs, /drivePlayback: true, enableLocalEcho: false/)
+  assert.doesNotMatch(mainJs, /drivePlayback: true, enableLocalEcho: false/)
   assert.match(mainJs, /pcmDigest: crypto\.createHash\('sha256'\)/)
-  assert.match(mainJs, /history recovery confirmed track=/)
+  assert.match(mainJs, /background match playback=/)
 })
 
 test('automatic recognition observations are a private bounded cache', () => {
@@ -269,11 +266,9 @@ test('automatic recognition observations are a private bounded cache', () => {
   assert.match(mainJs, /if \(existing\.trackRecognitionEdits\) next\.trackRecognitionEdits = existing\.trackRecognitionEdits/)
 })
 
-test('a reopened automatic session can bridge only its most recent cached track', () => {
-  assert.match(mainJs, /AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS = 3 \* 60/)
-  assert.match(mainJs, /const latestCachedTrack = \[\.\.\.cachedTimeline\]\.reverse\(\)\.find/)
-  assert.match(mainJs, /cachedTrackAgeSeconds <= AUTOMATIC_RECOGNITION_RESUME_CONTINUATION_SECONDS/)
-  assert.match(mainJs, /continuesPreviousSession: true/)
+test('a reopened automatic session resumes from fresh cached samples', () => {
+  assert.match(mainJs, /retryAfterMs: AUTOMATIC_RECOGNITION_RETRY_AFTER_MS/)
+  assert.match(mainJs, /sampleQueue = buildBackgroundRecognitionQueue/)
 })
 
 test('automatic and one-shot recognition edits are exposed without weakening source scoping', () => {
@@ -298,9 +293,9 @@ test('published unresolved rows use confidence sampling and retry after expiry',
     mainJs.indexOf('async function startPublishedTrackRecognition'),
   )
   assert.match(targeted, /targetedRecognitionDecision\(session\.observations/)
-  assert.match(targeted, /captureDurationWithinSegment/)
+  assert.match(targeted, /session\.audioSource\.sample\(sampleSeconds/)
   assert.match(targeted, /applyRecognitionServiceBackoff\(session, error\)/)
-  assert.match(targeted, /lfmScrobble\(match\.artist, match\.title/)
+  assert.doesNotMatch(targeted, /lfmScrobble\(/)
 })
 
 test('main process helpers have unique function names', () => {

@@ -153,10 +153,3 @@ test('capture script requests frame display audio and never microphone input', (
   assert.doesNotMatch(script, /getUserMedia/)
   assert.match(script, /9000, 16000/)
 })
-
-test('a hidden recovery capture drives and pauses its own player', () => {
-  const script = buildFrameAudioCaptureScript({ drivePlayback: true })
-  assert.match(script, /playVideo/)
-  assert.match(script, /pauseVideo/)
-  assert.match(script, /10000, 16000, true/)
-})
