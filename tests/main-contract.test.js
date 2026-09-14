@@ -39,12 +39,12 @@ test('createWindow uses platform-conditional titlebar style', () => {
   assert.match(mainJs, /frame:\s*true/)
 })
 
-test('window presentation uses native fullscreen without resizing the display bounds', () => {
+test('window presentation composes one native fullscreen state with app or focus content', () => {
   assert.match(mainJs, /fullscreenable:\s*true/)
   assert.match(mainJs, /function setWindowPresentation\(mode\)/)
   assert.match(mainJs, /mainWindow\.setFullScreen\(shouldBeFullScreen\)/)
-  assert.match(mainJs, /'enhanced-fullscreen'/)
   assert.match(mainJs, /'app-fullscreen'/)
+  assert.doesNotMatch(mainJs, /'enhanced-fullscreen'/)
   assert.doesNotMatch(mainJs, /setDisplayFullscreen/)
   assert.doesNotMatch(mainJs, /displayFullscreenBounds/)
 })

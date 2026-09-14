@@ -4206,13 +4206,13 @@ function sendWindowState() {
 
 function setWindowPresentation(mode) {
   if (!mainWindow) return windowStateSnapshot()
-  const next = ['windowed', 'enhanced-fullscreen', 'app-fullscreen'].includes(mode) ? mode : 'windowed'
+  const next = ['windowed', 'app-fullscreen'].includes(mode) ? mode : 'windowed'
   if (next !== 'windowed') setFocusWindowMode(false)
   windowPresentation = next
   const shouldBeFullScreen = next !== 'windowed'
   if (mainWindow.isFullScreen() !== shouldBeFullScreen) mainWindow.setFullScreen(shouldBeFullScreen)
   else sendWindowState()
-  scheduleYouTubeQualityBoost(`presentation-${next}`, next === 'enhanced-fullscreen' ? 900 : 0)
+  scheduleYouTubeQualityBoost(`presentation-${next}`, next === 'app-fullscreen' ? 900 : 0)
   return windowStateSnapshot()
 }
 

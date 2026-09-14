@@ -83,7 +83,7 @@ test('critical player controls have matching markup and styles', () => {
   }
 })
 
-test('enhanced display modes expose a resizable focus view and two native fullscreen choices', () => {
+test('display controls compose a resizable focus view with one native fullscreen state', () => {
   for (const id of [
     'btn-display-menu',
     'display-menu',
@@ -106,6 +106,7 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
     'immersive-progress-segments',
     'immersive-progress-thumb',
     'immersive-progress-tooltip',
+    'btn-video-always-on-top',
     'btn-video-native-fullscreen',
   ]) {
     assert.equal(indexHtml.includes(`id="${id}"`), true, `${id} missing from index.html`)
@@ -124,8 +125,13 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
   assert.match(indexHtml, /data-overlay-drag="tracklist"/)
   assert.match(indexHtml, /data-overlay-resize="tracklist"/)
   assert.match(appJs, /setAlwaysOnTop\(!windowAlwaysOnTop\)/)
+  assert.match(appJs, /btnVideoAlwaysOnTop\.classList\.toggle\('active', windowAlwaysOnTop\)/)
+  assert.match(appJs, /btnVideoAlwaysOnTop\.addEventListener\('click'/)
   assert.match(appJs, /currentVideoMode === 'focus' \? ICON\.appView : ICON\.theater/)
   assert.match(appJs, /btnVideoFullscreen\.addEventListener\('click',[\s\S]*handleDisplayAction\('focus'\)/)
+  assert.match(appJs, /async function toggleFocusFullScreen\(\)/)
+  assert.doesNotMatch(indexHtml, /data-display-action="enhanced-fullscreen"/)
+  assert.doesNotMatch(indexHtml, /data-display-action="always-on-top"/)
   assert.match(appJs, /setImmersiveArtwork\(track\?\.isId \? null : track\?\.artUrl/)
   assert.match(appJs, /document\.body\.classList\.toggle\('display-menu-open', willOpen\)/)
   assert.match(indexHtml, /data-display-action="toggle-now-playing-overlay"/)
@@ -173,6 +179,8 @@ test('enhanced display modes expose a resizable focus view and two native fullsc
   assert.match(appJs, /document\.body\.classList\.toggle\('immersive-options-open', willOpen\)/)
   assert.match(styleCss, /body\.display-menu-open #topbar\s*\{\s*z-index:\s*10000/)
   assert.match(styleCss, /body\.display-menu-open #webview-container,[\s\S]*body\.display-menu-open #video-controls\s*\{\s*pointer-events:\s*none/)
+  assert.match(styleCss, /\[data-tooltip\]::after/)
+  assert.match(appJs, /button\.dataset\.tooltip = label/)
   assert.match(styleCss, /container-type:\s*size/)
   assert.match(styleCss, /--immersive-inline-inset:\s*24px/)
   assert.match(styleCss, /#immersive-artwork\s*\{[^}]*width:\s*var\(--immersive-art-size\)[^}]*height:\s*var\(--immersive-art-size\)/s)

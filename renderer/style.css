@@ -120,6 +120,44 @@ body.platform-win32 #topbar {
 #topbar button,
 #topbar input { -webkit-app-region: no-drag; }
 
+/* Fast, theme-native control hints. Native title tooltips are deliberately not
+   used here: their delay and presentation vary by browser and operating system. */
+:is(#topbar, #video-controls, #immersive-playback-controls) [data-tooltip] {
+  position: relative;
+}
+
+:is(#topbar, #video-controls, #immersive-overlay) [data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 12000;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bg2) 96%, transparent);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .38);
+  color: var(--text);
+  font: 600 9px/1.25 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  letter-spacing: .01em;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity .09s ease, transform .09s ease;
+  visibility: hidden;
+}
+
+:is(#topbar, #video-controls, #immersive-overlay) [data-tooltip]:is(:hover, :focus-visible)::after {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
 #app-title {
   display: flex;
   align-items: center;
@@ -1830,8 +1868,8 @@ body.video-mode-focus #immersive-options-wrap { display: block; }
   border-color: var(--accent);
 }
 
-/* Immersive video overlay — shared by the resizable focus window and native
-   enhanced full screen. It stays absent from the normal application layout. */
+/* Immersive video overlay — shared by the resizable focus window and that same
+   focused composition when the native window enters full screen. */
 #immersive-overlay {
   display: none;
   position: absolute;
@@ -2399,6 +2437,12 @@ body.is-browsing #video-controls { display: none; }
 .video-control-btn:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+.video-control-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 /* ── Tracklist below video ── */

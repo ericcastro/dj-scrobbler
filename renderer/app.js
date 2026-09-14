@@ -65,6 +65,7 @@ const btnVideoMode       = document.getElementById('btn-video-mode')
 const btnVideoDock       = document.getElementById('btn-video-dock')
 const btnVideoFullscreen = document.getElementById('btn-video-fullscreen')
 const btnVideoNativeFullscreen = document.getElementById('btn-video-native-fullscreen')
+const btnVideoAlwaysOnTop = document.getElementById('btn-video-always-on-top')
 const btnVideoHide       = document.getElementById('btn-video-hide')
 const btnDisplayMenu     = document.getElementById('btn-display-menu')
 const displayMenu        = document.getElementById('display-menu')
@@ -326,6 +327,7 @@ const ICON = {
   fullscreenExit: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
   appView: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 8h18"/><path d="M9 8v13"/>',
   layers: '<path d="m12 2 9 5-9 5-9-5 9-5"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+  pin: '<path d="M12 17v5"/><path d="M5 17h14"/><path d="m6 17 1-7-2-2V6h14v2l-2 2 1 7"/><path d="M9 6V3h6v3"/>',
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   miniPlayer: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/>',
   audioOnly: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
@@ -1432,7 +1434,7 @@ function startWindowDrag(e) {
     e.button !== 0 ||
     e.target.closest('button, input, select, textarea, a, [role="menu"], [data-no-window-drag]')
   ) return
-  if (currentWindowPresentation !== 'windowed') return
+  if (currentWindowIsFullScreen) return
   e.preventDefault()
   window.api.windowDragStart(dragPoint(e))
 
@@ -1470,8 +1472,7 @@ function setTrackPlaying(playing) {
   state.isTrackPlaying = playing
   document.body.classList.toggle('is-track-playing', playing)
   immersivePlayPause.innerHTML = icon(playing ? ICON.pause : ICON.play, 14)
-  immersivePlayPause.title = playing ? 'Pause' : 'Play'
-  immersivePlayPause.setAttribute('aria-label', playing ? 'Pause' : 'Play')
+  setControlTooltip(immersivePlayPause, playing ? 'Pause' : 'Play')
 }
 
 function showNowPlayingTrack() {
@@ -1736,7 +1737,7 @@ function renderIntroResume() {
 
 const VIDEO_MODES = ['inline', 'mini', 'hidden', 'focus']
 let currentVideoMode = 'inline'
-let currentWindowPresentation = 'windowed'
+let currentWindowIsFullScreen = false
 let windowAlwaysOnTop = false
 let immersiveActiveTrackKey = ''
 let progressSegmentKey = ''
@@ -2011,34 +2012,42 @@ function videoModeIcon(mode) {
   return ICON.video
 }
 
+function setControlTooltip(button, label) {
+  button.dataset.tooltip = label
+  button.setAttribute('aria-label', label)
+  button.removeAttribute('title')
+}
+
 function updateVideoModeButtons() {
   const nextAction = videoModePrimaryAction()
   btnVideoMode.innerHTML = icon(videoModeIcon(nextAction), 15)
-  btnVideoMode.title = videoModeLabel(nextAction)
+  setControlTooltip(btnVideoMode, videoModeLabel(nextAction))
 
   btnVideoDock.innerHTML = icon(videoModeIcon(nextAction), 15)
-  btnVideoDock.title = videoModeLabel(nextAction)
+  setControlTooltip(btnVideoDock, videoModeLabel(nextAction))
 
   btnVideoFullscreen.innerHTML = icon(currentVideoMode === 'focus' ? ICON.appView : ICON.theater, 15)
-  btnVideoFullscreen.title = currentVideoMode === 'focus' ? 'Return to app' : 'Focus window'
+  setControlTooltip(btnVideoFullscreen, currentVideoMode === 'focus' ? 'Return to app' : 'Focus window')
 
-  const enhancedIsActive = currentWindowPresentation === 'enhanced-fullscreen'
-  btnVideoNativeFullscreen.innerHTML = icon(enhancedIsActive ? ICON.fullscreenExit : ICON.fullscreen, 15)
-  btnVideoNativeFullscreen.title = enhancedIsActive ? 'Exit full screen' : 'Enhanced full screen'
+  btnVideoNativeFullscreen.innerHTML = icon(currentWindowIsFullScreen ? ICON.fullscreenExit : ICON.fullscreen, 15)
+  setControlTooltip(btnVideoNativeFullscreen, currentWindowIsFullScreen ? 'Exit full screen' : 'Full screen')
 
-  btnVideoHide.innerHTML = icon(ICON.x, 15)
-  btnVideoHide.title = 'Audio only'
+  btnVideoAlwaysOnTop.innerHTML = icon(ICON.pin, 15)
+  btnVideoAlwaysOnTop.classList.toggle('active', windowAlwaysOnTop)
+  btnVideoAlwaysOnTop.setAttribute('aria-pressed', String(windowAlwaysOnTop))
+  setControlTooltip(btnVideoAlwaysOnTop, windowAlwaysOnTop ? 'Disable always on top' : 'Always on top')
+
+  btnVideoHide.innerHTML = icon(ICON.audioOnly, 15)
+  setControlTooltip(btnVideoHide, 'Audio only')
   btnImmersiveOptions.innerHTML = icon(ICON.layers, 15)
+  setControlTooltip(btnImmersiveOptions, 'Configure overlays')
   immersivePrevTrack.innerHTML = icon(ICON.previous, 14)
   immersiveNextTrack.innerHTML = icon(ICON.next, 14)
   immersivePlayPause.innerHTML = icon(state.isTrackPlaying ? ICON.pause : ICON.play, 14)
-  btnDisplayMenu.classList.toggle('active', currentVideoMode === 'focus' || currentWindowPresentation !== 'windowed' || windowAlwaysOnTop)
+  setControlTooltip(immersivePlayPause, state.isTrackPlaying ? 'Pause' : 'Play')
+  btnDisplayMenu.classList.toggle('active', !displayMenu.classList.contains('hidden'))
   displayMenu.querySelector('[data-display-action="focus"]')?.classList.toggle('active', currentVideoMode === 'focus')
-  displayMenu.querySelector('[data-display-action="enhanced-fullscreen"]')?.classList.toggle('active', enhancedIsActive)
-  displayMenu.querySelector('[data-display-action="app-fullscreen"]')?.classList.toggle('active', currentWindowPresentation === 'app-fullscreen')
-  const alwaysOnTopItem = displayMenu.querySelector('[data-display-action="always-on-top"]')
-  alwaysOnTopItem?.classList.toggle('active', windowAlwaysOnTop)
-  alwaysOnTopItem?.setAttribute('aria-checked', String(windowAlwaysOnTop))
+  displayMenu.querySelector('[data-display-action="app-fullscreen"]')?.classList.toggle('active', currentWindowIsFullScreen && currentVideoMode !== 'focus')
   syncImmersiveOverlayVisibility()
 }
 
@@ -2146,21 +2155,17 @@ function cycleVideoMode() {
 
 function syncFocusWindowMode() {
   if (!window.api?.setFocusWindowMode) return
-  const enabled = currentVideoMode === 'focus' && currentWindowPresentation === 'windowed'
+  const enabled = currentVideoMode === 'focus' && !currentWindowIsFullScreen
   window.api.setFocusWindowMode(enabled).catch(error => {
     console.warn('[window] focus mode constraints unavailable:', error?.message || error)
   })
 }
 
 function applyWindowState(windowState = {}) {
-  currentWindowPresentation = windowState.presentation || 'windowed'
+  currentWindowIsFullScreen = !!windowState.isFullScreen
   windowAlwaysOnTop = !!windowState.alwaysOnTop
   if (state.store?.settings) state.store.settings.alwaysOnTop = windowAlwaysOnTop
-  document.body.classList.toggle('native-enhanced-fullscreen', currentWindowPresentation === 'enhanced-fullscreen')
-  document.body.classList.toggle('native-app-fullscreen', currentWindowPresentation === 'app-fullscreen')
-  if (currentWindowPresentation === 'enhanced-fullscreen' && currentVideoMode !== 'focus') {
-    applyVideoMode('focus', false)
-  }
+  document.body.classList.toggle('native-app-fullscreen', currentWindowIsFullScreen && currentVideoMode !== 'focus')
   syncFocusWindowMode()
   updateVideoModeButtons()
 }
@@ -2215,10 +2220,10 @@ function renderCastingState(next = {}) {
   btnCast.classList.toggle('active', active)
   btnCast.classList.toggle('busy', ['preparing', 'buffering', 'choosing', 'connecting'].includes(currentCastingState.status))
   btnCast.classList.toggle('casting', currentCastingState.status === 'casting')
-  btnCast.title = active
+  const castLabel = active
     ? `Stop sending to ${currentCastingState.target?.name || 'TV'}`
     : (currentCastingState.preferredTarget ? 'Send to TV · right-click to choose another' : 'Send to TV')
-  btnCast.setAttribute('aria-label', btnCast.title)
+  setControlTooltip(btnCast, castLabel)
   castingStatus.textContent = castingStatusText(currentCastingState)
   castingStatus.classList.toggle('error', currentCastingState.status === 'error')
   castingDevices.replaceChildren()
@@ -2289,7 +2294,7 @@ function supportedCastingMimeType() {
 }
 
 async function settleFocusComposition() {
-  if (currentWindowPresentation === 'app-fullscreen') await setPresentation('windowed')
+  if (currentWindowIsFullScreen) await setPresentation('windowed')
   if (currentVideoMode !== 'focus') applyVideoMode('focus')
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
 }
@@ -2372,6 +2377,7 @@ function closeDisplayMenu() {
   displayMenu.classList.add('hidden')
   document.body.classList.remove('display-menu-open')
   btnDisplayMenu.setAttribute('aria-expanded', 'false')
+  btnDisplayMenu.classList.remove('active')
 }
 
 function toggleDisplayMenu() {
@@ -2379,6 +2385,7 @@ function toggleDisplayMenu() {
   displayMenu.classList.toggle('hidden', !willOpen)
   document.body.classList.toggle('display-menu-open', willOpen)
   btnDisplayMenu.setAttribute('aria-expanded', String(willOpen))
+  btnDisplayMenu.classList.toggle('active', willOpen)
   if (willOpen) closeCastingMenu()
 }
 
@@ -2398,19 +2405,28 @@ function toggleImmersiveOptionsMenu() {
 }
 
 async function setPresentation(mode) {
-  if (mode === 'enhanced-fullscreen') applyVideoMode('focus', false)
-  if (mode === 'app-fullscreen' && currentVideoMode === 'focus') applyVideoMode('inline', false)
   applyWindowState(await window.api.setWindowPresentation(mode))
+}
+
+async function toggleFocusFullScreen() {
+  if (currentWindowIsFullScreen) {
+    await setPresentation('windowed')
+    return
+  }
+  if (currentVideoMode !== 'focus') applyVideoMode('focus')
+  await setPresentation('app-fullscreen')
 }
 
 async function handleDisplayAction(action) {
   if (action === 'focus') {
-    if (currentWindowPresentation !== 'windowed') await setPresentation('windowed')
+    if (currentWindowIsFullScreen) await setPresentation('windowed')
     applyVideoMode(currentVideoMode === 'focus' ? 'inline' : 'focus')
-  } else if (action === 'enhanced-fullscreen') {
-    await setPresentation(currentWindowPresentation === 'enhanced-fullscreen' ? 'windowed' : 'enhanced-fullscreen')
   } else if (action === 'app-fullscreen') {
-    await setPresentation(currentWindowPresentation === 'app-fullscreen' ? 'windowed' : 'app-fullscreen')
+    if (currentWindowIsFullScreen) await setPresentation('windowed')
+    else {
+      if (currentVideoMode === 'focus') applyVideoMode('inline', false)
+      await setPresentation('app-fullscreen')
+    }
   } else if (action === 'always-on-top') {
     applyWindowState(await window.api.setAlwaysOnTop(!windowAlwaysOnTop))
   } else if (action === 'toggle-now-playing-overlay') {
@@ -5188,7 +5204,7 @@ function wireEvents() {
   })
   document.addEventListener('keydown', handlePlayerShortcutKeydown)
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && currentWindowPresentation === 'windowed' && currentVideoMode === 'focus') {
+    if (event.key === 'Escape' && !currentWindowIsFullScreen && currentVideoMode === 'focus') {
       applyVideoMode('inline')
     }
   })
@@ -5239,8 +5255,12 @@ function wireEvents() {
       .catch(error => window.alert(error?.message || 'The display mode could not be changed.'))
   })
   btnVideoNativeFullscreen.addEventListener('click', () => {
-    setPresentation(currentWindowPresentation === 'enhanced-fullscreen' ? 'windowed' : 'enhanced-fullscreen')
+    toggleFocusFullScreen()
       .catch(error => window.alert(error?.message || 'The display mode could not be changed.'))
+  })
+  btnVideoAlwaysOnTop.addEventListener('click', () => {
+    handleDisplayAction('always-on-top')
+      .catch(error => window.alert(error?.message || 'Always on top could not be changed.'))
   })
   btnImmersiveOptions.addEventListener('click', (event) => {
     event.stopPropagation()
