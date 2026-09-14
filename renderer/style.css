@@ -139,9 +139,12 @@ body.platform-win32 #topbar {
   border-radius: 5px;
   background: color-mix(in srgb, var(--bg2) 96%, transparent);
   box-shadow: 0 8px 22px rgba(0, 0, 0, .38);
-  color: var(--text);
-  font: 600 9px/1.25 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
-  letter-spacing: .01em;
+  color: var(--text2);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: 0;
   text-align: left;
   text-transform: none;
   white-space: normal;

@@ -36,9 +36,9 @@
 <body>
 <main>
   <h1>Display glyph review</h1>
-  <p class="lede">Current controls versus the strongest alternatives. Teal outlines are my recommendation. “Keep” means the existing glyph is already the clearest option; the alternatives remain here to compare at actual control size.</p>
+  <p class="lede">The selected display controls after review. Teal outlines mark the glyph now used by the app; the remaining cards preserve the closest alternatives for comparison at actual control size.</p>
 
-  <div class="legend"><span>action</span><span>current</span><span>option A</span><span>option B</span></div>
+  <div class="legend"><span>action</span><span>selected</span><span>alternative A</span><span>alternative B</span></div>
 
   <h2>App window · top right</h2>
   <div class="rows" id="topbar"></div>
@@ -46,7 +46,7 @@
   <h2>Video container · focus view</h2>
   <div class="rows" id="focus"></div>
 
-  <div class="decision"><strong>My proposed pass:</strong> change Display options to the layout glyph, keep the existing mini-player/sidebar/tracklist/fullscreen controls, keep Layers for overlay configuration, use Pin for always-on-top, and use Video off for audio-only. The Focus window glyph is the only genuinely subjective one: Scan communicates “isolate this content” better, while the existing theater screen communicates “watching mode.”</div>
+  <div class="decision"><strong>Applied pass:</strong> the TV control keeps its familiar cast waves; Display options combines a monitor and adjustments; Tracklist uses an explicit list; Always on top gets a cleaner inclined pushpin; Focus window uses the isolated-frame glyph; and the old Audio only action is now Video off.</div>
 </main>
 <script>
   const icons = {
@@ -57,6 +57,7 @@
     airplay:'<path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"/><path d="m12 15 5 6H7z"/>',
     screenWaves:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M2 12a4 4 0 0 1 4 4"/><path d="M2 8a8 8 0 0 1 8 8"/>',
     monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    monitorSliders:'<rect x="2" y="3" width="20" height="16" rx="2"/><path d="M8 22h8M12 19v3M7 7v8M12 7v8M17 7v8M5.5 9.5h3M10.5 12.5h3M15.5 10.5h3"/>',
     sliders:'<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/>',
     layout:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>',
     sidebar:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
@@ -66,6 +67,8 @@
     layers:'<path d="m12 2 9 5-9 5-9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>',
     settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>',
     pin:'<path d="M12 17v5M5 17h14m-13 0 1-7-2-2V6h14v2l-2 2 1 7M9 6V3h6v3"/>',
+    pinDiagonal:'<path d="m16 3 5 5-4 2-4 4-1 5-7-7 5-1 4-4z"/><path d="m7 17-4 4"/>',
+    pinDiagonalAlt:'<path d="m14 4 6 6-3 1-5 5-1 4-7-7 4-1 5-5z"/><path d="m7 17-4 4"/>',
     front:'<rect x="8" y="3" width="13" height="13" rx="2"/><path d="M16 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h3"/>',
     theater:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 21h10"/>',
     scan:'<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/><rect x="7" y="8" width="10" height="8" rx="1"/>',
@@ -78,20 +81,20 @@
   const rows = {
     topbar:[
       ['Mini-player','Detach video into a compact player',['pip','Picture in picture','keep'],['windowArrow','Open window'],['theater','Screen']],
-      ['Send to TV','Unified AirPlay + Chromecast',['cast','Cast waves'],['screenWaves','Screen + waves','recommended'],['airplay','AirPlay triangle']],
-      ['Display options','Window and panel presentation',['monitor','Monitor'],['layout','Workspace layout','recommended'],['sliders','Display controls']],
+      ['Send to TV','Unified AirPlay + Chromecast',['cast','Cast waves','keep'],['screenWaves','Screen + waves'],['airplay','AirPlay triangle']],
+      ['Display options','Window and panel presentation',['monitorSliders','Monitor + adjustments','recommended'],['monitor','Monitor'],['sliders','Display controls']],
       ['Sidebar','Show or hide left navigation',['sidebar','Left panel','keep'],['sidebarClose','Collapsing panel'],['layout','Workspace layout']],
-      ['Tracklist panel','Show or hide right tracklist',['rightPanel','Right panel','keep'],['tracklist','Track list'],['layout','Workspace layout']]
+      ['Tracklist panel','Show or hide right tracklist',['tracklist','Track list','recommended'],['rightPanel','Right panel'],['layout','Workspace layout']]
     ],
     focus:[
-      ['Overlay options','Visibility, opacity, blur and content',['layers','Layers','recommended'],['sliders','Sliders'],['settings','Settings']],
-      ['Always on top','Keep this window above others',['pin','Pin','recommended'],['front','Bring to front'],['pip','Picture in picture']],
-      ['Focus window','Isolate video and overlays',['theater','Theater screen'],['scan','Isolated frame','recommended'],['pip','Picture in picture']],
+      ['Overlay options','Visibility, opacity, blur and content',['layers','Layers','keep'],['sliders','Sliders'],['settings','Settings']],
+      ['Always on top','Keep this window above others',['pinDiagonal','Inclined pin','recommended'],['pinDiagonalAlt','Inclined pin · solid'],['pin','Upright pin']],
+      ['Focus window','Isolate video and overlays',['scan','Isolated frame','recommended'],['theater','Theater screen'],['pip','Picture in picture']],
       ['Full screen','Apply native fullscreen to this view',['fullscreen','Corner frame','keep'],['expand','Diagonal expand'],['monitor','Display']],
-      ['Audio only','Hide video while playback continues',['note','Music note'],['videoOff','Video off','recommended'],['eyeOff','Hide visual']]
+      ['Video off','Hide video while playback continues',['videoOff','Video off','recommended'],['note','Music note'],['eyeOff','Hide visual']]
     ]
   };
-  const card = ([key,name,tag]) => `<div class="choice ${tag==='recommended'||tag==='keep'?'recommended':''}"><div class="glyph"><svg viewBox="0 0 24 24">${icons[key]}</svg></div><div><strong>${name}</strong><small>${tag==='keep'?'Existing icon is already strongest.':tag==='recommended'?'My preferred replacement.':'Viable alternate.'}</small></div>${tag==='keep'||tag==='recommended'?`<span class="tag">${tag}</span>`:''}</div>`;
+  const card = ([key,name,tag]) => `<div class="choice ${tag==='recommended'||tag==='keep'?'recommended':''}"><div class="glyph"><svg viewBox="0 0 24 24">${icons[key]}</svg></div><div><strong>${name}</strong><small>${tag==='keep'?'Existing icon is already strongest.':tag==='recommended'?'Selected for the app.':'Viable alternate.'}</small></div>${tag==='keep'||tag==='recommended'?`<span class="tag">${tag}</span>`:''}</div>`;
   for (const [group, items] of Object.entries(rows)) document.getElementById(group).innerHTML = items.map(([name,desc,...choices]) => `<div class="row"><div class="label"><strong>${name}</strong><small>${desc}</small></div>${choices.map(card).join('')}</div>`).join('');
 </script>
 </body>
