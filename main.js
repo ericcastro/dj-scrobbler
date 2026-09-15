@@ -32,6 +32,7 @@ const { startFfmpegHls } = require('./lib/hls-encoder')
 const { BackgroundAudioSource } = require('./lib/background-audio')
 const {
   buildBackgroundRecognitionQueue,
+  prioritizeBackgroundRecognitionQueue,
   targetedSamplePoints,
 } = require('./lib/background-recognition-plan')
 const { startHlsServer } = require('./lib/hls-server')
@@ -1175,6 +1176,19 @@ const YT_VOLUME_STATE_SCRIPT = `
   })()
 `
 
+// Captions are never part of the DJ-set presentation. YouTube can restore a
+// user's subtitle preference from its own cookie, so explicitly unload the
+// captions module whenever a player starts.
+const YT_CAPTIONS_OFF_SCRIPT = `
+  (() => {
+    const p = window.ytPlayer
+    if (!p) return false
+    try { if (typeof p.unloadModule === 'function') p.unloadModule('captions') } catch {}
+    try { if (typeof p.setOption === 'function') p.setOption('captions', 'track', {}) } catch {}
+    return true
+  })()
+`
+
 const YT_POLL_SCRIPT = `
   (() => {
     const p = window.ytPlayer
@@ -1192,6 +1206,38 @@ const YT_POLL_SCRIPT = `
 
 function wantsHighQualityYouTubePlayback() {
   return focusWindowMode || windowPresentation !== 'windowed'
+}
+
+function preferredYouTubeQualityHeight() {
+  const value = Number(readStore().settings?.youtubeQualityHeight)
+  return Number.isFinite(value) && value >= 144 && value <= 4320
+    ? Math.round(value)
+    : YOUTUBE_QUALITY_MIN_HEIGHT
+}
+
+function persistYouTubeQualityHeight(height) {
+  const store = readStore()
+  if (!store.settings) store.settings = {}
+  store.settings.youtubeQualityHeight = height
+  writeStore(store)
+}
+
+async function readYouTubeQualityOptions() {
+  const preferredHeight = preferredYouTubeQualityHeight()
+  const contents = playerWvContents
+  if (!isYouTubePlayerMode || !contents || contents.isDestroyed()) {
+    return { status: 'unavailable', preferredHeight, availableQualities: [] }
+  }
+  const result = await forceYouTubePlaybackQuality(contents, {
+    targetHeight: preferredHeight,
+    inspectOnly: true,
+    attempts: 1,
+    pollAttempts: 6,
+    pollDelayMs: 25,
+    dismissDelayMs: 25,
+  })
+  log(`[player-quality] reason=inspect result=${JSON.stringify(result)}`)
+  return { ...result, preferredHeight }
 }
 
 function cancelYouTubeQualityBoost() {
@@ -1216,7 +1262,7 @@ function scheduleYouTubeQualityBoost(reason, delayMs = YOUTUBE_QUALITY_RESIZE_DE
     youtubeQualityRunPending = true
     try {
       const result = await forceYouTubePlaybackQuality(contents, {
-        targetHeight: YOUTUBE_QUALITY_MIN_HEIGHT,
+        targetHeight: preferredYouTubeQualityHeight(),
       })
       log(`[player-quality] reason=${reason} result=${JSON.stringify(result)}`)
     } catch (error) {
@@ -1233,6 +1279,7 @@ function startYouTubePlayerMonitoring(wvContents) {
   setTimeout(() => {
     if (generation !== monitorGeneration || wvContents.isDestroyed()) return
     wvContents.executeJavaScript(YT_PLAY_SCRIPT).catch(() => {})
+    wvContents.executeJavaScript(YT_CAPTIONS_OFF_SCRIPT).catch(() => {})
     const settings = readStore().settings || {}
     const volume = Math.max(0, Math.min(100, Math.round(Number(settings.playerVolume ?? 80) || 0)))
     wvContents.executeJavaScript(`
@@ -1434,6 +1481,13 @@ function sendAutomaticRecognitionState(patch = {}) {
     Math.abs(Number(session.lastPlaybackPollSeconds) - Number(candidate.observedEndSeconds)) <=
       AUTOMATIC_RECOGNITION_CONFIRMATION_WINDOW_SECONDS
   )
+  const queuedSamples = session?.sampleQueue?.length || 0
+  const progressTotal = session === automaticRecognition
+    ? Math.max(0, Number(session?.analysisTotalSamples) || 0)
+    : 0
+  const remainingSamples = progressTotal
+    ? Math.min(progressTotal, queuedSamples + (session?.busy ? 1 : 0))
+    : queuedSamples
   const payload = {
     active: !!session,
     mode: session ? (session === targetedRecognition ? 'targeted' : 'timeline') : null,
@@ -1449,7 +1503,9 @@ function sendAutomaticRecognitionState(patch = {}) {
     lastResult: session?.lastResult || null,
     lastError: session?.lastError || null,
     sampleCount: session?.sampleCount || 0,
-    recoveryPending: session?.sampleQueue?.length || 0,
+    recoveryPending: remainingSamples,
+    progressCompleted: Math.max(0, progressTotal - remainingSamples),
+    progressTotal,
     candidate: candidateIsRelevant
       ? {
           artist: candidate.artist || '',
@@ -1740,6 +1796,10 @@ async function startAutomaticRecognition() {
     spacingSeconds: BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS,
     retryAfterMs: AUTOMATIC_RECOGNITION_RETRY_AFTER_MS,
   })
+  const fullTimelineSampleCount = buildBackgroundRecognitionQueue(setEndSeconds, [], {
+    clipSeconds: AUTOMATIC_RECOGNITION_CLIP_SECONDS,
+    spacingSeconds: BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS,
+  }).length
 
   automaticRecognition = {
     generation,
@@ -1770,6 +1830,7 @@ async function startAutomaticRecognition() {
     lastError: null,
     sampleCount: observations.length,
     sampleQueue,
+    analysisTotalSamples: Math.max(fullTimelineSampleCount, sampleQueue.length),
     audioSource: new BackgroundAudioSource(sourceUrl),
     lastPlaybackPollSeconds: resumedAtSeconds,
     fromCache: observations.length > 0,
@@ -1829,18 +1890,27 @@ function requestRecognitionAfterUnidentifiedSeek(seconds) {
   const session = automaticRecognition
   if (!session) return
   const segment = segmentAtTime(session.timeline, seconds)
-  if (segment && !segment.isRecognitionUnidentified) return
+  const pendingNearPlayback = session.sampleQueue.some(item => (
+    Math.abs(
+      Number(item.seconds) + AUTOMATIC_RECOGNITION_CLIP_SECONDS / 2 - Number(seconds),
+    ) <= BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS / 2
+  ))
+  if (segment && !segment.isRecognitionUnidentified && !pendingNearPlayback) return
   const now = Date.now()
   if (now - session.lastSeekRequestAt < AUTOMATIC_RECOGNITION_SEEK_COOLDOWN_MS) {
     log('[recognition] seek sample rejected cooldown=true')
     return
   }
   session.lastSeekRequestAt = now
-  const start = Math.max(0, Number(seconds) - AUTOMATIC_RECOGNITION_CLIP_SECONDS / 2)
-  if (!session.sampleQueue.some(item => Math.abs(item.seconds - start) < 2)) {
-    session.sampleQueue.unshift({ seconds: start, attempts: 0, reason: 'unidentified-seek' })
-    session.atEnd = false
-  }
+  const previousOutstanding = session.sampleQueue.length + (session.busy ? 1 : 0)
+  session.sampleQueue = prioritizeBackgroundRecognitionQueue(session.sampleQueue, seconds, {
+    clipSeconds: AUTOMATIC_RECOGNITION_CLIP_SECONDS,
+    spacingSeconds: BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS,
+  })
+  const nextOutstanding = session.sampleQueue.length + (session.busy ? 1 : 0)
+  session.analysisTotalSamples += Math.max(0, nextOutstanding - previousOutstanding)
+  session.atEnd = false
+  log(`[recognition] prioritized background analysis near playback=${Number(seconds).toFixed(1)}s pending=${session.sampleQueue.length}`)
   if (!session.busy) {
     if (session.timer) clearTimeout(session.timer)
     const remainingCooldown = Math.max(0, AUTOMATIC_RECOGNITION_MIN_REQUEST_SPACING_MS - (now - session.lastRequestAt))
@@ -2207,10 +2277,12 @@ async function identifyTrackWithRecognition(payload) {
   const points = targetedSamplePoints(track.cueSeconds, endSeconds, {
     clipSeconds: AUTOMATIC_RECOGNITION_CLIP_SECONDS,
   })
+  const previousQueueLength = session.sampleQueue.length
   session.sampleQueue = [
     ...points.map(seconds => ({ seconds, attempts: 0, reason: 'manual-identify' })),
     ...session.sampleQueue.filter(item => !points.some(seconds => Math.abs(item.seconds - seconds) < 2)),
   ]
+  session.analysisTotalSamples += Math.max(0, session.sampleQueue.length - previousQueueLength)
   session.atEnd = false
   const result = await runAutomaticRecognitionCycle(session, 'manual-identify')
   if (!result) return { status: 'error' }
@@ -4658,6 +4730,30 @@ ipcMain.handle('player-volume-set', async (_event, value) => {
       }
     })()
   `).catch(() => null)
+})
+
+ipcMain.handle('player-quality-get', () => readYouTubeQualityOptions())
+
+ipcMain.handle('player-quality-set', async (_event, value) => {
+  const height = Math.round(Number(value))
+  if (!Number.isFinite(height) || height < 144 || height > 4320) {
+    throw new Error('That YouTube quality is not available.')
+  }
+  const contents = playerWvContents
+  if (!isYouTubePlayerMode || !contents || contents.isDestroyed()) {
+    return { status: 'unavailable', preferredHeight: preferredYouTubeQualityHeight(), availableQualities: [] }
+  }
+  const result = await forceYouTubePlaybackQuality(contents, {
+    targetHeight: height,
+    exactHeight: height,
+    attempts: 8,
+  })
+  if (result.status === 'selected') persistYouTubeQualityHeight(height)
+  log(`[player-quality] reason=user selected=${height} result=${JSON.stringify(result)}`)
+  return {
+    ...result,
+    preferredHeight: result.status === 'selected' ? height : preferredYouTubeQualityHeight(),
+  }
 })
 
 ipcMain.handle('lfm-connect',    async () => lfmConnect())

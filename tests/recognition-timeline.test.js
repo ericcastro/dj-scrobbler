@@ -291,6 +291,25 @@ test('two minutes is the lower boundary for a standalone unknown segment', () =>
   assert.deepEqual(atThreshold.map(track => track.title), ['Track A', 'ID — ID', 'Track B'])
 })
 
+test('only an eight-minute unresolved span is treated as potentially multiple tracks', () => {
+  const timelineForNextTrack = firstSample => buildRecognitionTimeline([
+    match(10, 'DJ A', 'Track A', 'a'),
+    match(22, 'DJ A', 'Track A', 'a'),
+    match(34, 'DJ A', 'Track A', 'a'),
+    match(firstSample, 'DJ B', 'Track B', 'b'),
+    match(firstSample + 12, 'DJ B', 'Track B', 'b'),
+    match(firstSample + 24, 'DJ B', 'Track B', 'b'),
+  ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
+
+  const ordinaryTrackLength = timelineForNextTrack(266)
+  assert.equal(ordinaryTrackLength[1].title, 'ID — ID')
+  assert.equal(ordinaryTrackLength[1].isLongRecognitionGap, false)
+
+  const credibleMultiTrackSpan = timelineForNextTrack(526)
+  assert.equal(credibleMultiTrackSpan[1].title, 'ID — ID')
+  assert.equal(credibleMultiTrackSpan[1].isLongRecognitionGap, true)
+})
+
 test('a completed set with no confirmed match becomes one unresolved region', () => {
   const timeline = buildRecognitionTimeline([
     miss(10),

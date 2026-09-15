@@ -124,6 +124,11 @@ test('controls-enabled embeds retain the DOM but receive visually hidden player 
   assert.match(child.document.children[0].textContent, /player-control-overlay/)
 })
 
+test('YouTube captions are visually suppressed with the other native controls', () => {
+  assert.match(YOUTUBE_PLAYER_UI_SCRIPT, /ytp-caption-window-container/)
+  assert.match(YOUTUBE_PLAYER_UI_SCRIPT, /caption-window/)
+})
+
 test('quality selection picks the smallest explicit resolution meeting the target', () => {
   const labels = ['Auto (480p)', '2160p', '720p', '1080p Premium', '1080p', '1440p']
   assert.deepEqual(chooseYouTubeQuality(labels, 1080), { label: '1080p', height: 1080 })
@@ -164,6 +169,96 @@ test('quality script drives the controls menu and verifies the decoded resolutio
   assert.equal(result.selectedHeight, 1080)
   assert.equal(result.afterHeight, 1080)
   assert.equal(result.verified, true)
+})
+
+test('quality inspection reports YouTube resolutions without changing playback', async () => {
+  let menu = 'closed'
+  const video = { clientHeight: 720, videoHeight: 720 }
+  const element = (label, click = () => {}) => ({
+    textContent: label,
+    getAttribute: name => name === 'aria-label' ? label : null,
+    closest() { return this },
+    click,
+  })
+  const settings = element('Playback settings', () => { menu = 'settings' })
+  const quality = element('Quality720p', () => { menu = 'quality' })
+  const p720 = element('720p', () => { video.videoHeight = 720 })
+  const p1080 = element('1080p', () => { video.videoHeight = 1080 })
+  const document = {
+    documentElement: { clientHeight: 720 },
+    querySelector: selector => {
+      if (selector === 'video') return video
+      if (selector === '#player-controls-a11y-toggle') return null
+      if (selector.includes('Playback settings')) return settings
+      return null
+    },
+    querySelectorAll: () => menu === 'settings' ? [quality] : menu === 'quality' ? [p720, p1080] : [],
+  }
+  const result = await vm.runInNewContext(buildYouTubeQualityScript(1080, { inspectOnly: true }), {
+    location: { href: EMBED_URL.replace('controls=0', 'controls=1') },
+    URL, document, devicePixelRatio: 1, setTimeout,
+  })
+
+  assert.equal(result.status, 'available')
+  assert.deepEqual(Array.from(result.availableQualities, option => option.height), [720, 1080])
+  assert.equal(result.currentHeight, 720)
+  assert.equal(video.videoHeight, 720)
+})
+
+test('a fast quality inspection fails promptly when YouTube controls are not mounted', async () => {
+  const video = { clientHeight: 720, videoHeight: 720 }
+  const document = {
+    documentElement: { clientHeight: 720 },
+    querySelector: selector => selector === 'video' ? video : null,
+    querySelectorAll: () => [],
+  }
+  const startedAt = Date.now()
+  const result = await vm.runInNewContext(buildYouTubeQualityScript(1080, {
+    inspectOnly: true,
+    pollAttempts: 6,
+    pollDelayMs: 25,
+    dismissDelayMs: 25,
+  }), {
+    location: { href: EMBED_URL.replace('controls=0', 'controls=1') },
+    URL, document, devicePixelRatio: 1, setTimeout,
+  })
+
+  assert.equal(result.status, 'not-ready')
+  assert.equal(result.stage, 'settings')
+  assert.ok(Date.now() - startedAt < 500)
+})
+
+test('an explicit user quality selects that exact advertised resolution', async () => {
+  let menu = 'closed'
+  const video = { clientHeight: 1080, videoHeight: 480 }
+  const element = (label, click = () => {}) => ({
+    textContent: label,
+    getAttribute: name => name === 'aria-label' ? label : null,
+    closest() { return this },
+    click,
+  })
+  const settings = element('Playback settings', () => { menu = 'settings' })
+  const quality = element('Quality 480p', () => { menu = 'quality' })
+  const p720 = element('720p', () => { video.videoHeight = 720 })
+  const p1080 = element('1080p', () => { video.videoHeight = 1080 })
+  const document = {
+    documentElement: { clientHeight: 1080 },
+    querySelector: selector => {
+      if (selector === 'video') return video
+      if (selector === '#player-controls-a11y-toggle') return null
+      if (selector.includes('Playback settings')) return settings
+      return null
+    },
+    querySelectorAll: () => menu === 'settings' ? [quality] : menu === 'quality' ? [p720, p1080] : [],
+  }
+  const result = await vm.runInNewContext(buildYouTubeQualityScript(1080, { exactHeight: 720 }), {
+    location: { href: EMBED_URL.replace('controls=0', 'controls=1') },
+    URL, document, devicePixelRatio: 1, setTimeout,
+  })
+
+  assert.equal(result.status, 'selected')
+  assert.equal(result.selectedHeight, 720)
+  assert.equal(video.videoHeight, 720)
 })
 
 test('quality script follows the newer sheet menu through Advanced', async () => {

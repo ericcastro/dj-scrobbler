@@ -46,7 +46,7 @@
   <h2>Video container · focus view</h2>
   <div class="rows" id="focus"></div>
 
-  <div class="decision"><strong>Applied pass:</strong> the TV control keeps its familiar cast waves; Display options combines a monitor and adjustments; Tracklist uses an explicit list; Always on top gets a cleaner inclined pushpin; Focus window uses the isolated-frame glyph; and the old Audio only action is now Video off.</div>
+  <div class="decision"><strong>Applied pass:</strong> the TV control keeps its familiar cast waves; Display options combines a monitor and toggle; Tracklist uses an explicit list; Always on top gets a heavier inclined pushpin; Focus window uses the isolated-frame glyph; and the old Audio only action is now Video off.</div>
 </main>
 <script>
   const icons = {
@@ -58,6 +58,7 @@
     screenWaves:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M2 12a4 4 0 0 1 4 4"/><path d="M2 8a8 8 0 0 1 8 8"/>',
     monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
     monitorSliders:'<rect x="2" y="3" width="20" height="16" rx="2"/><path d="M8 22h8M12 19v3M7 7v8M12 7v8M17 7v8M5.5 9.5h3M10.5 12.5h3M15.5 10.5h3"/>',
+    monitorToggle:'<rect x="2" y="3" width="20" height="16" rx="2"/><path d="M8 22h8M12 19v3"/><rect x="6" y="8" width="12" height="6" rx="3"/><circle cx="10" cy="11" r="1.65" fill="currentColor" stroke="none"/>',
     sliders:'<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/>',
     layout:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>',
     sidebar:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>',
@@ -67,7 +68,7 @@
     layers:'<path d="m12 2 9 5-9 5-9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/>',
     settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/>',
     pin:'<path d="M12 17v5M5 17h14m-13 0 1-7-2-2V6h14v2l-2 2 1 7M9 6V3h6v3"/>',
-    pinDiagonal:'<path d="m16 3 5 5-4 2-4 4-1 5-7-7 5-1 4-4z"/><path d="m7 17-4 4"/>',
+    pinDiagonal:'<path d="m14.8 2.8 6.4 6.4-3.9 1.4-3.6 3.6-1.2 5.4-8.1-8.1 5.4-1.2 3.6-3.6z" fill="currentColor"/><path d="m8 16-5 5"/>',
     pinDiagonalAlt:'<path d="m14 4 6 6-3 1-5 5-1 4-7-7 4-1 5-5z"/><path d="m7 17-4 4"/>',
     front:'<rect x="8" y="3" width="13" height="13" rx="2"/><path d="M16 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h3"/>',
     theater:'<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 21h10"/>',
@@ -82,13 +83,13 @@
     topbar:[
       ['Mini-player','Detach video into a compact player',['pip','Picture in picture','keep'],['windowArrow','Open window'],['theater','Screen']],
       ['Send to TV','Unified AirPlay + Chromecast',['cast','Cast waves','keep'],['screenWaves','Screen + waves'],['airplay','AirPlay triangle']],
-      ['Display options','Window and panel presentation',['monitorSliders','Monitor + adjustments','recommended'],['monitor','Monitor'],['sliders','Display controls']],
+      ['Display options','Window and panel presentation',['monitorToggle','Monitor + toggle','recommended'],['monitor','Monitor'],['sliders','Display controls']],
       ['Sidebar','Show or hide left navigation',['sidebar','Left panel','keep'],['sidebarClose','Collapsing panel'],['layout','Workspace layout']],
       ['Tracklist panel','Show or hide right tracklist',['tracklist','Track list','recommended'],['rightPanel','Right panel'],['layout','Workspace layout']]
     ],
     focus:[
       ['Overlay options','Visibility, opacity, blur and content',['layers','Layers','keep'],['sliders','Sliders'],['settings','Settings']],
-      ['Always on top','Keep this window above others',['pinDiagonal','Inclined pin','recommended'],['pinDiagonalAlt','Inclined pin · solid'],['pin','Upright pin']],
+      ['Always on top','Keep this window above others',['pinDiagonal','Inclined pin · filled when active','recommended'],['pinDiagonalAlt','Inclined pin · outline'],['pin','Upright pin']],
       ['Focus window','Isolate video and overlays',['scan','Isolated frame','recommended'],['theater','Theater screen'],['pip','Picture in picture']],
       ['Full screen','Apply native fullscreen to this view',['fullscreen','Corner frame','keep'],['expand','Diagonal expand'],['monitor','Display']],
       ['Video off','Hide video while playback continues',['videoOff','Video off','recommended'],['note','Music note'],['eyeOff','Hide visual']]

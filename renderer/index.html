@@ -63,7 +63,7 @@
       </div>
       <div id="display-menu-wrap">
         <button class="icon-btn" id="btn-display-menu" data-tooltip="Display options" aria-label="Display options" aria-haspopup="menu" aria-expanded="false">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="16" rx="2"/><path d="M8 22h8M12 19v3M7 7v8M12 7v8M17 7v8M5.5 9.5h3M10.5 12.5h3M15.5 10.5h3"/></svg>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="16" rx="2"/><path d="M8 22h8M12 19v3"/><rect x="6" y="8" width="12" height="6" rx="3"/><circle cx="10" cy="11" r="1.65" fill="currentColor" stroke="none"/></svg>
         </button>
         <div id="display-menu" class="hidden" role="menu" aria-label="Display options">
           <button class="display-menu-item" data-display-action="focus" role="menuitem">
@@ -72,7 +72,6 @@
           <button class="display-menu-item" data-display-action="app-fullscreen" role="menuitem">
             <span>app full screen</span><small>the entire workspace</small>
           </button>
-          <div class="display-menu-rule"></div>
           <button class="display-menu-item display-menu-toggle" data-display-action="toggle-now-playing-overlay" role="menuitemcheckbox" aria-checked="true">
             <span>now playing overlay</span><span class="display-toggle-mark" aria-hidden="true"></span>
           </button>
@@ -642,6 +641,10 @@
           <button class="video-control-btn" id="btn-video-fullscreen" data-tooltip="Focus window" aria-label="Focus window"></button>
           <button class="video-control-btn" id="btn-video-native-fullscreen" data-tooltip="Full screen" aria-label="Full screen"></button>
           <button class="video-control-btn" id="btn-video-hide" data-tooltip="Video off" aria-label="Video off"></button>
+          <div id="video-quality-wrap" class="video-quality-wrap hidden">
+            <button id="video-quality-button" data-youtube-quality aria-label="YouTube video quality" aria-haspopup="listbox" aria-expanded="false" disabled>quality</button>
+            <div id="video-quality-menu" class="hidden" role="listbox" aria-label="YouTube video quality"></div>
+          </div>
         </div>
       </div>
 
@@ -737,9 +740,9 @@
               </button>
             </div>
           </div>
-          <div id="set-event-lookup" class="set-event-lookup" aria-live="polite"></div>
         </section>
         <div id="tracklist-scroll-region">
+          <div id="set-event-lookup" class="set-event-lookup" aria-live="polite"></div>
           <div id="tracklist-provider-choice" class="tracklist-provider-choice hidden" aria-live="polite"></div>
           <div id="tracklist-unavailable" class="hidden">
             <div class="tl-unavailable-icon">

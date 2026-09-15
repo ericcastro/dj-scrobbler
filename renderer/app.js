@@ -43,6 +43,7 @@ const state = {
   eventSuggestionsDismissedNotice: false,
   pendingResumeTime: null, // seconds to seek to after first playback-progress tick
   recognitionState: { active: false, phase: 'inactive', inUnidentified: false },
+  youtubeQuality: { status: 'idle', availableQualities: [], currentHeight: 0, preferredHeight: 1080 },
 }
 
 const EVENT_KAWAII_EMOTES = [
@@ -86,6 +87,9 @@ const immersiveNowBlur = document.getElementById('immersive-now-blur')
 const immersiveNowBlurValue = document.getElementById('immersive-now-blur-value')
 const immersiveTracklistBlur = document.getElementById('immersive-tracklist-blur')
 const immersiveTracklistBlurValue = document.getElementById('immersive-tracklist-blur-value')
+const videoQualityWrap = document.getElementById('video-quality-wrap')
+const videoQualityButton = document.getElementById('video-quality-button')
+const videoQualityMenu = document.getElementById('video-quality-menu')
 const btnDevtools        = document.getElementById('btn-devtools')
 const btnSidebarToggle   = document.getElementById('btn-sidebar-toggle')
 const sidebar            = document.getElementById('sidebar')
@@ -327,10 +331,11 @@ const ICON = {
   fullscreenExit: '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>',
   focusView: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><rect x="7" y="8" width="10" height="8" rx="1"/>',
   appView: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 8h18"/><path d="M9 8v13"/>',
-  displaySettings: '<rect x="2" y="3" width="20" height="16" rx="2"/><path d="M8 22h8M12 19v3M7 7v8M12 7v8M17 7v8M5.5 9.5h3M10.5 12.5h3M15.5 10.5h3"/>',
+  displaySettings: '<rect x="2" y="3" width="20" height="16" rx="2"/><path d="M8 22h8M12 19v3"/><rect x="6" y="8" width="12" height="6" rx="3"/><circle cx="10" cy="11" r="1.65" fill="currentColor" stroke="none"/>',
   trackList: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
   layers: '<path d="m12 2 9 5-9 5-9-5 9-5"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
-  pinDiagonal: '<path d="m16 3 5 5-4 2-4 4-1 5-7-7 5-1 4-4z"/><path d="m7 17-4 4"/>',
+  pinDiagonal: '<path d="m14.8 2.8 6.4 6.4-3.9 1.4-3.6 3.6-1.2 5.4-8.1-8.1 5.4-1.2 3.6-3.6z" fill="currentColor"/><path d="m8 16-5 5"/>',
+  pinDiagonalOff: '<path d="m14.8 2.8 6.4 6.4-3.9 1.4-3.6 3.6-1.2 5.4-8.1-8.1 5.4-1.2 3.6-3.6z"/><path d="m8 16-5 5"/>',
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
   miniPlayer: '<rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/>',
   videoOff: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 3 18 18"/>',
@@ -720,9 +725,9 @@ function renderNextDjEvents() {
   if (!matches.length) {
     const unavailable = (state.currentEventLookup?.results || []).some(result => result.unavailableSources?.length)
     setEventLookup.innerHTML = `
-      <div class="set-event-status-row">
-        <span class="set-event-lookup-status">${unavailable ? 'No date found; some event sources could not be checked.' : `No upcoming dates found in ${escHtml(location.city)}.`}</span>
-      </div>
+      ${unavailable ? '' : `<div class="set-event-status-row">
+        <span class="set-event-lookup-status">No upcoming dates found in ${escHtml(location.city)}.</span>
+      </div>`}
       ${eventLocationControlHtml(location)}`
     wireEventLocationChange()
     return
@@ -1128,6 +1133,8 @@ function wireSetMetadataActions(suggestions, facts) {
 function renderSetMetadataHeader() {
   if (!state.currentSetUrl) {
     setMetadataHeader.classList.add('hidden')
+    setEventLookup.innerHTML = ''
+    setEventLookup.classList.add('hidden')
     return
   }
 
@@ -1982,6 +1989,7 @@ function applyVideoMode(mode, persistSetting = true) {
   updateVideoModeButtons()
   setSidebarWidthVar()
   requestAnimationFrame(() => requestAnimationFrame(updateMiniPlayerMetrics))
+  if (next === 'focus') setTimeout(refreshYouTubeQuality, 1100)
   if (next === 'inline' && persistSetting) {
     hideIntro()
     document.body.classList.remove('is-browsing')
@@ -2035,10 +2043,10 @@ function updateVideoModeButtons() {
   btnVideoNativeFullscreen.innerHTML = icon(currentWindowIsFullScreen ? ICON.fullscreenExit : ICON.fullscreen, 15)
   setControlTooltip(btnVideoNativeFullscreen, currentWindowIsFullScreen ? 'Exit full screen' : 'Full screen')
 
-  btnVideoAlwaysOnTop.innerHTML = icon(ICON.pinDiagonal, 15)
+  btnVideoAlwaysOnTop.innerHTML = icon(windowAlwaysOnTop ? ICON.pinDiagonal : ICON.pinDiagonalOff, 17)
   btnVideoAlwaysOnTop.classList.toggle('active', windowAlwaysOnTop)
   btnVideoAlwaysOnTop.setAttribute('aria-pressed', String(windowAlwaysOnTop))
-  setControlTooltip(btnVideoAlwaysOnTop, windowAlwaysOnTop ? 'Disable always on top' : 'Always on top')
+  setControlTooltip(btnVideoAlwaysOnTop, windowAlwaysOnTop ? 'Unpin from top' : 'Always visible')
 
   btnVideoHide.innerHTML = icon(ICON.videoOff, 15)
   setControlTooltip(btnVideoHide, 'Video off')
@@ -2167,12 +2175,14 @@ function syncFocusWindowMode() {
 }
 
 function applyWindowState(windowState = {}) {
+  const wasFullScreen = currentWindowIsFullScreen
   currentWindowIsFullScreen = !!windowState.isFullScreen
   windowAlwaysOnTop = !!windowState.alwaysOnTop
   if (state.store?.settings) state.store.settings.alwaysOnTop = windowAlwaysOnTop
   document.body.classList.toggle('native-app-fullscreen', currentWindowIsFullScreen && currentVideoMode !== 'focus')
   syncFocusWindowMode()
   updateVideoModeButtons()
+  if (!wasFullScreen && currentWindowIsFullScreen) setTimeout(refreshYouTubeQuality, 1100)
 }
 
 function castingIsActive(status = currentCastingState.status) {
@@ -2383,6 +2393,92 @@ function closeDisplayMenu() {
   document.body.classList.remove('display-menu-open')
   btnDisplayMenu.setAttribute('aria-expanded', 'false')
   btnDisplayMenu.classList.remove('active')
+}
+
+let youtubeQualityRequest = 0
+
+function renderYouTubeQuality(result = state.youtubeQuality) {
+  state.youtubeQuality = { ...state.youtubeQuality, ...result }
+  if (Object.hasOwn(result, 'currentHeight') && !Object.hasOwn(result, 'afterHeight')) {
+    delete state.youtubeQuality.afterHeight
+  }
+  const qualities = [...(state.youtubeQuality.availableQualities || [])]
+    .filter(option => Number.isFinite(Number(option?.height)))
+    .map(option => ({ ...option, height: Number(option.height) }))
+    .sort((left, right) => right.height - left.height)
+  const preferredHeight = Number(state.youtubeQuality.preferredHeight) || 1080
+  const currentHeight = Number(state.youtubeQuality.afterHeight || state.youtubeQuality.currentHeight) || 0
+  const ready = qualities.length > 0
+
+  const currentAvailable = qualities.some(quality => quality.height === currentHeight)
+  const preferredAvailable = qualities.some(quality => quality.height === preferredHeight)
+  const selectedHeight = currentAvailable
+    ? currentHeight
+    : preferredAvailable
+      ? preferredHeight
+      : qualities[0]?.height || 0
+
+  videoQualityWrap.classList.toggle('hidden', !ready && state.youtubeQuality.status !== 'loading')
+  videoQualityButton.disabled = !ready
+  videoQualityButton.textContent = ready
+    ? `${selectedHeight}p`
+    : 'checking…'
+  videoQualityMenu.replaceChildren()
+  qualities.forEach(quality => {
+    const option = document.createElement('button')
+    option.type = 'button'
+    option.className = 'video-quality-option'
+    option.dataset.qualityHeight = String(quality.height)
+    option.setAttribute('role', 'option')
+    option.setAttribute('aria-selected', String(quality.height === selectedHeight))
+    option.textContent = quality.label || `${quality.height}p`
+    videoQualityMenu.appendChild(option)
+  })
+  if (!ready) closeVideoQualityMenu()
+}
+
+function closeVideoQualityMenu() {
+  videoQualityMenu.classList.add('hidden')
+  videoQualityWrap.classList.remove('open')
+  videoQualityButton.setAttribute('aria-expanded', 'false')
+}
+
+function toggleVideoQualityMenu() {
+  if (videoQualityButton.disabled) return
+  const willOpen = videoQualityMenu.classList.contains('hidden')
+  videoQualityMenu.classList.toggle('hidden', !willOpen)
+  videoQualityWrap.classList.toggle('open', willOpen)
+  videoQualityButton.setAttribute('aria-expanded', String(willOpen))
+}
+
+async function refreshYouTubeQuality() {
+  const request = ++youtubeQualityRequest
+  renderYouTubeQuality({ status: 'loading', availableQualities: [] })
+  try {
+    const result = await window.api.playerQualityGet()
+    if (request === youtubeQualityRequest) renderYouTubeQuality(result)
+  } catch {
+    if (request === youtubeQualityRequest) renderYouTubeQuality({ status: 'unavailable', availableQualities: [] })
+  }
+}
+
+async function selectYouTubeQuality(height) {
+  const request = ++youtubeQualityRequest
+  closeVideoQualityMenu()
+  videoQualityButton.disabled = true
+  videoQualityButton.textContent = 'switching…'
+  try {
+    const result = await window.api.playerQualitySet(height)
+    if (request === youtubeQualityRequest) {
+      if (result?.status === 'selected') {
+        if (!state.store.settings) state.store.settings = {}
+        state.store.settings.youtubeQualityHeight = result.preferredHeight
+      }
+      renderYouTubeQuality(result)
+    }
+  } catch {
+    if (request === youtubeQualityRequest) await refreshYouTubeQuality()
+  }
 }
 
 function toggleDisplayMenu() {
@@ -2699,7 +2795,7 @@ function renderImmersiveTracklist(tracks = state.currentTracks) {
     const artist = document.createElement('span')
     artist.className = 'immersive-track-artist'
     artist.textContent = track.isLongRecognitionGap
-      ? 'there may be multiple unidentified tracks here'
+      ? 'potentially multiple unidentified tracks'
       : (track.artist || '')
     copy.append(title, artist)
     const cue = document.createElement('span')
@@ -2981,12 +3077,9 @@ function renderRecognitionStatus() {
     state.currentTracklistProvider === 'shazam' || recognition.mode === 'targeted'
   )
   let message = ''
-  if (recognition.phase === 'preparing') message = 'Preparing audio for background Shazam…'
-  else if (recognition.phase === 'recognizing' || recognition.phase === 'analyzing') {
-    const remaining = Number(recognition.recoveryPending) || 0
-    message = remaining ? `Building the tracklist with Shazam… ${remaining} samples left` : 'Building the tracklist with Shazam…'
+  if (recognition.mode === 'timeline' && ['preparing', 'recognizing', 'analyzing'].includes(recognition.phase)) {
+    message = 'automatically building tracklist'
   }
-  else if (recognition.phase === 'complete') message = 'Shazam identification complete'
   else if (recognition.phase === 'error') message = 'Background Shazam could not prepare this set'
   else if (recognition.candidate?.count) {
     const label = [recognition.candidate.artist, recognition.candidate.title].filter(Boolean).join(' — ')
@@ -2997,12 +3090,24 @@ function renderRecognitionStatus() {
   else if (recognition.inUnidentified) message = 'This section is still unidentified…'
   else message = 'Shazam is analyzing this set…'
 
+  const progressTotal = Math.max(0, Number(recognition.progressTotal) || 0)
+  const progressCompleted = Math.min(progressTotal, Math.max(0, Number(recognition.progressCompleted) || 0))
+  const showProgress = recognition.mode === 'timeline' && progressTotal > 0
+  const progressPercent = showProgress ? Math.round(progressCompleted / progressTotal * 100) : 0
+  const progressHtml = showProgress ? `
+    <div class="recognition-progress" role="progressbar" aria-label="Shazam tracklist progress" aria-valuemin="0" aria-valuemax="${progressTotal}" aria-valuenow="${progressCompleted}">
+      <span class="recognition-progress-fill" style="width:${progressPercent}%"></span>
+    </div>` : ''
+
   for (const element of [recognitionStatus, recognitionCompactStatus]) {
     if (!element) continue
-    element.classList.toggle('hidden', !active)
+    const visible = active && recognition.phase !== 'complete'
+    element.classList.toggle('hidden', !visible)
     element.classList.toggle('is-active', active && recognition.phase !== 'complete')
     element.classList.toggle('is-recognizing', ['preparing', 'recognizing', 'analyzing'].includes(recognition.phase))
-    element.innerHTML = active ? `${spectrumBarsHtml('recognition-indicator')}<span>${escHtml(message)}</span>` : ''
+    element.innerHTML = visible ? `
+      <div class="recognition-status-copy"><span class="recognition-activity-dot" aria-hidden="true"></span><span>${escHtml(message)}</span></div>
+      ${progressHtml}` : ''
   }
 }
 
@@ -3018,7 +3123,10 @@ function wireMainEvents() {
       case 'no-tracklist':        showNoTracklist(); break
       case 'no-tracklist-prompt': showNoTracklistPrompt(status.url); break
       case 'network-error':       showNetworkError(status.url, status.message); break
-      case 'player-ready':        hidePlayerStatus(); break
+      case 'player-ready':
+        hidePlayerStatus()
+        setTimeout(refreshYouTubeQuality, 250)
+        break
       case 'hide-overlay':        hideOverlays(); break
     }
   })
@@ -3046,6 +3154,7 @@ function wireMainEvents() {
     state.tracklistUnavailable = !!isFallback
     state.currentSetTitle      = title
     state.currentSetUrl        = url
+    if (isYouTubeSourceUrl(url)) setTimeout(refreshYouTubeQuality, 250)
     state.currentSetMetadata   = state.currentSetMetadata || savedMetadataForUrl(url)
     if (isNewSet) state.metadataRemovedValues = savedIgnoredMetadataValuesForUrl(url)
     state.currentSourceStats   = {
@@ -4744,7 +4853,7 @@ function createTrackItem(track, compact) {
 
   const titleText = escHtml(track.title || (track.isId ? 'ID — ID' : track.raw) || '?')
   const artistHtml = track.isRecognitionUnidentified && track.isLongRecognitionGap && !compact
-    ? '<span class="track-artist">there may be multiple tracks that couldn\'t be identified in this section</span>'
+    ? '<span class="track-artist">potentially multiple unidentified tracks</span>'
     : ((!track.isId && track.artist && !compact)
         ? `<span class="track-artist">${escHtml(track.artist)}</span>`
         : '')
@@ -4757,9 +4866,9 @@ function createTrackItem(track, compact) {
   const manualIdentifyHtml = needsIdentify
     ? `<span class="track-manual-actions">
          ${track.isId
-    ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>retry Shazam id</button>`
+    ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>retry id</button>`
     : ''}
-         <button class="inline-track-btn track-manual-id-btn">manual id</button>
+         ${track.isLongRecognitionGap ? '' : '<button class="inline-track-btn track-manual-id-btn">manual id</button>'}
        </span>`
     : ''
   const autoActionsHtml = (track.autoRecognized || track.manualIdentified)
@@ -5319,6 +5428,15 @@ function wireEvents() {
   immersiveTracklistBlur.addEventListener('change', () => {
     setImmersiveBlur('immersiveTracklistBlur', immersiveTracklistBlur.value, { persistSetting: true })
   })
+  videoQualityButton.addEventListener('click', (event) => {
+    event.stopPropagation()
+    toggleVideoQualityMenu()
+  })
+  videoQualityMenu.addEventListener('click', (event) => {
+    const option = event.target.closest('[data-quality-height]')
+    if (!option) return
+    selectYouTubeQuality(Number(option.dataset.qualityHeight))
+  })
   immersivePlayPause.addEventListener('click', () => window.api.playerToggle())
   immersivePrevTrack.addEventListener('click', () => seekRelativeTrack(-1))
   immersiveNextTrack.addEventListener('click', () => seekRelativeTrack(1))
@@ -5347,6 +5465,7 @@ function wireEvents() {
     if (!event.target.closest('#display-menu-wrap')) closeDisplayMenu()
     if (!event.target.closest('#casting-menu-wrap')) closeCastingMenu()
     if (!event.target.closest('#immersive-options-wrap')) closeImmersiveOptionsMenu()
+    if (!event.target.closest('#video-quality-wrap')) closeVideoQualityMenu()
   })
   window.addEventListener('resize', applyResponsiveSidebar)
   volumeControl.addEventListener('mouseenter', showVolumePopover)

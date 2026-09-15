@@ -74,6 +74,14 @@ test('immersive playback keeps YouTube controls scrapeable and requests higher q
   assert.match(mainJs, /focusWindowMode \|\| windowPresentation !== 'windowed'/)
   assert.match(mainJs, /scheduleYouTubeQualityBoost\('window-resized'/)
   assert.match(mainJs, /scheduleYouTubeQualityBoost\('player-loaded'/)
+  assert.match(mainJs, /preferredYouTubeQualityHeight\(\)/)
+  assert.match(mainJs, /const YT_CAPTIONS_OFF_SCRIPT =/)
+  assert.match(mainJs, /executeJavaScript\(YT_CAPTIONS_OFF_SCRIPT\)/)
+  assert.match(mainJs, /inspectOnly:\s*true/)
+  assert.match(mainJs, /attempts:\s*1,[\s\S]*pollAttempts:\s*6,[\s\S]*pollDelayMs:\s*25/)
+  assert.match(mainJs, /exactHeight:\s*height/)
+  assert.match(preloadJs, /playerQualityGet:.*player-quality-get/)
+  assert.match(preloadJs, /playerQualitySet:.*player-quality-set/)
 })
 
 test('TV casting shares one HLS capture path with protocol-neutral discovery', () => {
@@ -149,6 +157,8 @@ test('all documented IPC channels are present in main.js', () => {
     'store-get',
     'store-set',
     'player-toggle',
+    'player-quality-get',
+    'player-quality-set',
     'open-devtools',
     'lfm-connect',
     'lfm-disconnect',
@@ -226,7 +236,7 @@ test('empty published tracklists activate background recognition without blockin
   assert.match(mainJs, /setImmediate\(\(\) => runAutomaticRecognitionCycle\(automaticRecognition, 'start'\)/)
   assert.match(mainJs, /buildBackgroundRecognitionQueue\(setEndSeconds, observations/)
   assert.match(mainJs, /new BackgroundAudioSource\(sourceUrl\)/)
-  assert.match(mainJs, /reason: 'unidentified-seek'/)
+  assert.match(mainJs, /prioritizeBackgroundRecognitionQueue\(session\.sampleQueue, seconds/)
   assert.match(mainJs, /applyRecognitionServiceBackoff\(session, error\)/)
 })
 

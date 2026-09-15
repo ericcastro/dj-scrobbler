@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('api', {
   playerToggle:    ()      => ipcRenderer.invoke('player-toggle'),
   playerVolumeGet: ()      => ipcRenderer.invoke('player-volume-get'),
   playerVolumeSet: (value) => ipcRenderer.invoke('player-volume-set', value),
+  playerQualityGet: ()      => ipcRenderer.invoke('player-quality-get'),
+  playerQualitySet: (value) => ipcRenderer.invoke('player-quality-set', value),
   playerGotoTrack: (args) => ipcRenderer.invoke('player-goto-track', args),
   playerSeek:      (secs) => ipcRenderer.invoke('player-seek', secs),
   fallbackSeek:    (secs) => ipcRenderer.invoke('fallback-seek', secs),
