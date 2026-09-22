@@ -7,6 +7,7 @@ const {
   deezerFallbackSearchUrl,
   deezerSearchUrl,
   isArtworkLookupCandidate,
+  lookupDeezerArtwork,
   normalizeTitle,
 } = require('../lib/deezer-artwork')
 
@@ -65,6 +66,36 @@ test('Deezer falls back to an unquoted collaborative-credit query', () => {
   }))
   assert.equal(url.searchParams.get('q'), 'Argy, Son of Son & Anyma Voices In My Head (Amelie Lens Remix) [Mixed]')
   assert.equal(url.searchParams.get('limit'), '10')
+})
+
+test('ambiguous YouTube comment rows try a verified split instead of guessing one', async () => {
+  const wanted = track({
+    artist: 'ID',
+    title: 'A-Track - Like I Said',
+    commentTracklist: true,
+    commentAmbiguousSplits: [
+      { artist: 'A', title: 'Track - Like I Said' },
+      { artist: 'A-Track', title: 'Like I Said' },
+    ],
+  })
+  assert.equal(isArtworkLookupCandidate(wanted), true)
+  assert.equal(isArtworkLookupCandidate(track({ artist: 'ID', title: 'No Dash', commentTracklist: true })), false)
+  const queries = []
+  const match = await lookupDeezerArtwork(wanted, {
+    requestJson: async url => {
+      queries.push(url.searchParams.get('q'))
+      return { data: url.searchParams.get('q').includes('A-Track')
+        ? [result({ title: 'Like I Said', artist: { name: 'A-Track' } })]
+        : [] }
+    },
+  })
+  assert.deepEqual(queries, [
+    'artist:"A" track:"Track - Like I Said"',
+    'A Track - Like I Said',
+    'artist:"A-Track" track:"Like I Said"',
+  ])
+  assert.equal(match.artist, 'A-Track')
+  assert.equal(match.title, 'Like I Said')
 })
 
 test('matching is strict on title while allowing Deezer to name only the primary collaborator', () => {

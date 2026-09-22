@@ -1,7 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { startPrimaryWithFallback } = require('../lib/parallel-tracklist-lookup')
+const { startPrimaryWithFallback, startProviderChain } = require('../lib/parallel-tracklist-lookup')
 
 function deferred() {
   let resolve
@@ -118,4 +118,18 @@ test('provider failures are isolated and become outcomes', async () => {
   assert.equal(choice.selected, null)
   assert.equal(choice.primary.error.message, 'primary failed')
   assert.equal(choice.fallback.error.message, 'fallback failed')
+})
+
+test('ordered provider chain starts comments and set79 together but preserves comments precedence', async () => {
+  const started = []
+  const chain = startProviderChain({
+    providers: [primaryProvider, { id: 'youtube-comments' }, fallbackProvider],
+    lookup(provider) {
+      started.push(provider.id)
+      return Promise.resolve({ usable: provider.id !== '1001tracklists', tracks: [{}] })
+    },
+  })
+  assert.deepEqual(started, ['1001tracklists', 'youtube-comments', 'set79'])
+  const choice = await chain.selected
+  assert.equal(choice.selected.provider.id, 'youtube-comments')
 })

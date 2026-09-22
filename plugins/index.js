@@ -15,11 +15,12 @@
 const youtube          = require('./sources/youtube')
 const soundcloudDormant = require('./sources/soundcloud')
 const tl1001           = require('./tracklists/1001tracklists')
+const youtubeComments  = require('./tracklists/youtube-comments')
 const set79            = require('./tracklists/set79')
 const events           = require('./events')
 
 const SOURCES    = [youtube]
-const TRACKLISTS = [tl1001, set79]
+const TRACKLISTS = [tl1001, youtubeComments, set79]
 const EVENTS     = events.EVENTS
 
 // Parked for the v0.5 player refactor: the SoundCloud *source* still needs the
@@ -41,13 +42,13 @@ const ROUTING = {
 
 // Providers a user can try by hand when the routed provider comes up empty.
 const ALTERNATE_ROUTING = {
-  youtube: ['set79'],
+  youtube: ['youtube-comments', 'set79'],
 }
 
 // Best-effort providers started beside the primary lookup. Primary results
 // always win; these are only eligible to supply a tracklist when it has none.
 const AUTOMATIC_FALLBACK_ROUTING = {
-  youtube: ['set79'],
+  youtube: ['youtube-comments', 'set79'],
 }
 
 function sourceForUrl(url) {

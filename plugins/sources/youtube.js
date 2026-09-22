@@ -98,18 +98,13 @@ async function fetchOembed(canonicalUrl) {
   }
 }
 
-async function fetchPublicVideoStats(canonicalUrl) {
-  try {
-    const html = await requestText(canonicalUrl, {
-      headers: {
-        'Accept-Language': 'en-US,en;q=0.8',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36',
-      },
-    })
-    return parsePublicVideoStats(html)
-  } catch {
-    return { viewCount: null, publishedAt: null }
-  }
+function fetchWatchPage(canonicalUrl) {
+  return requestText(canonicalUrl, {
+    headers: {
+      'Accept-Language': 'en-US,en;q=0.8',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+    },
+  })
 }
 
 module.exports = {
@@ -170,7 +165,13 @@ module.exports = {
     // Start the heavier watch-page scrape now, but do not make playback wait
     // for it. Main listens to this promise and updates the explanatory copy
     // when the public stats arrive.
-    const publicStatsPromise = fetchPublicVideoStats(canonicalUrl)
+    // A single canonical watch-page read powers public stats, collaborators,
+    // and the comments provider. It is deliberately independent of the iframe
+    // player and never requires a visible page or simulated scrolling.
+    const watchPagePromise = fetchWatchPage(canonicalUrl).catch(() => '')
+    const publicStatsPromise = watchPagePromise.then(html => html
+      ? parsePublicVideoStats(html)
+      : { viewCount: null, publishedAt: null, youtubeArtists: [], youtubeCollaborators: [] })
     const oembed = await fetchOembed(canonicalUrl)
     return {
       title: oembed?.title || null,
@@ -180,8 +181,10 @@ module.exports = {
       viewCount: null,
       publishedAt: null,
       publicStatsPromise,
+      watchPagePromise,
     }
   },
 
   parsePublicVideoStats,
+  fetchWatchPage,
 }

@@ -190,26 +190,26 @@ test('set79 candidate info reads the explicit SoundCloud player duration', () =>
 
 // ── Registry wiring ───────────────────────────────────────────────────────────
 
-test('set79 is registered as an alternate for YouTube, never the primary', () => {
+test('set79 remains an alternate for YouTube after the earlier comments source', () => {
   assert.equal(plugins.tracklistForSource('youtube').id, '1001tracklists')
   assert.deepEqual(
     plugins.alternateTracklistsForSource('youtube').map(p => p.id),
-    ['set79']
+    ['youtube-comments', 'set79']
   )
   assert.equal(plugins.tracklistById('set79'), set79)
 })
 
-test('set79 is also registered as YouTube\'s automatic fallback', () => {
+test('set79 remains the final automatic fallback after YouTube comments', () => {
   assert.equal(plugins.tracklistForSource('youtube').id, '1001tracklists')
   assert.deepEqual(
     plugins.automaticFallbackTracklistsForSource('youtube').map(p => p.id),
-    ['set79']
+    ['youtube-comments', 'set79']
   )
 })
 
 test('an alternate is not offered twice for the same set', () => {
   assert.deepEqual(
-    plugins.alternateTracklistsForSource('youtube', { exclude: ['set79'] }),
+    plugins.alternateTracklistsForSource('youtube', { exclude: ['youtube-comments', 'set79'] }),
     []
   )
 })

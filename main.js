@@ -19,7 +19,7 @@ const {
   wireYouTubePlayerUi,
   isYouTubePlayerUrl,
 } = require('./lib/youtube-player-ui')
-const { startPrimaryWithFallback } = require('./lib/parallel-tracklist-lookup')
+const { startProviderChain } = require('./lib/parallel-tracklist-lookup')
 const {
   hasSetMetadata,
   isMetadataValueIgnored,
@@ -566,6 +566,9 @@ function prepareTracksForArtwork(tracks) {
       ...track,
       artUrl: cached.artUrl || '',
       artworkStatus: cached.artUrl ? 'ready' : 'missing',
+      ...(cached.artist && cached.title
+        ? { artist: cached.artist, title: cached.title, commentAmbiguousSplits: undefined }
+        : {}),
     }
   })
 }
@@ -942,15 +945,15 @@ function isArtworkJobCurrent(job) {
     job.tracklistUrl === currentTracklistUrl
 }
 
-function emitTrackArtwork(job, providerTrackIds, artUrl, artworkStatus) {
+function emitTrackArtwork(job, providerTrackIds, artUrl, artworkStatus, resolvedTrack = null) {
   if (!isArtworkJobCurrent(job)) return
   const ids = new Set(providerTrackIds)
   currentTracks = currentTracks.map(track => ids.has(track.providerTrackId)
-    ? { ...track, artUrl: artUrl || '', artworkStatus }
+    ? { ...track, artUrl: artUrl || '', artworkStatus, ...(resolvedTrack || {}) }
     : track
   )
   if (ids.has(lastTrackData?.providerTrackId)) {
-    lastTrackData = { ...lastTrackData, artUrl: artUrl || '', artworkStatus }
+    lastTrackData = { ...lastTrackData, artUrl: artUrl || '', artworkStatus, ...(resolvedTrack || {}) }
   }
   mainWindow.webContents.send('track-artwork', {
     sourceUrl: job.sourceUrl,
@@ -959,6 +962,7 @@ function emitTrackArtwork(job, providerTrackIds, artUrl, artworkStatus) {
     providerTrackIds,
     artUrl: artUrl || null,
     artworkStatus,
+    ...(resolvedTrack ? { resolvedTrack } : {}),
   })
 }
 
@@ -996,12 +1000,17 @@ async function enrichArtworkInBackground(tracks, job) {
           source: 'deezer',
           artUrl,
           deezerTrackId: match?.deezerTrackId || null,
+          artist: match?.artist || null,
+          title: match?.title || null,
           checkedAt,
           expiresAt: checkedAt + (artUrl ? ARTWORK_CACHE_HIT_TTL_MS : ARTWORK_CACHE_MISS_TTL_MS),
         })
         if (artUrl) hits++
         else misses++
-        emitTrackArtwork(job, group.providerTrackIds, artUrl, artUrl ? 'ready' : 'missing')
+        const resolvedTrack = match?.artist && match?.title
+          ? { artist: match.artist, title: match.title, commentAmbiguousSplits: undefined }
+          : null
+        emitTrackArtwork(job, group.providerTrackIds, artUrl, artUrl ? 'ready' : 'missing', resolvedTrack)
       } catch (error) {
         // A provider/network failure is not a negative lookup and is never
         // cached. Stop this set's queue so a temporary outage cannot cause a
@@ -2830,6 +2839,7 @@ function automaticLookupServices(sourceUrl, status = 'checking') {
     youtube: { status: 'available', url: sourceUrl },
     soundcloud: { status, url: null },
     '1001tracklists': { status, url: null },
+    'youtube-comments': { status, url: null },
     set79: { status, url: null },
   }
 }
@@ -3116,8 +3126,10 @@ async function probeTracklistProvider(tlPlugin, meta, lookupToken, { bypassCache
   log(`[lookup] → best match: "${best.title}" url=${best.url}`)
   log(`[lookup] → extracting tracklist from ${best.url}`)
   const extractStart = Date.now()
-  const extracted = await extractTracklistInBackground(tlPlugin, best.url)
-  log(`[lookup] extractTracklistInBackground done in ${Date.now() - extractStart}ms tracks=${extracted.tracks.length}`)
+  const extracted = tlPlugin.extractTracklist
+    ? await tlPlugin.extractTracklist(meta, best)
+    : await extractTracklistInBackground(tlPlugin, best.url)
+  log(`[lookup] extraction done in ${Date.now() - extractStart}ms tracks=${extracted.tracks.length}`)
   if (lookupToken !== currentLookupToken) {
     log(`[lookup] token mismatch after extract (got ${currentLookupToken}, expected ${lookupToken}) — aborting`)
     return { usable: false, stale: true, sourceUrl }
@@ -3332,47 +3344,39 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
   showLoading = true,
   waitForFallback = false,
 } = {}) {
-  const fallbackPlugin = plugins.automaticFallbackTracklistsForSource(currentSourceId)[0] || null
+  const fallbackPlugins = plugins.automaticFallbackTracklistsForSource(currentSourceId)
+  const providerChain = [primaryPlugin, ...fallbackPlugins]
   const preferredProviderId = getTracklistPreference(meta.url || currentSourceUrl)
   if (showLoading) mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${primaryPlugin.name}…` })
 
-  const lookups = startPrimaryWithFallback({
-    primaryProvider: primaryPlugin,
-    fallbackProvider: fallbackPlugin,
+  const lookups = startProviderChain({
+    providers: providerChain,
     preferredProviderId,
     lookup: plugin => probeTracklistProvider(plugin, meta, lookupToken, { bypassCache }),
   })
 
-  // set79 metadata is useful even when 1001Tracklists supplies the tracks.
-  lookups.fallback.then(outcome => {
-    if (!outcome) return
-    if (outcome.result) registerTracklistOption(outcome.provider, outcome.result, lookupToken)
-    if (outcome.result) emitSetMetadata(outcome.provider, outcome.result.metadata, outcome.result.sourceUrl, lookupToken)
-    const soundcloudUrl = outcome.result?.sourceLinks?.soundcloud || null
-    emitSetAvailability({
-      [outcome.provider.id]: {
+  for (const { provider, outcome: pendingOutcome } of lookups.entries) {
+    pendingOutcome.then(outcome => {
+      if (!outcome) return
+      if (outcome.result) registerTracklistOption(outcome.provider, outcome.result, lookupToken)
+      if (outcome.result) emitSetMetadata(outcome.provider, outcome.result.metadata, outcome.result.sourceUrl, lookupToken)
+      const soundcloudUrl = outcome.result?.sourceLinks?.soundcloud || null
+      emitSetAvailability({
+        [provider.id]: {
         status: providerAvailability(outcome),
         url: outcome.result?.usable ? outcome.result.tracklistUrl : null,
       },
-      soundcloud: { status: soundcloudUrl ? 'available' : providerAvailability(outcome), url: soundcloudUrl },
-    }, meta.url || currentSourceUrl, lookupToken)
-  })
-
-  lookups.primary.then(outcome => {
-    if (!outcome) return
-    if (outcome.result) registerTracklistOption(outcome.provider, outcome.result, lookupToken)
-    emitSetAvailability({
-      [primaryPlugin.id]: {
-        status: providerAvailability(outcome),
-        url: outcome.result?.usable ? outcome.result.tracklistUrl : null,
-      },
+        ...(provider.id === 'set79'
+          ? { soundcloud: { status: soundcloudUrl ? 'available' : providerAvailability(outcome), url: soundcloudUrl } }
+          : {}),
     }, meta.url || currentSourceUrl, lookupToken)
 
-    if (!outcome.result?.usable && lookupToken === currentLookupToken) {
-      // The fallback may still be running, but playback should already be visible.
-      mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
-    }
-  })
+      if (provider.id === primaryPlugin.id && !outcome.result?.usable && lookupToken === currentLookupToken) {
+        // Other source probes may still be working, but playback is visible.
+        mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+      }
+    })
+  }
 
   // Keep provider probes alive for availability and source switching, while an
   // explicitly selected Shazam timeline continues to own this set.
@@ -3387,7 +3391,7 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
   // The user can switch to Shazam while these network probes are still
   // settling. Retain their results as options, but do not switch away again.
   if (currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER.id) {
-    if (waitForFallback) await Promise.all([lookups.primary, lookups.fallback])
+    if (waitForFallback) await Promise.all(lookups.entries.map(entry => entry.outcome))
     return
   }
 
@@ -3395,13 +3399,14 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
     applyTracklistResult(choice.selected.provider, choice.selected.result)
     // A user-requested refresh keeps its busy state until every advertised
     // service has settled, while the selected result is still applied immediately.
-    if (waitForFallback) await Promise.all([lookups.primary, lookups.fallback])
+    if (waitForFallback) await Promise.all(lookups.entries.map(entry => entry.outcome))
     return
   }
 
-  const primaryError = choice.primary?.error || null
+  const primaryError = choice.outcomes?.[0]?.error || null
   if (primaryError) log(`[lookup] primary provider failed: ${primaryError?.message || primaryError}`)
-  if (choice.fallback?.error) log(`[lookup] fallback provider failed: ${choice.fallback.error?.message || choice.fallback.error}`)
+  choice.outcomes?.slice(1).filter(outcome => outcome.error).forEach(outcome =>
+    log(`[lookup] fallback provider failed: ${outcome.error?.message || outcome.error}`))
   sendTracklistFallback(primaryPlugin, primaryError)
 }
 

@@ -835,6 +835,7 @@ async function lookupNextDjEvents({ force = false } = {}) {
 
 const SET_SERVICE_ORDER = [
   { id: '1001tracklists', label: '1001Tracklists' },
+  { id: 'youtube-comments', label: 'YouTube comments' },
   { id: 'set79', label: 'set79' },
   { id: 'youtube', label: 'YouTube' },
   { id: 'soundcloud', label: 'SoundCloud' },
@@ -3359,7 +3360,7 @@ function wireMainEvents() {
     const ids = new Set(payload.providerTrackIds || [])
     if (!ids.size) return
     state.currentTracks = state.currentTracks.map(track => ids.has(track.providerTrackId)
-      ? { ...track, artUrl: payload.artUrl || '', artworkStatus: payload.artworkStatus }
+      ? { ...track, artUrl: payload.artUrl || '', artworkStatus: payload.artworkStatus, ...(payload.resolvedTrack || {}) }
       : track
     )
     const updatesCurrentTrack = ids.has(state.currentTrack?.providerTrackId)
@@ -3368,6 +3369,7 @@ function wireMainEvents() {
         ...state.currentTrack,
         artUrl: payload.artUrl || '',
         artworkStatus: payload.artworkStatus,
+        ...(payload.resolvedTrack || {}),
       }
     }
     if (ids.has(state.nowPlaying?.providerTrackId)) {
@@ -3375,6 +3377,7 @@ function wireMainEvents() {
         ...state.nowPlaying,
         artUrl: payload.artUrl || '',
         artworkStatus: payload.artworkStatus,
+        ...(payload.resolvedTrack || {}),
       }
       setNpArtwork(payload.artUrl, payload.artworkStatus)
     }
@@ -3418,6 +3421,10 @@ function wireMainEvents() {
       image.addEventListener('error', () => image.remove())
       artwork.appendChild(image)
     })
+    // A successful ambiguous comment split changes the visible artist/title,
+    // not just its cover. Rebuild the rows so manual-ID affordances disappear
+    // together with the now-resolved labels.
+    if (payload.resolvedTrack) renderTracklist(state.currentTracks)
     renderPlaybackSegments(true)
   })
 

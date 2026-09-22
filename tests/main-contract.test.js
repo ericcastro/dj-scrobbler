@@ -392,8 +392,8 @@ test('tracklist-loaded names the provider so the renderer stops hardcoding it', 
 
 test('cached alternate tracklists participate in automatic fallback without pinning the primary', () => {
   assert.match(mainJs, /getCachedTracklist\(tlPlugin\.id, sourceUrl\)/)
-  assert.match(mainJs, /primaryProvider: primaryPlugin/)
-  assert.match(mainJs, /fallbackProvider: fallbackPlugin/)
+  assert.match(mainJs, /startProviderChain\(/)
+  assert.match(mainJs, /providerChain = \[primaryPlugin, \.\.\.fallbackPlugins\]/)
   assert.match(mainJs, /if \(choice\.selected\) \{\s*applyTracklistResult\(choice\.selected\.provider/)
 })
 
