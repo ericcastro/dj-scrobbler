@@ -797,7 +797,7 @@ test('mini-player source strip includes both source and provider checks', () => 
   assert.match(appJs, /window\.api\.on\('set-availability'/)
   assert.match(indexHtml, /id="np-source" class="set-availability np-set-availability"/)
   assert.match(indexHtml, /id="np-artist-separator"/)
-  for (const service of ['1001tracklists', 'youtube-comments', 'youtube', 'soundcloud', 'set79']) {
+  for (const service of ['1001tracklists', 'youtube', 'soundcloud', 'set79']) {
     assert.match(appJs, new RegExp(`id: '${service}'`), `${service} availability pill missing`)
   }
   for (const status of ['checking', 'available', 'unavailable', 'error', 'skipped']) {
@@ -871,8 +871,7 @@ test('mini-player metadata keeps layout priority over the compact source pills',
 
 test('mini-player sources form two independent provider-first rows', () => {
   const order = appJs.slice(appJs.indexOf('const SET_SERVICE_ORDER'), appJs.indexOf('const SET_AVAILABILITY_LABELS'))
-  assert.ok(order.indexOf("id: '1001tracklists'") < order.indexOf("id: 'youtube-comments'"))
-  assert.ok(order.indexOf("id: 'youtube-comments'") < order.indexOf("id: 'set79'"))
+  assert.ok(order.indexOf("id: '1001tracklists'") < order.indexOf("id: 'set79'"))
   assert.ok(order.indexOf("id: 'set79'") < order.indexOf("id: 'youtube'"))
   assert.ok(order.indexOf("id: 'youtube'") < order.indexOf("id: 'soundcloud'"))
   assert.match(appJs, /sourceItems\.slice\(0, 2\), sourceItems\.slice\(2\)/)

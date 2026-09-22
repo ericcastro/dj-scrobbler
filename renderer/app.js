@@ -836,7 +836,6 @@ async function lookupNextDjEvents({ force = false } = {}) {
 
 const SET_SERVICE_ORDER = [
   { id: '1001tracklists', label: '1001Tracklists' },
-  { id: 'youtube-comments', label: 'YouTube comments' },
   { id: 'set79', label: 'set79' },
   { id: 'youtube', label: 'YouTube' },
   { id: 'soundcloud', label: 'SoundCloud' },
@@ -3128,6 +3127,15 @@ function renderRecognitionStatus() {
 }
 
 function wireMainEvents() {
+  window.api.on('tracklist-searching', ({ sourceUrl }) => {
+    if (isResumeDialogOpen() || !sourceUrl) return
+    state.tracklistLoading = true
+    state.currentTracks = []
+    tracklistUnavailableEl.classList.add('hidden')
+    mainContent.classList.add('has-tracklist')
+    renderTracklist([])
+  })
+
   window.api.on('wv-status', (status) => {
     // Don't show/hide overlays while the resume dialog is open — it would change
     // the visible content behind the semi-transparent backdrop mid-countdown and

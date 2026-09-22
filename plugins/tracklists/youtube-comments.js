@@ -9,9 +9,12 @@
 const https = require('https')
 const {
   continuationFromResponse,
+  descriptionFromWatchPage,
   extractComments,
   extractWatchBootstrap,
+  parseTimestampedTracks,
   rankCommentCandidates,
+  isCredibleTimestampTracklist,
 } = require('../../lib/youtube-comments')
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36'
@@ -73,6 +76,10 @@ function requestCommentBatch(bootstrap, continuation) {
 
 async function findCommentTracklist(meta, requestBatch = requestCommentBatch) {
   const watchPage = await meta?.watchPagePromise
+  const descriptionTracks = parseTimestampedTracks(descriptionFromWatchPage(watchPage), 'description')
+  if (isCredibleTimestampTracklist(descriptionTracks)) {
+    return { type: 'description', author: '', tracks: descriptionTracks, score: Number.POSITIVE_INFINITY }
+  }
   const bootstrap = extractWatchBootstrap(watchPage)
   if (!bootstrap) return null
 
@@ -92,7 +99,7 @@ async function findCommentTracklist(meta, requestBatch = requestCommentBatch) {
 
 module.exports = {
   id: 'youtube-comments',
-  name: 'YouTube comments',
+  name: 'YouTube',
   supportedSources: ['youtube'],
   footerLabel: 'view on YouTube ↗',
   externalHost: 'youtube.com',
@@ -102,10 +109,11 @@ module.exports = {
   async findTracklists(meta) {
     const candidate = await findCommentTracklist(meta)
     if (!candidate) return []
+    const label = candidate.type === 'description' ? 'YouTube description' : 'YouTube comments'
     const author = candidate.author ? ` · ${candidate.author}` : ''
     return [{
       url: meta.url,
-      title: `YouTube comments${author}`,
+      title: `${label}${author}`,
       confirmed: true,
       commentCandidate: candidate,
     }]

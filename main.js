@@ -3588,6 +3588,9 @@ async function handleSourceUrl(source, url, wvContents) {
   currentThumbnailUrl = thumbnailForSourceUrl(url)
   isYouTubePlayerMode = false
   isTracklistLookupPending = false
+  // Reserve the tracklist area immediately. Provider work (especially set79's
+  // session bootstrap) can outlast player startup by several seconds.
+  mainWindow.webContents.send('tracklist-searching', { sourceUrl: url })
   mainWindow.webContents.send('wv-status', { type: 'loading', msg: 'Preparing player…' })
 
   log(`[lookup] calling source.getMeta url=${url}`)

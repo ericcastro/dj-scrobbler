@@ -14,6 +14,11 @@ function watchPage() {
     <script>var ytcfg={"INNERTUBE_API_KEY":"fixture-key","INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"fixture-visitor"};</script>`
 }
 
+function watchPageWithDescription(description) {
+  return `<script>var ytInitialData = {"contents":{"twoColumnWatchNextResults":{"results":{"results":{"contents":[{"videoSecondaryInfoRenderer":{"attributedDescription":{"content":${JSON.stringify(description)}}}}]}}}},"continuationCommand":{"token":"${initialContinuation}"}};</script>
+    <script>var ytcfg={"INNERTUBE_API_KEY":"fixture-key","INNERTUBE_CLIENT_VERSION":"2.fixture"};</script>`
+}
+
 function modernResponse(entries, { continuation = null } = {}) {
   return {
     frameworkUpdates: { entityBatchUpdate: { mutations: entries.map((entry, index) => ({
@@ -93,6 +98,19 @@ test('provider contract fetches only first batch when it already has a credible 
   })
   assert.equal(calls, 1)
   assert.equal(candidate.tracks.length, 3)
+})
+
+test('an official timestamped description wins before comments are requested', async () => {
+  let calls = 0
+  const candidate = await provider._test.findCommentTracklist({
+    watchPagePromise: Promise.resolve(watchPageWithDescription('00:00 Muse - First\n10:45 Muse - Second\n20:30 Muse - Third')),
+  }, async () => {
+    calls++
+    return modernResponse([])
+  })
+  assert.equal(calls, 0)
+  assert.equal(candidate.type, 'description')
+  assert.deepEqual(candidate.tracks.map(track => track.cueSeconds), [0, 645, 1230])
 })
 
 test('provider contract makes at most one continuation request, then gives up cleanly', async () => {
