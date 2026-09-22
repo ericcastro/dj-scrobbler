@@ -98,6 +98,14 @@ test('ambiguous YouTube comment rows try a verified split instead of guessing on
   assert.equal(match.title, 'Like I Said')
 })
 
+test('comment artwork keys change when its split strategy changes, preserving ordinary artwork cache entries', () => {
+  assert.equal(
+    artworkLookupKey(track({ commentTracklist: true, raw: 'A-Track - Like I Said', artist: 'A-Track', title: 'Like I Said' })),
+    'youtube-comment:v2:a track like i said'
+  )
+  assert.equal(artworkLookupKey(track()), 'agata subsequence\u001farcana')
+})
+
 test('matching is strict on title while allowing Deezer to name only the primary collaborator', () => {
   const wanted = track({ artist: '240 KM/H & RESA UTOPICA', title: 'CORRIDA' })
   const match = chooseDeezerArtwork(wanted, [
