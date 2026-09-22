@@ -2836,7 +2836,10 @@ function isTooShortForAutomaticSetLookups(meta) {
 
 function automaticLookupServices(sourceUrl, status = 'checking') {
   return {
-    youtube: { status: 'available', url: sourceUrl },
+    // YouTube is always the active source link, but while its description /
+    // comments provider is working it shares the same breathing state as the
+    // external tracklist providers.
+    youtube: { status: status === 'checking' ? 'checking' : 'available', url: sourceUrl },
     soundcloud: { status, url: null },
     '1001tracklists': { status, url: null },
     'youtube-comments': { status, url: null },
@@ -3347,7 +3350,10 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
   const fallbackPlugins = plugins.automaticFallbackTracklistsForSource(currentSourceId)
   const providerChain = [primaryPlugin, ...fallbackPlugins]
   const preferredProviderId = getTracklistPreference(meta.url || currentSourceUrl)
-  if (showLoading) mainWindow.webContents.send('wv-status', { type: 'loading', msg: `Searching ${primaryPlugin.name}…` })
+  // Provider work must never reclaim the player with a provider-branded
+  // fullscreen loader. The renderer owns a small, generic pending shell and
+  // the source pills communicate individual progress.
+  if (showLoading) mainWindow.webContents.send('tracklist-searching', { sourceUrl: meta.url || currentSourceUrl })
 
   const lookups = startProviderChain({
     providers: providerChain,
@@ -3361,7 +3367,7 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
       if (outcome.result) registerTracklistOption(outcome.provider, outcome.result, lookupToken)
       if (outcome.result) emitSetMetadata(outcome.provider, outcome.result.metadata, outcome.result.sourceUrl, lookupToken)
       const soundcloudUrl = outcome.result?.sourceLinks?.soundcloud || null
-      emitSetAvailability({
+      const services = {
         [provider.id]: {
         status: providerAvailability(outcome),
         url: outcome.result?.usable ? outcome.result.tracklistUrl : null,
@@ -3369,7 +3375,11 @@ async function runAutomaticTracklistLookups(primaryPlugin, meta, lookupToken, {
         ...(provider.id === 'set79'
           ? { soundcloud: { status: soundcloudUrl ? 'available' : providerAvailability(outcome), url: soundcloudUrl } }
           : {}),
-    }, meta.url || currentSourceUrl, lookupToken)
+        ...(provider.id === 'youtube-comments'
+          ? { youtube: { status: 'available', url: meta.url || currentSourceUrl } }
+          : {}),
+      }
+      emitSetAvailability(services, meta.url || currentSourceUrl, lookupToken)
 
       if (provider.id === primaryPlugin.id && !outcome.result?.usable && lookupToken === currentLookupToken) {
         // Other source probes may still be working, but playback is visible.
@@ -3625,6 +3635,10 @@ async function handleSourceUrl(source, url, wvContents) {
       tracklistUrl: null,
       isFallback: false,
     })
+    mainWindow.webContents.send('set-availability', {
+      sourceUrl: currentSourceUrl,
+      services: automaticLookupServices(currentSourceUrl),
+    })
     emitSourceStatsWhenReady(meta, currentSourceUrl, lookupToken)
     const playerUrl = youtubePlayerUrl(videoId)
     log(`[lookup] loading player webview → ${playerUrl}`)
@@ -3652,10 +3666,6 @@ async function handleSourceUrl(source, url, wvContents) {
       return
     }
 
-    mainWindow.webContents.send('set-availability', {
-      sourceUrl: currentSourceUrl,
-      services: automaticLookupServices(currentSourceUrl),
-    })
     mainWindow.webContents.send('set-metadata', {
       sourceUrl: currentSourceUrl,
       providerId: null,

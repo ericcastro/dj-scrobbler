@@ -637,6 +637,9 @@ test('the empty tracklist shell says it is searching while provider results are 
   assert.match(appJs, /checking published tracklists…/)
   assert.match(styleCss, /\.tracklist-loading-placeholder\s*\{[^}]*justify-content:\s*center/s)
   assert.match(styleCss, /@keyframes tracklist-loading-breathe/)
+  const showLoading = appJs.slice(appJs.indexOf('function showLoading('), appJs.indexOf('function showNoTracklist('))
+  assert.match(showLoading, /preservePendingTracklist/)
+  assert.match(showLoading, /renderTracklist\(\[\]\)/)
 })
 
 test('metadata header renders normalized facts as pills above the tracklist', () => {
@@ -882,7 +885,7 @@ test('mini-player sources form two independent provider-first rows', () => {
 })
 
 test('available source and provider pills merge status with guarded external links', () => {
-  assert.match(appJs, /const url = status === 'available' \? services\[id\]\?\.url : null/)
+  assert.match(appJs, /status === 'available' \|\| id === 'youtube'/)
   assert.match(appJs, /set-availability-pill status-/)
   assert.match(appJs, /is-clickable/)
   assert.match(appJs, /window\.api\.openExternal\(url\)/)

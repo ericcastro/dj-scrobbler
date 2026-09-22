@@ -491,10 +491,17 @@ test('initial availability covers both sources and providers after duration is k
     mainJs.indexOf('function automaticLookupServices'),
     mainJs.indexOf('function extractTracklistInBackground')
   )
-  assert.match(services, /youtube:\s*\{ status: 'available', url: sourceUrl \}/)
+  assert.match(services, /youtube:\s*\{ status: status === 'checking' \? 'checking' : 'available', url: sourceUrl \}/)
   assert.match(services, /soundcloud:\s*\{ status, url: null \}/)
   assert.match(services, /'1001tracklists':\s*\{ status, url: null \}/)
   assert.match(services, /set79:\s*\{ status, url: null \}/)
+})
+
+test('provider lookup keeps the player clear and maps YouTube-comment completion back to YouTube availability', () => {
+  const lookup = mainJs.slice(mainJs.indexOf('async function runAutomaticTracklistLookups'), mainJs.indexOf('/**\n * Re-run the lookup'))
+  assert.match(lookup, /tracklist-searching/)
+  assert.doesNotMatch(lookup, /Searching \$\{primaryPlugin\.name\}/)
+  assert.match(lookup, /provider\.id === 'youtube-comments'[\s\S]*youtube: \{ status: 'available'/)
 })
 
 test('short videos skip automatic provider lookups but retain Auto as an override', () => {
@@ -504,7 +511,13 @@ test('short videos skip automatic provider lookups but retain Auto as an overrid
   assert.ok(sourceRouting.indexOf('await waitForSourceDuration(meta)') < sourceRouting.indexOf('await runAutomaticTracklistLookups'))
   assert.match(sourceRouting, /isTooShortForAutomaticSetLookups\(meta\)/)
   assert.match(sourceRouting, /automaticLookupServices\(currentSourceUrl, 'skipped'\)/)
-  assert.match(sourceRouting, /return\n\s*}\n\n\s*mainWindow\.webContents\.send\('set-availability'/)
+  // Initial availability now arrives before waiting on duration so the compact
+  // source pills can indicate immediate work; the skipped state follows the
+  // short-video guard.
+  assert.ok(
+    sourceRouting.indexOf("services: automaticLookupServices(currentSourceUrl),")
+      < sourceRouting.indexOf("automaticLookupServices(currentSourceUrl, 'skipped')")
+  )
   const auto = mainJs.slice(mainJs.indexOf('async function autoSetMetadata'), mainJs.indexOf('// ── Source → tracklist routing'))
   assert.match(auto, /probeTracklistProvider\(set79, currentSourceMeta, lookupToken, \{ bypassCache: true \}\)/)
 })

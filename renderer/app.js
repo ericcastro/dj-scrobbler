@@ -1233,7 +1233,10 @@ function renderSetSources() {
   const sourceItems = SET_SERVICE_ORDER.map(({ id, label }, index) => {
       const status = services[id]?.status || 'checking'
       const statusLabel = SET_AVAILABILITY_LABELS[status] || status
-      const url = status === 'available' ? services[id]?.url : null
+      // The active YouTube page remains usable even while its metadata /
+      // comments lookup breathes; every other source only becomes a link
+      // after its own provider has confirmed availability.
+      const url = (status === 'available' || id === 'youtube') ? services[id]?.url : null
       const tag = url ? 'button' : 'span'
       const attrs = url ? ` type="button" data-service-index="${index}"` : ''
       const external = url ? '<span aria-hidden="true">↗</span>' : ''
@@ -5296,12 +5299,18 @@ function showLoading(msg = 'Loading…') {
   noTracklistPrompt.classList.add('hidden')
   // A new search is starting — clear the unavailable state + stale tracklist
   const preserveSetShell = mainContent.classList.contains('has-tracklist') && !!state.currentSetUrl
+  const preservePendingTracklist = state.tracklistLoading
   state.tracklistUnavailable = false
   state.currentTracks = []
   clearTracklist()
   if (preserveSetShell) {
     mainContent.classList.add('has-tracklist')
     renderSetMetadataHeader()
+  }
+  if (preservePendingTracklist) {
+    state.tracklistLoading = true
+    mainContent.classList.add('has-tracklist')
+    renderTracklist([])
   }
   refreshScrobbleBadge()
 
