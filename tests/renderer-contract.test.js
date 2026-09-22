@@ -632,6 +632,13 @@ test('background artwork updates are scoped to the active set and replace loadin
   assert.match(styleCss, /prefers-reduced-motion: reduce/)
 })
 
+test('the empty tracklist shell says it is searching while provider results are pending', () => {
+  assert.match(appJs, /tracklistLoading: false/)
+  assert.match(appJs, /checking published tracklists…/)
+  assert.match(styleCss, /\.tracklist-loading-placeholder\s*\{[^}]*justify-content:\s*center/s)
+  assert.match(styleCss, /@keyframes tracklist-loading-breathe/)
+})
+
 test('metadata header renders normalized facts as pills above the tracklist', () => {
   const headerAt = indexHtml.indexOf('id="set-metadata-header"')
   const tracklistAt = indexHtml.indexOf('id="tracklist-list"')

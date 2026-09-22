@@ -4473,6 +4473,31 @@ body.compact-layout #scrobble-badge.dim::after {
   gap: 2px;
 }
 
+.tracklist-loading-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 64px;
+  padding: 12px;
+  color: var(--text2);
+  font-size: 12px;
+  letter-spacing: .04em;
+}
+
+.tracklist-loading-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: tracklist-loading-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes tracklist-loading-breathe {
+  0%, 100% { opacity: .35; transform: scale(.82); }
+  50% { opacity: .9; transform: scale(1); }
+}
+
 .track-item {
   display: flex;
   align-items: center;

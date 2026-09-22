@@ -106,6 +106,15 @@ test('comment artwork keys change when its split strategy changes, preserving or
   assert.equal(artworkLookupKey(track()), 'agata subsequence\u001farcana')
 })
 
+test('ordinary one-dash YouTube comment tracks use their parsed artist and title without a split list', async () => {
+  const wanted = track({ artist: 'Major Lazer', title: 'pAPi wiTH tOKisCha (DJ Gigola Remix)', commentTracklist: true })
+  assert.equal(isArtworkLookupCandidate(wanted), true)
+  const match = await lookupDeezerArtwork(wanted, {
+    requestJson: async () => ({ data: [result({ title: wanted.title, artist: { name: wanted.artist } })] }),
+  })
+  assert.equal(match.artUrl, 'https://cdn-images.dzcdn.net/images/cover/hash/250x250.jpg')
+})
+
 test('matching is strict on title while allowing Deezer to name only the primary collaborator', () => {
   const wanted = track({ artist: '240 KM/H & RESA UTOPICA', title: 'CORRIDA' })
   const match = chooseDeezerArtwork(wanted, [

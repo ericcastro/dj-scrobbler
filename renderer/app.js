@@ -30,6 +30,7 @@ const state = {
   store: { favorites: [], history: [], searchQueries: [], settings: {} },
   stats: { totalListenedSeconds: 0, totalTracksListened: 0, listenDays: [], firstListenDate: null },
   currentTracks: [],       // full track array from tracklist-data, used for progress lookups
+  tracklistLoading: false,
   currentSetMetadata: null, // normalized provider metadata, delivered separately from track rows
   currentSourceStats: null, // public source age/plays plus the metadata-likelihood classification
   currentSetAvailability: null, // per-service lookup state and explicit source URLs
@@ -3167,6 +3168,7 @@ function wireMainEvents() {
       state.recognitionState = { active: false, phase: 'inactive', inUnidentified: false }
     }
     state.tracklistUnavailable = !!isFallback
+    state.tracklistLoading = !isFallback && !tracklistUrl && !providerId
     state.currentSetTitle      = title
     state.currentSetUrl        = url
     if (isYouTubeSourceUrl(url)) setTimeout(refreshYouTubeQuality, 250)
@@ -3238,6 +3240,10 @@ function wireMainEvents() {
       tracklistUnavailableEl.classList.add('hidden')
       tlContributeActions.classList.add('hidden')
       state.currentAltProvider = null
+      if (state.tracklistLoading) {
+        state.currentTracks = []
+        renderTracklist([])
+      }
     }
 
     state.isIdTrack = false
@@ -3321,6 +3327,7 @@ function wireMainEvents() {
     if (isResumeDialogOpen()) return
     const tracks = Array.isArray(payload) ? payload : (payload?.tracks || [])
     state.currentTracks = tracks
+    state.tracklistLoading = false
     renderTracklist(tracks)
     renderPlaybackSegments(true)
     // Persist track count on the history/favorites entry so the sidebar can
@@ -5051,6 +5058,15 @@ function renderTracklist(tracks) {
       : t
   })
 
+  if (!annotated.length && state.tracklistLoading) {
+    for (const list of [tracklistList, tracklistCompactList]) {
+      const placeholder = document.createElement('li')
+      placeholder.className = 'tracklist-loading-placeholder'
+      placeholder.innerHTML = '<span class="tracklist-loading-dot" aria-hidden="true"></span><span>checking published tracklists…</span>'
+      list.appendChild(placeholder)
+    }
+  }
+
   annotated.forEach(track => {
     tracklistList.appendChild(createTrackItem(track, false))
     tracklistCompactList.appendChild(createTrackItem(track, false))
@@ -5090,6 +5106,7 @@ function highlightTracklistByNum(trackNum) {
 }
 
 function clearTracklist() {
+  state.tracklistLoading = false
   tracklistList.innerHTML = ''
   tracklistCompactList.innerHTML = ''
   tlListFooter.classList.add('hidden')
