@@ -17,7 +17,17 @@ final class AirPlayDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, 
     private var routePicker: AVRoutePickerView?
     private var window: NSWindow?
     private var externalPlaybackObservation: NSKeyValueObservation?
+    private var timeControlObservation: NSKeyValueObservation?
     private var wasExternal = false
+    private var playbackStatus = ""
+
+    private func updatePlaybackStatus(_ player: AVPlayer) {
+        guard player.isExternalPlaybackActive else { return }
+        let status = player.timeControlStatus == .playing ? "casting" : "starting"
+        guard status != playbackStatus else { return }
+        playbackStatus = status
+        emit(status)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard CommandLine.arguments.count > 1,
@@ -74,11 +84,16 @@ final class AirPlayDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, 
                     self.wasExternal = true
                     player.play()
                     self.window?.orderOut(nil)
-                    emit("casting")
+                    self.updatePlaybackStatus(player)
                 } else if self.wasExternal {
                     emit("stopped")
                     NSApp.terminate(nil)
                 }
+            }
+        }
+        timeControlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+            DispatchQueue.main.async {
+                self?.updatePlaybackStatus(player)
             }
         }
 
@@ -129,6 +144,7 @@ final class AirPlayDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, 
     func applicationWillTerminate(_ notification: Notification) {
         player?.pause()
         externalPlaybackObservation?.invalidate()
+        timeControlObservation?.invalidate()
     }
 }
 

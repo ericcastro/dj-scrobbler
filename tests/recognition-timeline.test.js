@@ -16,12 +16,15 @@ const match = (playbackTimestamp, artist, title, shazamTrackId, extra = {}) => (
   recognition: { matched: true, artist, title, shazamTrackId, ...extra },
 })
 const miss = playbackTimestamp => ({ playbackTimestamp, recognition: { matched: false } })
+const committedTracks = timeline => timeline.filter(track => !track.isRecognitionCandidate)
 
-test('only two equal Shazam results become a muted analysis candidate', () => {
+test('the first Shazam result becomes a muted analysis candidate', () => {
   const one = buildRecognitionTimeline([
     match(10, 'Cloudy', 'Pulse', '1'),
   ], { sessionStartSeconds: 0 })
-  assert.equal(one.length, 0)
+  assert.equal(one.length, 1)
+  assert.equal(one[0].isRecognitionCandidate, true)
+  assert.equal(one[0].recognitionCandidateCount, 1)
 
   const two = buildRecognitionTimeline([
     match(10, 'Cloudy', 'Pulse', '1'),
@@ -34,12 +37,32 @@ test('only two equal Shazam results become a muted analysis candidate', () => {
   assert.equal(segmentAtTime(two, 35), null)
 })
 
-test('one Shazam response stays out of the public timeline regardless of internal match count', () => {
+test('a no-match can clear the visible candidate without discarding confidence evidence', () => {
+  const observations = [
+    match(10, 'Nic Johnston & Acina', "Don't Call My Phone", '1'),
+    miss(30),
+  ]
+  const hidden = buildRecognitionTimeline(observations, {
+    sessionStartSeconds: 0,
+    displayCandidate: false,
+  })
+  assert.deepEqual(hidden, [])
+
+  const resumed = buildRecognitionTimeline([
+    ...observations,
+    match(45, 'Nic Johnston & Acina', "Don't Call My Phone", '1'),
+  ], { sessionStartSeconds: 0 })
+  assert.equal(resumed[0].isRecognitionCandidate, true)
+  assert.equal(resumed[0].recognitionCandidateCount, 2)
+})
+
+test('one Shazam response stays provisional regardless of internal match count', () => {
   const timeline = buildRecognitionTimeline([
     match(10, 'Noise', 'Maybe', 'x', { matchCount: 4 }),
   ], { sessionStartSeconds: 0 })
 
-  assert.equal(timeline.length, 0)
+  assert.equal(committedTracks(timeline).length, 0)
+  assert.equal(timeline[0].recognitionCandidateCount, 1)
 })
 
 test('cached observations retain audio-capture diagnostics', () => {
@@ -90,17 +113,14 @@ test('old no-match observations are retried while confirmed regions are left alo
   assert.deepEqual(points, [10, 400])
 })
 
-test('two equal Shazam results graduate when their sixty-second window closes', () => {
+test('two equal Shazam results expire instead of graduating when their window closes', () => {
   const timeline = buildRecognitionTimeline([
     match(10, 'Cloudy', 'Pulse', '1'),
     match(24, 'Cloudy', 'Pulse', '1'),
-    miss(71),
+    miss(100),
   ], { sessionStartSeconds: 0 })
 
-  assert.equal(timeline.length, 1)
-  assert.equal(timeline[0].title, 'Pulse')
-  assert.equal(timeline[0].confirmationTimestamp, 70)
-  assert.equal(timeline[0].autoRecognized, true)
+  assert.deepEqual(timeline, [])
 })
 
 test('the third equal result within sixty seconds commits one track', () => {
@@ -116,7 +136,34 @@ test('the third equal result within sixty seconds commits one track', () => {
   assert.equal(timeline[0].autoRecognized, true)
   assert.equal(timeline[0].observedStartSeconds, 10)
   assert.equal(timeline[0].confirmationTimestamp, 58)
+  assert.equal(timeline[0].recognitionConfirmationCount, 3)
   assert.equal(timeline[0].isRecognitionCandidate, undefined)
+})
+
+test('clustered confirmations do not substitute for evidence across time', () => {
+  const clustered = buildRecognitionTimeline([
+    match(830, 'Enrique Iglesias', 'Hero', 'hero'),
+    match(840, 'Enrique Iglesias', 'Hero', 'hero'),
+    match(850, 'Enrique Iglesias', 'Hero', 'hero'),
+    miss(870),
+  ], {
+    sessionStartSeconds: 0,
+    minimumConfirmationSpanSeconds: 30,
+  })
+  assert.equal(clustered.some(track => !track.isRecognitionCandidate && track.title === 'Hero'), false)
+  assert.equal(clustered[0].isRecognitionCandidate, true)
+  assert.equal(clustered[0].recognitionCandidateCount, 3)
+  assert.equal(clustered[0].recognitionRequiredCount, 3)
+
+  const sustained = buildRecognitionTimeline([
+    match(830, 'DJ A', 'Real Track', 'real'),
+    match(850, 'DJ A', 'Real Track', 'real'),
+    match(870, 'DJ A', 'Real Track', 'real'),
+  ], {
+    sessionStartSeconds: 0,
+    minimumConfirmationSpanSeconds: 30,
+  })
+  assert.deepEqual(sustained.map(track => track.title), ['Real Track'])
 })
 
 test('equal results outside the confidence window never commit', () => {
@@ -126,7 +173,31 @@ test('equal results outside the confidence window never commit', () => {
     match(135, 'DJ A', 'Track A', 'a'),
   ], { sessionStartSeconds: 0 })
 
-  assert.equal(timeline.length, 0)
+  assert.equal(committedTracks(timeline).length, 0)
+})
+
+test('two early matches cannot wait indefinitely for a much later third result', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'DJ A', 'Track A', 'a'),
+    match(30, 'DJ A', 'Track A', 'a'),
+    miss(90),
+    match(150, 'DJ A', 'Track A', 'a'),
+  ], { sessionStartSeconds: 0 })
+
+  assert.equal(committedTracks(timeline).length, 0)
+})
+
+test('two separated pairs of the same result never combine into confidence', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'DJ A', 'Track A', 'a'),
+    match(30, 'DJ A', 'Track A', 'a'),
+    miss(110),
+    match(190, 'DJ A', 'Track A', 'a'),
+    match(210, 'DJ A', 'Track A', 'a'),
+    miss(290),
+  ], { sessionStartSeconds: 0 })
+
+  assert.deepEqual(timeline, [])
 })
 
 test('a return to the committed track clears short-lived pollution', () => {
@@ -152,21 +223,118 @@ test('the same fingerprint returning after a long silence must earn confidence a
     match(110, 'DJ A', 'Main', 'a'),
   ], { sessionStartSeconds: 0 })
 
-  assert.equal(timeline.length, 1)
-  assert.equal(timeline[0].observedEndSeconds, 34)
+  const committed = committedTracks(timeline)
+  assert.equal(committed.length, 1)
+  assert.equal(committed[0].observedEndSeconds, 34)
 })
 
-test('the first matching sample after a bounded restart seam extends the cached track', () => {
+test('the same confirmed track on both sides of a restart seam merges automatically', () => {
   const timeline = buildRecognitionTimeline([
     match(10, 'DJ A', 'Main', 'a'),
     match(22, 'DJ A', 'Main', 'a'),
     match(34, 'DJ A', 'Main', 'a'),
-    match(114, 'DJ A', 'Main', 'a', { continuesPreviousSession: true }),
+    match(114, 'DJ A', 'Main', 'a'),
     match(126, 'DJ A', 'Main', 'a'),
+    match(138, 'DJ A', 'Main', 'a'),
   ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
 
   assert.deepEqual(timeline.map(track => track.title), ['Main'])
-  assert.equal(timeline[0].observedEndSeconds, 126)
+  assert.equal(timeline[0].observedEndSeconds, 138)
+  assert.equal(timeline[0].recognitionConfirmationCount, 6)
+})
+
+test('an earlier episode discovered after its matching next episode still merges chronologically', () => {
+  const timeline = buildRecognitionTimeline([
+    // The later region was acquired first because playback had resume priority.
+    match(210, 'DJ A', 'Main', 'a'),
+    match(230, 'DJ A', 'Main', 'a'),
+    match(250, 'DJ A', 'Main', 'a'),
+    // The background sweep subsequently worked backward into the same track.
+    match(90, 'DJ A', 'Main', 'a'),
+    match(110, 'DJ A', 'Main', 'a'),
+    match(130, 'DJ A', 'Main', 'a'),
+  ], { sessionStartSeconds: 0, sampleIntervalSeconds: 20 })
+
+  assert.deepEqual(timeline.map(track => track.title), ['Main'])
+  assert.equal(timeline[0].observedStartSeconds, 90)
+  assert.equal(timeline[0].observedEndSeconds, 250)
+})
+
+test('resume-priority coverage renders an analysis-pending span instead of moving the track to zero', () => {
+  const timeline = buildRecognitionTimeline([
+    match(830, 'DJ A', 'Current Track', 'current'),
+    match(850, 'DJ A', 'Current Track', 'current'),
+    match(870, 'DJ A', 'Current Track', 'current'),
+  ], {
+    sessionStartSeconds: 0,
+    sampleIntervalSeconds: 20,
+    pendingSampleTimes: [10, 30, 50, 70, 90, 110, 130, 150, 170, 190, 210, 230, 250, 270, 290, 310, 330, 350, 370, 390, 410, 430, 450, 470, 490, 510, 530, 550, 570, 590, 610, 630, 650, 670, 690, 710, 730, 750, 770, 790, 810],
+  })
+
+  assert.deepEqual(timeline.map(track => track.title), ['', 'Current Track'])
+  assert.equal(timeline[0].isRecognitionAnalysisPending, true)
+  assert.equal(timeline[0].cueSeconds, 0)
+  assert.equal(timeline[1].cueSeconds, 820)
+})
+
+test('a live candidate is placed before the pending span it is currently analysing', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'Opening Track', 'Intro', 'opening'),
+    match(25, 'Opening Track', 'Intro', 'opening'),
+    match(45, 'Opening Track', 'Intro', 'opening'),
+    miss(250),
+    match(3320, 'Current Track', 'Now', 'current'),
+    match(3340, 'Current Track', 'Now', 'current'),
+    match(3360, 'Current Track', 'Now', 'current'),
+  ], {
+    sessionStartSeconds: 0,
+    pendingSampleTimes: [270, 300, 600, 1200, 2400],
+    displayCandidate: false,
+  })
+
+  const placeholder = {
+    type: 'candidate',
+    isRecognitionCandidate: true,
+    isRecognitionPlaceholder: true,
+  }
+  const { insertRecognitionCandidate } = require('../lib/recognition-timeline')
+  insertRecognitionCandidate(timeline, placeholder, 250)
+  const pendingIndex = timeline.findIndex(track => track.isRecognitionAnalysisPending)
+  assert.equal(timeline[pendingIndex - 1], placeholder)
+})
+
+test('a repeated confirmed track collapses automatic detections sandwiched inside it', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'DJ A', 'Main', 'a'),
+    match(30, 'DJ A', 'Main', 'a'),
+    match(50, 'DJ A', 'Main', 'a'),
+    match(90, 'Noise B', 'Sample B', 'b'),
+    match(110, 'Noise B', 'Sample B', 'b'),
+    match(130, 'Noise B', 'Sample B', 'b'),
+    match(170, 'Noise C', 'Sample C', 'c'),
+    match(190, 'Noise C', 'Sample C', 'c'),
+    match(210, 'Noise C', 'Sample C', 'c'),
+    match(250, 'DJ A', 'Main', 'a'),
+    match(270, 'DJ A', 'Main', 'a'),
+    match(290, 'DJ A', 'Main', 'a'),
+  ], { sessionStartSeconds: 0, sampleIntervalSeconds: 20 })
+
+  assert.deepEqual(timeline.map(track => track.title), ['Main'])
+  assert.equal(timeline[0].observedEndSeconds, 290)
+})
+
+test('a user-confirmed track survives between two appearances of another track', () => {
+  const timeline = buildRecognitionTimeline([
+    match(10, 'DJ A', 'Main', 'a'),
+    match(30, 'DJ A', 'Main', 'a'),
+    match(50, 'DJ A', 'Main', 'a'),
+    match(90, 'DJ B', 'Deliberate', 'b', { userConfirmed: true }),
+    match(250, 'DJ A', 'Main', 'a'),
+    match(270, 'DJ A', 'Main', 'a'),
+    match(290, 'DJ A', 'Main', 'a'),
+  ], { sessionStartSeconds: 0, sampleIntervalSeconds: 20 })
+
+  assert.deepEqual(timeline.map(track => track.title), ['Main', 'Deliberate', 'Main'])
 })
 
 test('wrong one-off matches do not pollute the committed tracklist', () => {
@@ -264,19 +432,19 @@ test('the end of the set absorbs short uncertainty and finalizes a long gap', ()
   const long = buildRecognitionTimeline(observations, {
     sessionStartSeconds: 0,
     sampleIntervalSeconds: 12,
-    setEndSeconds: 260,
+    setEndSeconds: 280,
   })
   assert.deepEqual(long.map(track => track.title), ['Track A', 'ID — ID'])
 })
 
-test('two minutes is the lower boundary for a standalone unknown segment', () => {
+test('four minutes is the lower boundary for a standalone unknown segment', () => {
   const short = buildRecognitionTimeline([
     match(10, 'DJ A', 'Track A', 'a'),
     match(22, 'DJ A', 'Track A', 'a'),
     match(34, 'DJ A', 'Track A', 'a'),
-    match(160, 'DJ B', 'Track B', 'b'),
-    match(172, 'DJ B', 'Track B', 'b'),
-    match(184, 'DJ B', 'Track B', 'b'),
+    match(280, 'DJ B', 'Track B', 'b'),
+    match(292, 'DJ B', 'Track B', 'b'),
+    match(304, 'DJ B', 'Track B', 'b'),
   ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
   assert.deepEqual(short.map(track => track.title), ['Track A', 'Track B'])
 
@@ -284,9 +452,9 @@ test('two minutes is the lower boundary for a standalone unknown segment', () =>
     match(10, 'DJ A', 'Track A', 'a'),
     match(22, 'DJ A', 'Track A', 'a'),
     match(34, 'DJ A', 'Track A', 'a'),
-    match(166, 'DJ B', 'Track B', 'b'),
-    match(178, 'DJ B', 'Track B', 'b'),
-    match(190, 'DJ B', 'Track B', 'b'),
+    match(286, 'DJ B', 'Track B', 'b'),
+    match(298, 'DJ B', 'Track B', 'b'),
+    match(310, 'DJ B', 'Track B', 'b'),
   ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
   assert.deepEqual(atThreshold.map(track => track.title), ['Track A', 'ID — ID', 'Track B'])
 })
@@ -301,7 +469,7 @@ test('only an eight-minute unresolved span is treated as potentially multiple tr
     match(firstSample + 24, 'DJ B', 'Track B', 'b'),
   ], { sessionStartSeconds: 0, sampleIntervalSeconds: 12 })
 
-  const ordinaryTrackLength = timelineForNextTrack(266)
+  const ordinaryTrackLength = timelineForNextTrack(326)
   assert.equal(ordinaryTrackLength[1].title, 'ID — ID')
   assert.equal(ordinaryTrackLength[1].isLongRecognitionGap, false)
 

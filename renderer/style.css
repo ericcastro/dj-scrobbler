@@ -421,6 +421,45 @@ body.platform-win32 #topbar {
   opacity: .72;
 }
 
+#casting-startup-status {
+  position: fixed;
+  z-index: 12000;
+  top: 14px;
+  left: 50%;
+  width: min(390px, calc(100vw - 28px));
+  min-height: 48px;
+  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--accent2);
+  border-radius: 9px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg2) 94%, transparent);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .46);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  transform: translateX(-50%);
+  -webkit-app-region: no-drag;
+}
+#casting-startup-status.hidden { display: none; }
+.casting-startup-pulse {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent2);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent2) 72%, transparent);
+  animation: casting-pulse 1.2s ease-in-out infinite;
+}
+.casting-startup-copy,
+.casting-startup-copy strong,
+.casting-startup-copy small { display: block; min-width: 0; }
+.casting-startup-copy strong { font-size: 11px; }
+.casting-startup-copy small { margin-top: 3px; color: var(--text2); font-size: 9px; }
+#casting-startup-status.error { border-color: var(--accent); }
+#casting-startup-status.error .casting-startup-pulse { background: var(--accent); }
+
 #display-menu {
   position: absolute;
   top: calc(100% + 8px);
@@ -2644,10 +2683,12 @@ body.is-browsing #video-controls { display: none; }
   align-items: center;
 }
 
-.set-metadata-facts-row { gap: 10px; }
+.set-metadata-facts-row {
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
 .set-metadata-pills {
-  flex: 1;
-  min-width: 0;
+  display: contents;
 }
 .set-metadata-pills,
 .set-availability { flex-wrap: wrap; gap: 8px; }
@@ -2665,6 +2706,8 @@ body.is-browsing #video-controls { display: none; }
   align-items: center;
   gap: 6px;
   margin-left: auto;
+  flex: none;
+  order: 999;
 }
 
 .set-metadata-action {
@@ -2675,7 +2718,7 @@ body.is-browsing #video-controls { display: none; }
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text2);
-  background: var(--bg);
+  background: transparent;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .04em;
@@ -2689,7 +2732,7 @@ body.is-browsing #video-controls { display: none; }
 .set-metadata-action[aria-pressed="true"] {
   color: var(--accent2);
   border-color: var(--accent2);
-  background: var(--bg3);
+  background: transparent;
 }
 
 .set-metadata-action:disabled {
@@ -2714,6 +2757,7 @@ body.is-browsing #video-controls { display: none; }
   background: var(--bg);
   font-size: 13px;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 button.set-metadata-pill {
@@ -2798,6 +2842,7 @@ button.set-metadata-pill {
   background: color-mix(in srgb, var(--bg) 70%, transparent);
   font: inherit;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .set-metadata-add,
@@ -4520,11 +4565,18 @@ body.compact-layout #scrobble-badge.dim::after {
 
 .track-item:hover .track-auto-actions,
 .track-item:focus-within .track-auto-actions {
-  max-width: 128px;
+  max-width: 240px;
   margin-right: 10px;
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
+}
+
+.track-confirmation-count {
+  color: var(--text2);
+  font-size: 9px;
+  letter-spacing: .025em;
+  white-space: nowrap;
 }
 
 .track-item:focus-visible {
@@ -4733,11 +4785,20 @@ body.compact-layout #scrobble-badge.dim::after {
   white-space: nowrap;
 }
 
+.track-analysis-placeholder {
+  display: block;
+  width: min(180px, 28vw);
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text2) 16%, transparent);
+}
+
 .track-recognition-unidentified {
   background: color-mix(in srgb, var(--bg3) 40%, transparent);
 }
 
-.track-recognition-long-gap {
+.track-recognition-long-gap,
+.track-recognition-analysis-pending {
   margin-block: 7px;
   min-height: 68px;
   padding-block: 16px;
@@ -4746,6 +4807,10 @@ body.compact-layout #scrobble-badge.dim::after {
     color-mix(in srgb, var(--bg3) 62%, transparent) 0 6px,
     color-mix(in srgb, var(--border) 42%, transparent) 6px 7px
   );
+}
+
+.track-recognition-analysis-pending {
+  opacity: .58;
 }
 
 .track-recognition-long-gap .track-title {
@@ -4843,6 +4908,10 @@ body.compact-layout #scrobble-badge.dim::after {
     font-size: 9px;
   }
 
+}
+
+body.compact-layout .set-metadata-controls {
+  display: none;
 }
 
 /* ── Compact track list (right panel) ── */

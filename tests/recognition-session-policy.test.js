@@ -37,14 +37,14 @@ test('targeted recognition confirms a third equal result immediately', () => {
   assert.equal(result.candidate, null)
 })
 
-test('targeted recognition matures two equal results after sixty seconds', () => {
+test('targeted recognition does not promote two stale equal results', () => {
   const result = targetedRecognitionDecision(normalized(
     observation(10, 'a'),
     observation(24, 'a'),
     observation(71),
   ), 71)
-  assert.equal(result.confirmed.recognition.title, 'Track a')
-  assert.equal(result.confirmed.confirmedAt, 70)
+  assert.equal(result.confirmed, null)
+  assert.equal(result.candidate, null)
 })
 
 test('targeted recognition exposes only repeated provisional matches', () => {

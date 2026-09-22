@@ -2,7 +2,14 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
 
-const { buildTvTargets, normalizeTvService, TvDiscovery } = require('../lib/tv-discovery')
+const {
+  buildTvTargets,
+  normalizeTvService,
+  parseDnsSdBrowseLine,
+  parseDnsSdResolveLine,
+  parseDnsSdTxt,
+  TvDiscovery,
+} = require('../lib/tv-discovery')
 
 test('TV targets combine Chromecast discovery with one stable Apple route-picker action', () => {
   const services = [
@@ -57,6 +64,21 @@ test('TV services normalize protocol identity, friendly names, and IPv4 addresse
   })
   assert.equal(airplay.id, 'airplay:aa:bb:cc')
   assert.equal(airplay.canConnect, false)
+})
+
+test('macOS dns-sd output exposes Chromecast identity and endpoint', () => {
+  assert.deepEqual(
+    parseDnsSdBrowseLine('18:00:37.833  Add        2  14 local.               _googlecast._tcp.    Chromecast-cast123'),
+    { action: 'Add', instance: 'Chromecast-cast123' }
+  )
+  assert.deepEqual(
+    parseDnsSdResolveLine('Chromecast-cast123._googlecast._tcp.local. can be reached at cast123.local.:8009 (interface 14)'),
+    { host: 'cast123.local', port: 8009 }
+  )
+  assert.deepEqual(
+    parseDnsSdTxt(' id=cast123 md=Chromecast fn=Attic\\ TV rs=Chrome\\ Mirroring'),
+    { id: 'cast123', md: 'Chromecast', fn: 'Attic TV', rs: 'Chrome Mirroring' }
+  )
 })
 
 test('TV discovery merges browser events into one protocol-neutral snapshot', () => {

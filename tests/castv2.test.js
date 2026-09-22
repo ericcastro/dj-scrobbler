@@ -52,6 +52,7 @@ test('CASTV2 client launches the default receiver, loads HLS, and stops it', asy
       this.messages.push(message)
       const requestId = message.payload.requestId
       let payload = null
+      let followup = null
       if (message.payload.type === 'GET_STATUS') {
         payload = { type: 'RECEIVER_STATUS', requestId, status: { applications: [] } }
       } else if (message.payload.type === 'LAUNCH') {
@@ -61,7 +62,8 @@ test('CASTV2 client launches the default receiver, loads HLS, and stops it', asy
           status: { applications: [{ appId: 'CC1AD845', sessionId: 'session-1', transportId: 'transport-1' }] },
         }
       } else if (message.payload.type === 'LOAD') {
-        payload = { type: 'MEDIA_STATUS', requestId, status: [{ playerState: 'PLAYING' }] }
+        payload = { type: 'MEDIA_STATUS', requestId, status: [{ playerState: 'BUFFERING' }] }
+        followup = { type: 'MEDIA_STATUS', status: [{ playerState: 'PLAYING' }] }
       } else if (message.payload.type === 'STOP') {
         payload = { type: 'RECEIVER_STATUS', requestId, status: { applications: [] } }
       }
@@ -73,6 +75,15 @@ test('CASTV2 client launches the default receiver, loads HLS, and stops it', asy
           payload,
         })
         process.nextTick(() => this.emit('data', response))
+        if (followup) {
+          const playing = encodeCastMessage({
+            sourceId: message.destinationId,
+            destinationId: message.sourceId,
+            namespace: message.namespace,
+            payload: followup,
+          })
+          setTimeout(() => this.emit('data', playing), 5)
+        }
       }
       return true
     }
@@ -88,6 +99,7 @@ test('CASTV2 client launches the default receiver, loads HLS, and stops it', asy
   await client.connect('192.168.4.75')
   const loaded = await client.launchAndLoad('http://192.168.4.10/live/index.m3u8', { title: 'Test set' })
   assert.equal(loaded.type, 'MEDIA_STATUS')
+  assert.equal(loaded.status[0].playerState, 'PLAYING')
   const mediaLoad = socket.messages.find(message => message.namespace === NAMESPACE_MEDIA && message.payload.type === 'LOAD')
   assert.equal(mediaLoad.payload.media.contentType, 'application/vnd.apple.mpegurl')
   assert.equal(mediaLoad.payload.media.streamType, 'LIVE')

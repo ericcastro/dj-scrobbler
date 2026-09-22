@@ -69,6 +69,7 @@ const {
   applyRecognitionDecision,
   buildRecognitionTimeline,
   carryForwardRecognitionDecision,
+  insertRecognitionCandidate,
   randomSampleIntervalSeconds,
   recognitionKey,
   segmentAtTime,
@@ -799,7 +800,7 @@ function extractVideoId(url) {
 function youtubePlayerUrl(videoId) {
   // Native controls must exist for the quality selector below to drive them.
   // They are suppressed inside the YouTube frame by wireYouTubePlayerUi.
-  return `https://www.djscrobbler.com/embed/youtube?id=${encodeURIComponent(videoId)}&controls=1&hl=en`
+  return `https://www.djscrobbler.com/embed/youtube?id=${encodeURIComponent(videoId)}&controls=1&hl=en&cc_load_policy=0`
 }
 
 function thumbnailForSourceUrl(sourceUrl) {
@@ -1527,6 +1528,15 @@ function refreshAutomaticRecognitionTimeline(session = automaticRecognition) {
   const previousTracks = new Map(currentTracks.map(track => [track.providerTrackId, track]))
   const timeline = buildRecognitionTimeline(session.observations, {
     sampleIntervalSeconds: BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS,
+    minimumConfirmationSpanSeconds: 30,
+    pendingSampleTimes: session.sampleQueue.map(item => (
+      Number(item.seconds) + AUTOMATIC_RECOGNITION_CLIP_SECONDS / 2
+    )),
+    // A valid no-match is contrary evidence for the title currently shown in
+    // the provisional row. Keep its observations available to the confidence
+    // engine, but return the UI to the neutral analysing placeholder until a
+    // later sample produces another match.
+    displayCandidate: session.lastResult !== 'no-match',
     longGapSeconds: DEFAULT_LONG_GAP_SECONDS,
     sessionStartSeconds: session.sessionStartSeconds,
     setEndSeconds: session.atEnd ? session.setEndSeconds : null,
@@ -1545,8 +1555,34 @@ function refreshAutomaticRecognitionTimeline(session = automaticRecognition) {
     if (prepared.artworkStatus === 'loading') artworkCandidates.push({ ...prepared })
     return prepared
   })
+  if (!session.atEnd && !currentTracks.some(track => track.isRecognitionCandidate)) {
+    const analysisCursorSeconds = Number(session.lastAnalysisPlaybackSeconds)
+    insertRecognitionCandidate(currentTracks, {
+      type: 'candidate',
+      key: null,
+      trackNum: null,
+      providerId: AUTOMATIC_RECOGNITION_PROVIDER.id,
+      providerTrackId: 'shazam-candidate:empty',
+      artist: '',
+      title: '',
+      raw: '',
+      cueDisplay: null,
+      estimatedEndSeconds: null,
+      isId: false,
+      isRecognitionCandidate: true,
+      isRecognitionPlaceholder: true,
+      recognitionCandidateCount: 0,
+      recognitionRequiredCount: 3,
+      autoRecognized: false,
+      recognitionSource: 'shazam',
+      artUrl: '',
+      artworkStatus: 'missing',
+    }, Number.isFinite(analysisCursorSeconds) ? analysisCursorSeconds : 0)
+  }
   session.timeline = currentTracks
-  session.candidate = currentTracks.find(track => track.isRecognitionCandidate) || null
+  session.candidate = currentTracks.find(track => (
+    track.isRecognitionCandidate && !track.isRecognitionPlaceholder
+  )) || null
   mainWindow.webContents.send('tracklist-data', {
     providerId: AUTOMATIC_RECOGNITION_PROVIDER.id,
     url: null,
@@ -1689,6 +1725,7 @@ async function requestAutomaticRecognition(reason = 'interval') {
     const playbackTimestamp = Number.isFinite(capture.playbackStartedAt) && Number.isFinite(capture.playbackEndedAt)
       ? (capture.playbackStartedAt + capture.playbackEndedAt) / 2
       : Number(sampleItem.seconds) + AUTOMATIC_RECOGNITION_CLIP_SECONDS / 2
+    session.lastAnalysisPlaybackSeconds = playbackTimestamp
     let peak = 0
     let energy = 0
     for (const sample of samples) {
@@ -1791,11 +1828,18 @@ async function startAutomaticRecognition() {
     log('[recognition] background analysis unavailable: unknown set duration')
     return false
   }
-  const sampleQueue = buildBackgroundRecognitionQueue(setEndSeconds, observations, {
+  let sampleQueue = buildBackgroundRecognitionQueue(setEndSeconds, observations, {
     clipSeconds: AUTOMATIC_RECOGNITION_CLIP_SECONDS,
     spacingSeconds: BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS,
     retryAfterMs: AUTOMATIC_RECOGNITION_RETRY_AFTER_MS,
   })
+  if (resumedAtSeconds > 0 && sampleQueue.length) {
+    sampleQueue = prioritizeBackgroundRecognitionQueue(sampleQueue, resumedAtSeconds, {
+      clipSeconds: AUTOMATIC_RECOGNITION_CLIP_SECONDS,
+      spacingSeconds: BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS,
+    })
+    log(`[recognition] startup prioritized background analysis near playback=${resumedAtSeconds.toFixed(1)}s`)
+  }
   const fullTimelineSampleCount = buildBackgroundRecognitionQueue(setEndSeconds, [], {
     clipSeconds: AUTOMATIC_RECOGNITION_CLIP_SECONDS,
     spacingSeconds: BACKGROUND_RECOGNITION_SAMPLE_SPACING_SECONDS,
@@ -1833,6 +1877,7 @@ async function startAutomaticRecognition() {
     analysisTotalSamples: Math.max(fullTimelineSampleCount, sampleQueue.length),
     audioSource: new BackgroundAudioSource(sourceUrl),
     lastPlaybackPollSeconds: resumedAtSeconds,
+    lastAnalysisPlaybackSeconds: resumedAtSeconds,
     fromCache: observations.length > 0,
   }
   currentTracklistUrl = null
@@ -4471,7 +4516,6 @@ async function prepareCastingSession(targetId) {
       pipeInput: true,
       videoCodec: process.platform === 'darwin' ? 'h264_videotoolbox' : 'libx264',
       inputArgs: [
-        '-fflags', '+nobuffer',
         '-thread_queue_size', '1024',
         '-f', 'webm',
         '-i', 'pipe:0',
@@ -4504,11 +4548,10 @@ async function startPreparedCastingSession(sessionId) {
   const session = castingSession
   if (!session || session.sessionId !== sessionId) throw new Error('The casting session has expired.')
   try {
-    setCastingStatus('buffering', { target: session.target })
-    await session.encoder.ready
-    if (castingSession !== session) return castingStateSnapshot()
-
     if (session.target.protocol === 'airplay') {
+      setCastingStatus('buffering', { target: session.target })
+      await session.encoder.ready
+      if (castingSession !== session) return castingStateSnapshot()
       setCastingStatus('choosing', { target: session.target })
       const helper = startAirPlayHelper({
         helperPath: airPlayHelperPath(),
@@ -4517,6 +4560,7 @@ async function startPreparedCastingSession(sessionId) {
       session.airplay = helper
       helper.events.on('status', event => {
         if (castingSession !== session) return
+        if (event.status === 'starting') setCastingStatus('starting', { target: session.target })
         if (event.status === 'casting') setCastingStatus('casting', { target: session.target })
         if (event.status === 'stopped') disposeCastingSession().catch(() => {})
         if (event.status === 'error') failCastingSession(new Error(event.message || 'AirPlay stopped unexpectedly.')).catch(() => {})
@@ -4538,7 +4582,12 @@ async function startPreparedCastingSession(sessionId) {
     client.once('failure', error => {
       if (castingSession === session) failCastingSession(error)
     })
-    await client.connect(address, session.target.port || 8009)
+    await Promise.all([
+      session.encoder.ready,
+      client.connect(address, session.target.port || 8009),
+    ])
+    if (castingSession !== session) return castingStateSnapshot()
+    setCastingStatus('starting', { target: session.target })
     await client.launchAndLoad(session.hlsUrl, {
       title: currentSetTitle || 'DJ Scrobbler',
       subtitle: 'Live from DJ Scrobbler',

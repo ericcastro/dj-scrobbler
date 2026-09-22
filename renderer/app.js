@@ -62,6 +62,7 @@ const searchBtn          = document.getElementById('search-btn')
 const btnYT              = document.getElementById('btn-yt')
 const btnSC              = document.getElementById('btn-sc')
 const btnBookmark        = document.getElementById('btn-bookmark')
+const btnVideoBookmark   = document.getElementById('btn-video-bookmark')
 const btnVideoMode       = document.getElementById('btn-video-mode')
 const btnVideoDock       = document.getElementById('btn-video-dock')
 const btnVideoFullscreen = document.getElementById('btn-video-fullscreen')
@@ -76,6 +77,9 @@ const castingDevices     = document.getElementById('casting-devices')
 const castingStatus      = document.getElementById('casting-status')
 const castingAirplayNote = document.getElementById('casting-airplay-note')
 const btnCastingRefresh  = document.getElementById('btn-casting-refresh')
+const castingStartupStatus = document.getElementById('casting-startup-status')
+const castingStartupTitle = document.getElementById('casting-startup-title')
+const castingStartupDetail = document.getElementById('casting-startup-detail')
 const btnImmersiveOptions = document.getElementById('btn-immersive-options')
 const immersiveOptionsWrap = document.getElementById('immersive-options-wrap')
 const immersiveOptionsMenu = document.getElementById('immersive-options-menu')
@@ -2058,6 +2062,7 @@ function updateVideoModeButtons() {
   immersiveNextTrack.innerHTML = icon(ICON.next, 14)
   immersivePlayPause.innerHTML = icon(state.isTrackPlaying ? ICON.pause : ICON.play, 14)
   setControlTooltip(immersivePlayPause, state.isTrackPlaying ? 'Pause' : 'Play')
+  updateBookmarkBtn()
   btnDisplayMenu.classList.toggle('active', !displayMenu.classList.contains('hidden'))
   displayMenu.querySelector('[data-display-action="focus"]')?.classList.toggle('active', currentVideoMode === 'focus')
   displayMenu.querySelector('[data-display-action="app-fullscreen"]')?.classList.toggle('active', currentWindowIsFullScreen && currentVideoMode !== 'focus')
@@ -2186,7 +2191,7 @@ function applyWindowState(windowState = {}) {
 }
 
 function castingIsActive(status = currentCastingState.status) {
-  return ['preparing', 'buffering', 'choosing', 'connecting', 'casting'].includes(status)
+  return ['preparing', 'buffering', 'choosing', 'connecting', 'starting', 'casting'].includes(status)
 }
 
 function closeCastingMenu() {
@@ -2214,10 +2219,22 @@ function castingStatusText(casting) {
   if (casting.status === 'buffering') return 'Building the live stream…'
   if (casting.status === 'choosing') return 'Choose an AirPlay display in Apple’s picker…'
   if (casting.status === 'connecting') return `Connecting to ${name}…`
-  if (casting.status === 'casting') return `Playing on ${name}. Click again to stop.`
+  if (casting.status === 'starting') return `${name} is buffering the live stream…`
+  if (casting.status === 'casting') return `Playing on ${name}. Select it below to stop.`
   if (casting.status === 'error') return casting.error || 'The TV connection failed.'
   if (!casting.devices?.length) return 'No TVs found yet.'
   return 'Choose a TV. It will be remembered for next time.'
+}
+
+function castingStartupCopy(casting) {
+  const name = casting.target?.name || 'your TV'
+  if (casting.status === 'preparing') return [`Preparing ${name}…`, 'Laptop audio pauses while the TV stream starts.']
+  if (casting.status === 'buffering') return ['Preparing the live stream…', 'This normally takes several seconds.']
+  if (casting.status === 'choosing') return ['Choose an AirPlay display', 'Use Apple’s picker; audio resumes if you cancel.']
+  if (casting.status === 'connecting') return [`Connecting to ${name}…`, 'The TV may remain blank for a few seconds.']
+  if (casting.status === 'starting') return [`Starting playback on ${name}…`, 'The TV is buffering the live stream.']
+  if (casting.status === 'error') return ['Could not start TV playback', casting.error || 'Stop casting and try again.']
+  return null
 }
 
 function renderCastingState(next = {}) {
@@ -2233,14 +2250,21 @@ function renderCastingState(next = {}) {
   }
   const active = castingIsActive()
   btnCast.classList.toggle('active', active)
-  btnCast.classList.toggle('busy', ['preparing', 'buffering', 'choosing', 'connecting'].includes(currentCastingState.status))
+  btnCast.classList.toggle('busy', ['preparing', 'buffering', 'choosing', 'connecting', 'starting'].includes(currentCastingState.status))
   btnCast.classList.toggle('casting', currentCastingState.status === 'casting')
   const castLabel = active
-    ? `Stop sending to ${currentCastingState.target?.name || 'TV'}`
-    : (currentCastingState.preferredTarget ? 'Send to TV · right-click to choose another' : 'Send to TV')
+    ? `TV devices · ${currentCastingState.status === 'casting' ? 'playing' : 'starting'} on ${currentCastingState.target?.name || 'TV'}`
+    : 'TV devices'
   setControlTooltip(btnCast, castLabel)
   castingStatus.textContent = castingStatusText(currentCastingState)
   castingStatus.classList.toggle('error', currentCastingState.status === 'error')
+  const startupCopy = castingStartupCopy(currentCastingState)
+  castingStartupStatus.classList.toggle('hidden', !startupCopy)
+  castingStartupStatus.classList.toggle('error', currentCastingState.status === 'error')
+  if (startupCopy) {
+    castingStartupTitle.textContent = startupCopy[0]
+    castingStartupDetail.textContent = startupCopy[1]
+  }
   castingDevices.replaceChildren()
 
   const hasAirPlay = currentCastingState.devices.some(device => device.protocol === 'airplay')
@@ -2343,6 +2367,10 @@ async function startCasting(targetId) {
     const recorderOptions = {
       videoBitsPerSecond: 8_000_000,
       audioBitsPerSecond: 320_000,
+      // FFmpeg consumes one continuous WebM stream assembled from these
+      // chunks. Regular keyframes let it recover immediately and ensure each
+      // one-second HLS segment can begin with decodable video.
+      videoKeyFrameIntervalDuration: 1_000,
       ...(mimeType ? { mimeType } : {}),
     }
     const recorder = new MediaRecorder(stream, recorderOptions)
@@ -2372,20 +2400,6 @@ async function startCasting(targetId) {
     await window.api.castingCaptureError(sessionId, error?.message || String(error)).catch(() => {})
     throw error
   }
-}
-
-async function handleCastButton() {
-  if (castingIsActive()) {
-    await stopCasting()
-    return
-  }
-  const preferredId = currentCastingState.preferredTarget?.id
-  const preferred = currentCastingState.devices.find(device => device.id === preferredId && device.canConnect)
-  if (preferred) {
-    await startCasting(preferred.id)
-    return
-  }
-  toggleCastingMenu()
 }
 
 function closeDisplayMenu() {
@@ -4291,6 +4305,48 @@ function updateBookmarkBtn() {
   const on = !!state.currentSetUrl && isFavorited(state.currentSetUrl)
   btnBookmark.innerHTML = on ? icon(ICON.heartFilled, 15) : icon(ICON.heart, 15)
   btnBookmark.classList.toggle('active', on)
+  btnBookmark.setAttribute('aria-pressed', String(on))
+  setControlTooltip(btnBookmark, on ? 'Remove set from favorites' : 'Add set to favorites')
+  btnVideoBookmark.innerHTML = on ? icon(ICON.heartFilled, 16) : icon(ICON.heart, 16)
+  btnVideoBookmark.classList.toggle('active', on)
+  btnVideoBookmark.setAttribute('aria-pressed', String(on))
+  setControlTooltip(btnVideoBookmark, on ? 'Remove set from favorites' : 'Add set to favorites')
+}
+
+function toggleBookmark() {
+  if (!state.currentSetUrl) return
+  if (isFavorited(state.currentSetUrl)) {
+    removeFromFavorites(state.currentSetUrl)
+    return
+  }
+
+  // Include whatever we already know at bookmark time — trackCount from the
+  // current tracklist, plus progress if a track has played this session.
+  const histEntry = state.store.history.find(h => h.url === state.currentSetUrl)
+  const metadata = savedSetMetadata({
+    djNames: state.currentSetMetadata?.djNames?.length ? state.currentSetMetadata.djNames : histEntry?.djNames,
+    venue: state.currentSetMetadata?.venue || histEntry?.venue,
+    event: state.currentSetMetadata?.event || histEntry?.event,
+    date: state.currentSetMetadata?.date || histEntry?.date,
+  })
+  addToFavorites({
+    title:            state.currentSetTitle || state.currentSetUrl,
+    url:              state.currentSetUrl,
+    source:           state.currentSource,
+    thumbnailUrl:     state.currentThumbnailUrl,
+    tracklistUrl:     state.currentTracklistUrl || histEntry?.tracklistUrl || undefined,
+    tracklistProvider: state.currentTracklistProvider || histEntry?.tracklistProvider || undefined,
+    ...metadata,
+    metadataIgnoredValues: normalizedIgnoredMetadataValues(state.metadataRemovedValues)
+      .map(({ field, value }) => ({ field, value })),
+    trackCount:       state.currentTracks.length || histEntry?.trackCount || undefined,
+    progressTrackNum: histEntry?.progressTrackNum || undefined,
+    lastTrackCueSeconds: histEntry?.lastTrackCueSeconds ?? undefined,
+    progressTimePct:  histEntry?.progressTimePct || undefined,
+    progressTime:     histEntry?.progressTime || undefined,
+  })
+  syncProgressToItem(state.currentSetUrl)
+  updateBookmarkBtn()
 }
 
 // ── History ──────────────────────────────────────────────────────────────────
@@ -4836,6 +4892,7 @@ function createTrackItem(track, compact) {
     (track.autoRecognized   ? ' track-auto-recognized' : '') +
     (track.isRecognitionCandidate ? ' track-recognition-candidate' : '') +
     (track.isRecognitionUnidentified ? ' track-recognition-unidentified' : '') +
+    (track.isRecognitionAnalysisPending ? ' track-recognition-analysis-pending' : '') +
     (track.isLongRecognitionGap ? ' track-recognition-long-gap' : '')
   li.dataset.trackNum = track.trackNum || ''
   li.dataset.providerTrackId = track.providerTrackId || ''
@@ -4851,7 +4908,11 @@ function createTrackItem(track, compact) {
       : `<div class="track-art track-art-empty${track.artworkStatus === 'loading' ? ' track-art-loading' : ''}"></div>`
   )
 
-  const titleText = escHtml(track.title || (track.isId ? 'ID — ID' : track.raw) || '?')
+  const titleText = track.isRecognitionPlaceholder
+    ? '<span class="track-analysis-placeholder" aria-hidden="true"></span>'
+    : (track.isRecognitionAnalysisPending
+        ? ''
+        : escHtml(track.title || (track.isId ? 'ID — ID' : track.raw) || '?'))
   const artistHtml = track.isRecognitionUnidentified && track.isLongRecognitionGap && !compact
     ? '<span class="track-artist">potentially multiple unidentified tracks</span>'
     : ((!track.isId && track.artist && !compact)
@@ -4860,6 +4921,8 @@ function createTrackItem(track, compact) {
   const recognitionMarker = track.autoRecognized
     ? '<span class="track-recognition-marker" title="Identified with Shazam" aria-label="Identified with Shazam">✦ AUTO</span>'
     : ''
+  const confirmationCount = Math.max(0, Number(track.recognitionConfirmationCount) || 0)
+  const confirmationText = confirmationCount === 1 ? '1 confirmation' : `${confirmationCount} confirmations`
 
   // An incomplete published row can be retried digitally or completed inline.
   const needsIdentify = track.isId || track.title === 'ID' || track.artist === 'ID'
@@ -4873,14 +4936,23 @@ function createTrackItem(track, compact) {
     : ''
   const autoActionsHtml = (track.autoRecognized || track.manualIdentified)
     ? `<span class="track-auto-actions" aria-label="Shazam track actions">
+         ${track.autoRecognized ? `<span class="track-confirmation-count">${confirmationText}</span>` : ''}
          <button class="inline-track-btn track-auto-action" data-action="wrong">fix id</button>
          <button class="inline-track-btn track-auto-action" data-action="delete">remove id</button>
        </span>`
     : ''
+  const candidateCount = Math.max(0, Number(track.recognitionCandidateCount) || 0)
+  const candidateRequiredCount = Math.max(1, Number(track.recognitionRequiredCount) || 3)
+  const candidatePhase = track.isRecognitionPlaceholder
+    ? 'analysing…'
+    : (candidateCount >= 2 ? 'confirming…' : 'still analysing…')
   const analyzingHtml = track.isRecognitionCandidate
-    ? `<span class="track-analysis-label">still analyzing ${track.recognitionCandidateCount || 1}/${track.recognitionRequiredCount || 3}</span>`
+    ? `<span class="track-analysis-label">${candidatePhase}${track.isRecognitionPlaceholder ? '' : ` · ${candidateCount}/${candidateRequiredCount}`}</span>`
     : ''
-  const actionsHtml = analyzingHtml || autoActionsHtml || manualIdentifyHtml
+  const pendingAnalysisHtml = track.isRecognitionAnalysisPending
+    ? '<span class="track-analysis-label">analysis pending</span>'
+    : ''
+  const actionsHtml = analyzingHtml || pendingAnalysisHtml || autoActionsHtml || manualIdentifyHtml
   const trackInfoHtml = `<div class="track-info">
        <div class="track-title-row">
          <div class="track-text-col">
@@ -5340,19 +5412,12 @@ function wireEvents() {
   btnVideoMode.addEventListener('click', cycleVideoMode)
   btnCast.addEventListener('click', (event) => {
     event.stopPropagation()
-    if (!castingIsActive() && (event.altKey || event.shiftKey)) {
-      toggleCastingMenu()
-      return
-    }
-    handleCastButton().catch(error => {
-      renderCastingState({ ...currentCastingState, status: 'error', error: error?.message || String(error) })
-      toggleCastingMenu()
-    })
+    toggleCastingMenu()
   })
   btnCast.addEventListener('contextmenu', (event) => {
     event.preventDefault()
     event.stopPropagation()
-    if (!castingIsActive()) toggleCastingMenu()
+    toggleCastingMenu()
   })
   btnCastingRefresh.addEventListener('click', (event) => {
     event.stopPropagation()
@@ -5504,40 +5569,8 @@ function wireEvents() {
     })
   )
 
-  btnBookmark.addEventListener('click', () => {
-    if (!state.currentSetUrl) return
-    if (isFavorited(state.currentSetUrl)) {
-      removeFromFavorites(state.currentSetUrl)
-    } else {
-      // Include whatever we already know at bookmark time — trackCount from the
-      // current tracklist, plus progress if a track has played this session.
-      const histEntry = state.store.history.find(h => h.url === state.currentSetUrl)
-      const metadata = savedSetMetadata({
-        djNames: state.currentSetMetadata?.djNames?.length ? state.currentSetMetadata.djNames : histEntry?.djNames,
-        venue: state.currentSetMetadata?.venue || histEntry?.venue,
-        event: state.currentSetMetadata?.event || histEntry?.event,
-        date: state.currentSetMetadata?.date || histEntry?.date,
-      })
-      addToFavorites({
-        title:            state.currentSetTitle || state.currentSetUrl,
-        url:              state.currentSetUrl,
-        source:           state.currentSource,
-        thumbnailUrl:     state.currentThumbnailUrl,
-        tracklistUrl:     state.currentTracklistUrl || histEntry?.tracklistUrl || undefined,
-        tracklistProvider: state.currentTracklistProvider || histEntry?.tracklistProvider || undefined,
-        ...metadata,
-        metadataIgnoredValues: normalizedIgnoredMetadataValues(state.metadataRemovedValues)
-          .map(({ field, value }) => ({ field, value })),
-        trackCount:       state.currentTracks.length || histEntry?.trackCount || undefined,
-        progressTrackNum: histEntry?.progressTrackNum || undefined,
-        lastTrackCueSeconds: histEntry?.lastTrackCueSeconds ?? undefined,
-        progressTimePct:  histEntry?.progressTimePct || undefined,
-        progressTime:     histEntry?.progressTime || undefined,
-      })
-      syncProgressToItem(state.currentSetUrl)
-      updateBookmarkBtn()
-    }
-  })
+  btnBookmark.addEventListener('click', toggleBookmark)
+  btnVideoBookmark.addEventListener('click', toggleBookmark)
 
   btnLfmConnect.addEventListener('click', async () => {
     btnLfmConnect.disabled = true

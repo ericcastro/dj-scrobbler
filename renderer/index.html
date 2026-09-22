@@ -89,6 +89,14 @@
     </div>
   </header>
 
+  <div id="casting-startup-status" class="hidden" role="status" aria-live="polite">
+    <span class="casting-startup-pulse" aria-hidden="true"></span>
+    <span class="casting-startup-copy">
+      <strong id="casting-startup-title"></strong>
+      <small id="casting-startup-detail"></small>
+    </span>
+  </div>
+
   <!-- Main layout -->
   <div id="layout">
     <!-- Left sidebar — workspace navigation and saved-library quick access -->
@@ -636,6 +644,7 @@
               </div>
             </div>
           </div>
+          <button class="video-control-btn video-set-action" id="btn-video-bookmark" data-tooltip="Add set to favorites" aria-label="Add set to favorites" aria-pressed="false"></button>
           <button class="video-control-btn" id="btn-video-always-on-top" data-tooltip="Always on top" aria-label="Always on top" aria-pressed="false"></button>
           <button class="video-control-btn" id="btn-video-dock" data-tooltip="Mini-player mode" aria-label="Mini-player mode"></button>
           <button class="video-control-btn" id="btn-video-fullscreen" data-tooltip="Focus window" aria-label="Focus window"></button>
@@ -824,7 +833,7 @@
     <div id="np-right">
       <div id="np-source" class="set-availability np-set-availability" aria-label="Set sources"></div>
     </div>
-    <button class="icon-btn" id="btn-bookmark" title="Add to favorites">
+    <button class="icon-btn" id="btn-bookmark" data-tooltip="Add set to favorites" aria-label="Add set to favorites" aria-pressed="false">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
     </button>
     <div id="volume-control">

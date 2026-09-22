@@ -33,7 +33,13 @@ test('automatic recognition has marked tracks, editable matches, retryable gaps,
   assert.match(appJs, /track\.autoRecognized\s*\? ' track-auto-recognized'/)
   assert.match(appJs, /track\.isLongRecognitionGap \? ' track-recognition-long-gap'/)
   assert.match(appJs, /track\.isRecognitionCandidate \? ' track-recognition-candidate'/)
-  assert.match(appJs, /still analyzing/)
+  assert.match(appJs, /still analysing…/)
+  assert.match(appJs, /confirming…/)
+  assert.match(appJs, /\$\{candidateCount\}\/\$\{candidateRequiredCount\}/)
+  assert.match(appJs, /track-confirmation-count/)
+  assert.match(appJs, /track-analysis-placeholder/)
+  assert.match(appJs, /analysis pending/)
+  assert.match(appJs, /track-recognition-analysis-pending/)
   assert.match(appJs, /Identified with Shazam/)
   assert.match(appJs, />✦ AUTO<\/span>/)
   assert.match(appJs, /automatically building tracklist/)
@@ -55,11 +61,16 @@ test('automatic recognition has marked tracks, editable matches, retryable gaps,
   assert.match(appJs, /resetAutomaticTracklist/)
   assert.match(appJs, /beginManualTrackIdentification/)
   assert.doesNotMatch(appJs, /Automatic ID · not scrobbled/)
-  assert.match(styleCss, /\.track-recognition-long-gap\s*\{/)
+  assert.match(
+    styleCss,
+    /\.track-recognition-long-gap,\s*\.track-recognition-analysis-pending\s*\{/,
+  )
   assert.match(styleCss, /\.track-recognition-candidate\s*\{/)
   assert.match(styleCss, /\.track-auto-actions,\s*\n\.track-manual-actions\s*\{/)
   assert.match(styleCss, /\.track-item:hover \.track-auto-actions/)
   assert.match(styleCss, /\.track-item:focus-within \.track-auto-actions/)
+  assert.match(styleCss, /\.track-confirmation-count\s*\{/)
+  assert.match(styleCss, /\.track-analysis-placeholder\s*\{/)
   assert.match(styleCss, /\.recognition-status\.is-active \.recognition-activity-dot/)
   assert.match(styleCss, /\.track-recognition-long-gap:hover \.track-manual-actions/)
   assert.doesNotMatch(styleCss, /\.set-event-lookup\s*\{[^}]*border-bottom:/s)
@@ -118,6 +129,7 @@ test('display controls compose a resizable focus view with one native fullscreen
     'immersive-progress-segments',
     'immersive-progress-thumb',
     'immersive-progress-tooltip',
+    'btn-video-bookmark',
     'btn-video-always-on-top',
     'btn-video-native-fullscreen',
   ]) {
@@ -127,6 +139,10 @@ test('display controls compose a resizable focus view with one native fullscreen
   assert.match(appJs, /setWindowPresentation\(mode\)/)
   assert.match(appJs, /setFocusWindowMode\(enabled\)/)
   assert.match(appJs, /immersiveOverlayLayout/)
+  assert.match(appJs, /const btnVideoBookmark\s*=\s*document\.getElementById\('btn-video-bookmark'\)/)
+  assert.match(appJs, /btnBookmark\.addEventListener\('click', toggleBookmark\)/)
+  assert.match(appJs, /btnVideoBookmark\.addEventListener\('click', toggleBookmark\)/)
+  assert.match(appJs, /btnVideoBookmark\.classList\.toggle\('active', on\)/)
   assert.match(appJs, /wireOverflowMarquee\(immersiveTitleContent, immersiveTitleRow, immersiveTitleRow, \{ automatic: true \}\)/)
   assert.match(appJs, /wireOverflowMarquee\(immersiveSetTitle, immersiveSetTitle, immersiveSetTitle, \{ automatic: true \}\)/)
   assert.match(appJs, /if \(automatic\) \{[\s\S]*new ResizeObserver\(restart\)[\s\S]*new MutationObserver\(restart\)/)
@@ -238,12 +254,16 @@ test('one TV control unifies remembered Chromecast and discovered AirPlay target
     'casting-devices',
     'btn-casting-refresh',
     'casting-airplay-note',
+    'casting-startup-status',
+    'casting-startup-title',
+    'casting-startup-detail',
   ]) assert.equal(indexHtml.includes(`id="${id}"`), true, `${id} missing from index.html`)
   assert.match(appJs, /async function startCasting\(targetId\)/)
   assert.match(appJs, /navigator\.mediaDevices\.getDisplayMedia/)
   assert.match(appJs, /new MediaRecorder\(/)
-  assert.match(appJs, /if \(preferred\) \{[\s\S]*await startCasting\(preferred\.id\)/)
-  assert.match(appJs, /if \(castingIsActive\(\)\) \{[\s\S]*await stopCasting\(\)/)
+  assert.match(appJs, /btnCast\.addEventListener\('click',[\s\S]*toggleCastingMenu\(\)/)
+  assert.match(appJs, /casting\.status === 'starting'/)
+  assert.match(appJs, /The TV is buffering the live stream/)
   assert.match(appJs, /btnCast\.addEventListener\('contextmenu'/)
   assert.match(appJs, /device\.protocol === 'airplay'/)
   assert.match(appJs, /casting\.status === 'choosing'/)
@@ -253,6 +273,7 @@ test('one TV control unifies remembered Chromecast and discovered AirPlay target
 
 test('TV capture preserves high-quality stereo music audio', () => {
   assert.match(appJs, /audioBitsPerSecond:\s*320_000/)
+  assert.match(appJs, /videoKeyFrameIntervalDuration:\s*1_000/)
   assert.match(appJs, /sampleRate:\s*\{\s*ideal:\s*48_000\s*\}/)
   assert.match(appJs, /echoCancellation:\s*false/)
   assert.match(appJs, /noiseSuppression:\s*false/)
@@ -704,6 +725,11 @@ test('event lookup reports source-level progress and marquees long normalized su
   assert.match(styleCss, /\.set-event-summary-text\s*\{[^}]*text-overflow:\s*ellipsis/s)
   assert.match(styleCss, /\.set-event-summary-text\s*\{[^}]*font-size:\s*10px/s)
   assert.match(styleCss, /\.set-event-lookup\s*\{[^}]*font-size:\s*10px/s)
+  assert.match(styleCss, /\.set-metadata-facts-row\s*\{[^}]*flex-wrap:\s*wrap/s)
+  assert.match(styleCss, /\.set-metadata-pills\s*\{\s*display:\s*contents/s)
+  assert.match(styleCss, /\.set-metadata-controls\s*\{[^}]*order:\s*999/s)
+  assert.match(styleCss, /\.set-metadata-action\s*\{[^}]*background:\s*transparent/s)
+  assert.match(styleCss, /body\.compact-layout \.set-metadata-controls\s*\{[^}]*display:\s*none/s)
   assert.match(styleCss, /\.set-event-detail\s*\{[^}]*font-size:\s*10px/s)
   assert.match(styleCss, /\.set-event-link\s*\{[^}]*font-size:\s*10px/s)
   assert.match(styleCss, /\.set-event-detail\s*\{[^}]*color:\s*var\(--text2\)[^}]*opacity:\s*\.48[^}]*font-size:\s*10px/s)
