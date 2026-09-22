@@ -640,6 +640,8 @@ test('the empty tracklist shell says it is searching while provider results are 
   const showLoading = appJs.slice(appJs.indexOf('function showLoading('), appJs.indexOf('function showNoTracklist('))
   assert.match(showLoading, /preservePendingTracklist/)
   assert.match(showLoading, /renderTracklist\(\[\]\)/)
+  // Rendering the empty shell must not immediately undo its compact layout.
+  assert.match(appJs, /tracks\.length > 0 \|\| state\.tracklistLoading \|\| state\.currentTracklistProvider === 'shazam'/)
 })
 
 test('metadata header renders normalized facts as pills above the tracklist', () => {

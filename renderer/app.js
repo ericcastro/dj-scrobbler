@@ -5098,7 +5098,13 @@ function renderTracklist(tracks) {
     }
   }
 
-  mainContent.classList.toggle('has-tracklist', tracks.length > 0 || state.currentTracklistProvider === 'shazam')
+  // An empty list can be meaningful: provider lookups are still running. Keep
+  // the compact video + below-video shell in place so the player never expands
+  // back to a full-height, letterboxed loading screen between responses.
+  mainContent.classList.toggle(
+    'has-tracklist',
+    tracks.length > 0 || state.tracklistLoading || state.currentTracklistProvider === 'shazam'
+  )
   renderImmersiveTracklist(annotated)
   renderSetMetadataHeader()
   renderRecognitionStatus()
