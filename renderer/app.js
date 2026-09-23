@@ -4789,7 +4789,7 @@ async function identifyUnknownTrack(track, button) {
   }
 }
 
-async function handleRecognizedTrackAction(track, action, correction = null) {
+async function handleTrackCorrectionAction(track, action, correction = null) {
   if (action === 'wrong') {
     correction = {
       artist: String(correction?.artist || '').trim(),
@@ -4799,7 +4799,7 @@ async function handleRecognizedTrackAction(track, action, correction = null) {
       window.alert('Artist and title are required.')
       return
     }
-    if (!window.confirm(`Replace this Shazam match with “${correction.artist} — ${correction.title}”?`)) return
+    if (!window.confirm(`Replace this track with “${correction.artist} — ${correction.title}”?`)) return
   } else if (action === 'delete') {
     if (!window.confirm('Remove this ID and return the segment to ID — ID?')) return
   } else {
@@ -4814,7 +4814,7 @@ async function handleRecognizedTrackAction(track, action, correction = null) {
   if (!saved) window.alert('That track changed before the edit could be saved. Please try again.')
 }
 
-function beginRecognizedTrackCorrection(li, track) {
+function beginTrackCorrection(li, track) {
   const text = li.querySelector('.track-text-col')
   const actions = li.querySelector('.track-auto-actions, .track-manual-actions')
   if (!text || !actions) return
@@ -4822,11 +4822,11 @@ function beginRecognizedTrackCorrection(li, track) {
   text.innerHTML = ''
   const titleInput = document.createElement('input')
   titleInput.className = 'track-correction-input track-correction-title'
-  titleInput.value = track.title || ''
+  titleInput.value = track.title === 'ID — ID' ? '' : (track.title || '')
   titleInput.placeholder = 'Track title'
   const artistInput = document.createElement('input')
   artistInput.className = 'track-correction-input track-correction-artist'
-  artistInput.value = track.artist || ''
+  artistInput.value = track.artist === 'ID' ? '' : (track.artist || '')
   artistInput.placeholder = 'Artist'
   text.append(titleInput, artistInput)
 
@@ -4836,7 +4836,7 @@ function beginRecognizedTrackCorrection(li, track) {
   `
   const cancel = () => renderTracklist(state.currentTracks)
   const save = async () => {
-    await handleRecognizedTrackAction(track, 'wrong', {
+    await handleTrackCorrectionAction(track, 'wrong', {
       artist: artistInput.value,
       title: titleInput.value,
     })
@@ -4921,7 +4921,11 @@ function createTrackItem(track, compact) {
     (track.isLongRecognitionGap ? ' track-recognition-long-gap' : '')
   li.dataset.trackNum = track.trackNum || ''
   li.dataset.providerTrackId = track.providerTrackId || ''
-  if (track.autoRecognized || track.manualIdentified) li.tabIndex = 0
+  // YouTube descriptions/comments are community text, even when the parser
+  // managed an artist/title split. Every one of their rows therefore shares
+  // the same editable "fix id" affordance as a confirmed Shazam row.
+  const isYouTubePublishedTrack = ['youtube-comments', 'youtube'].includes(state.currentTracklistProvider)
+  if (track.autoRecognized || track.manualIdentified || isYouTubePublishedTrack) li.tabIndex = 0
 
   const numHtml = track.isWWith
     ? `<span class="track-num track-num-with">w/</span>`
@@ -4951,7 +4955,7 @@ function createTrackItem(track, compact) {
 
   // An incomplete published row can be retried digitally or completed inline.
   const needsIdentify = track.isId || track.title === 'ID' || track.artist === 'ID'
-  const manualIdentifyHtml = needsIdentify
+  const manualIdentifyHtml = needsIdentify && !isYouTubePublishedTrack
     ? `<span class="track-manual-actions">
          ${track.isId
     ? `<button class="inline-track-btn track-identify-btn"${typeof track.cueSeconds === 'number' && Number.isFinite(track.cueSeconds) ? '' : ' disabled'}>retry id</button>`
@@ -4959,11 +4963,11 @@ function createTrackItem(track, compact) {
          ${track.isLongRecognitionGap ? '' : '<button class="inline-track-btn track-manual-id-btn">manual id</button>'}
        </span>`
     : ''
-  const autoActionsHtml = (track.autoRecognized || track.manualIdentified)
-    ? `<span class="track-auto-actions" aria-label="Shazam track actions">
+  const correctionActionsHtml = (track.autoRecognized || track.manualIdentified || isYouTubePublishedTrack)
+    ? `<span class="track-auto-actions" aria-label="Track actions">
          ${track.autoRecognized ? `<span class="track-confirmation-count">${confirmationText}</span>` : ''}
          <button class="inline-track-btn track-auto-action" data-action="wrong">fix id</button>
-         <button class="inline-track-btn track-auto-action" data-action="delete">remove id</button>
+         ${isYouTubePublishedTrack ? '' : '<button class="inline-track-btn track-auto-action" data-action="delete">remove id</button>'}
        </span>`
     : ''
   const candidateCount = Math.max(0, Number(track.recognitionCandidateCount) || 0)
@@ -4977,7 +4981,7 @@ function createTrackItem(track, compact) {
   const pendingAnalysisHtml = track.isRecognitionAnalysisPending
     ? '<span class="track-analysis-label">analysis pending</span>'
     : ''
-  const actionsHtml = analyzingHtml || pendingAnalysisHtml || autoActionsHtml || manualIdentifyHtml
+  const actionsHtml = analyzingHtml || pendingAnalysisHtml || correctionActionsHtml || manualIdentifyHtml
   const trackInfoHtml = `<div class="track-info">
        <div class="track-title-row">
          <div class="track-text-col">
@@ -5021,10 +5025,10 @@ function createTrackItem(track, compact) {
     button.addEventListener('click', (e) => {
       e.stopPropagation()
       if (button.dataset.action === 'wrong') {
-        beginRecognizedTrackCorrection(li, track)
+        beginTrackCorrection(li, track)
         return
       }
-      handleRecognizedTrackAction(track, button.dataset.action)
+      handleTrackCorrectionAction(track, button.dataset.action)
         .catch(error => window.alert(error?.message || 'The edit could not be saved.'))
     })
   })

@@ -78,6 +78,16 @@ test('automatic recognition has marked tracks, editable matches, retryable gaps,
   assert.doesNotMatch(styleCss, /\.set-event-lookup\s*\{\s*display:\s*none;/)
 })
 
+test('every YouTube tracklist row reuses the hover-only fix-id editor', () => {
+  assert.match(appJs, /const isYouTubePublishedTrack = \['youtube-comments', 'youtube'\]\.includes\(state\.currentTracklistProvider\)/)
+  assert.match(appJs, /track\.autoRecognized \|\| track\.manualIdentified \|\| isYouTubePublishedTrack\) li\.tabIndex = 0/)
+  assert.match(appJs, /const manualIdentifyHtml = needsIdentify && !isYouTubePublishedTrack/)
+  assert.match(appJs, /track\.autoRecognized \|\| track\.manualIdentified \|\| isYouTubePublishedTrack/)
+  assert.match(appJs, /isYouTubePublishedTrack \? '' : '<button class="inline-track-btn track-auto-action" data-action="delete">remove id<\/button>'/)
+  assert.match(appJs, /function beginTrackCorrection\(li, track\)/)
+  assert.match(appJs, /beginTrackCorrection\(li, track\)/)
+})
+
 test('critical player controls have matching markup and styles', () => {
   for (const id of [
     'player-status-overlay',

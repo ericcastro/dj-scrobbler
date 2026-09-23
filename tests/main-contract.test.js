@@ -300,6 +300,12 @@ test('automatic and one-shot recognition edits are exposed without weakening sou
   assert.match(mainJs, /ipcMain\.handle\('track-manual-identify'/)
 })
 
+test('published track corrections accept parsed YouTube rows but keep deletion restricted', () => {
+  const edit = mainJs.slice(mainJs.indexOf('function editRecognizedTrack'), mainJs.indexOf('function manualIdentifyTrack'))
+  assert.match(edit, /action === 'delete' && !track\.autoRecognized && !track\.manualIdentified/)
+  assert.match(edit, /publishedRecognitionEditPatch\(action, payload\?\.correction\)/)
+})
+
 test('published unresolved rows use confidence sampling and retry after expiry', () => {
   assert.match(mainJs, /PUBLISHED_UNIDENTIFIED_RETRY_MS = 24 \* 60 \* 60 \* 1000/)
   assert.match(mainJs, /function startPublishedTrackRecognition/)

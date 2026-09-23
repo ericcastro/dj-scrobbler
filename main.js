@@ -2010,7 +2010,10 @@ function editRecognizedTrack(payload) {
   if (!['wrong', 'delete'].includes(action)) throw new Error('Unknown recognition action.')
   if (payload?.sourceUrl !== currentSourceUrl || payload?.providerId !== currentTracklistProvider) return false
   const track = currentTracks.find(item => item.providerTrackId === payload?.providerTrackId)
-  if (!track || (!track.autoRecognized && !track.manualIdentified)) return false
+  // Published YouTube tracklists are parsed from free-form text. Let their
+  // rows use the same correction path as Shazam IDs, while retaining deletion
+  // as a Shazam-only action.
+  if (!track || (action === 'delete' && !track.autoRecognized && !track.manualIdentified)) return false
 
   if (currentTracklistProvider === AUTOMATIC_RECOGNITION_PROVIDER.id) {
     const session = automaticRecognition
