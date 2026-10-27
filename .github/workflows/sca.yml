@@ -1,0 +1,19 @@
+name: SCA
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+jobs:
+  scan:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@7f58dd6750d78fc29a900ba64b1a0f946f62fba4 # v2.6.0
+    with:
+      scan-args: ./
+      upload-sarif: false
+      fail-on-vuln: true

@@ -41,11 +41,11 @@ Installers are published on the [GitHub Releases page](https://github.com/ericca
 
 DJ Scrobbler is built for:
 
-- macOS (Apple Silicon and Intel)
+- macOS 12 or newer (Apple Silicon and Intel)
 - Windows
 - Linux
 
-Casting is **experimental and available on macOS only** in 0.7.0. Windows and Linux casting support is coming soon; their apps continue to support playback, tracklists, recognition, and scrobbling. Linux packages require Ubuntu 22.04 or a compatible system with glibc 2.35 or newer.
+Casting is **experimental and available on macOS only** in 0.7.x. Windows and Linux casting support is coming soon; their apps continue to support playback, tracklists, recognition, and scrobbling. Linux packages require Ubuntu 22.04 or a compatible system with glibc 2.35 or newer.
 
 ### macOS
 
@@ -59,6 +59,10 @@ curl -fsSL https://raw.githubusercontent.com/ericcastro/dj-scrobbler/main/instal
 
 After that the app keeps itself up to date: when a new release is available it downloads
 and installs it in place with one click.
+
+## Development
+
+Use Node.js 22.12 or newer and run `npm ci`. Installation downloads the matching Electron runtime through `install-electron`. Run `npm test` and `osv-scanner scan .` before preparing a release. CI tests Node.js 22 and 24 on all platforms and blocks releases on OSV findings.
 
 ## How It Works
 

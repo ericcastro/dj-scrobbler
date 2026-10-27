@@ -10,8 +10,16 @@ permissions:
   contents: write
 
 jobs:
+  sca:
+    uses: ./.github/workflows/sca.yml
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
   # ── Delete any existing draft release so re-runs don't hit 422 on .blockmap ──
   delete-draft:
+    needs: sca
     runs-on: ubuntu-latest
     steps:
       - name: Delete existing draft release for this tag (if any)
@@ -37,7 +45,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
         run: npm ci
@@ -47,6 +55,14 @@ jobs:
 
       - name: Check release metadata and tag
         run: npm run check:release
+
+      - name: Restore media tool builds
+        # Reuse only builds keyed by the pinned source manifest and recipes.
+        # Native runtime/license/material checks still run below.
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/dj-scrobbler-media-tools
+          key: media-macos-latest-${{ runner.arch }}-${{ hashFiles('scripts/build-*.sh', 'scripts/media-tool-assets.js') }}
 
       - name: Check media decoder runtime
         run: npm run test:media
@@ -75,7 +91,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
         run: npm ci
@@ -91,6 +107,11 @@ jobs:
           msystem: UCRT64
           path-type: inherit
           install: mingw-w64-ucrt-x86_64-gcc make diffutils tar xz
+
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/dj-scrobbler-media-tools
+          key: media-windows-latest-${{ runner.arch }}-${{ hashFiles('scripts/build-*.sh', 'scripts/media-tool-assets.js') }}
 
       - name: Build & publish (Windows)
         shell: msys2 {0}
@@ -111,7 +132,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
         run: npm ci
@@ -121,6 +142,12 @@ jobs:
 
       - name: Check release metadata and tag
         run: npm run check:release
+
+      - name: Restore media tool builds
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/dj-scrobbler-media-tools
+          key: media-ubuntu-22.04-${{ runner.arch }}-${{ hashFiles('scripts/build-*.sh', 'scripts/media-tool-assets.js') }}
 
       - name: Check media decoder runtime
         run: npm run test:media

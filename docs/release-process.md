@@ -3,7 +3,7 @@
 Use this checklist for every versioned release:
 
 1. Review the complete diff since the previous release tag.
-2. Run `npm test`, `npm run check:release`, and build at least one local platform target with publishing disabled (for example, `npm run build -- --mac dmg zip --arm64 --publish never`).
+2. Use Node.js 22.12 or newer, run `npm ci`, `osv-scanner scan .`, `npm test`, `npm run check:release`, and build at least one local platform target with publishing disabled (for example, `npm run build -- --mac dmg zip --arm64 --publish never`). Resolve scanner findings before tagging.
 3. Update `package.json`, `package-lock.json`, and `CHANGELOG.md` together.
 4. Write release notes as readable Markdown with short sections such as Added, Changed, Fixed, and Verification.
 5. Release notes must contain no HTML tags. Use Markdown links, lists, and headings instead.
@@ -16,9 +16,9 @@ Check the actual FFmpeg binary's `-L` report, not only its downloaded license fi
 
 Review [FFmpeg redistribution checks](ffmpeg-compliance.md) for each platform. A passing executable-license guard is not a corresponding-source audit. Windows/Linux must use the controlled LGPL decoder builds and include their exact source/build materials. Run `npm run test:media` on each native platform before publishing. Keep FFmpeg attribution in About and on download pages.
 
-CI checks that the manifest, lockfile, first changelog entry, and release tag agree before publishing platform assets.
+CI checks that the manifest, lockfile, first changelog entry, and release tag agree before publishing platform assets. The release workflow also requires a passing OSV scan before starting its platform builds.
 
 For GitHub releases, prefer `gh release create <tag> --title "..." --notes-file CHANGELOG.md`
 or pass a dedicated Markdown notes file. Do not paste generated HTML into the release body.
 
-For 0.7.0, use `docs/releases/v0.7.0.md` as the public release body. Casting must be described as experimental and macOS-only, with Windows/Linux support coming soon. Keep the release a draft until every platform job passes and its assets are present, then publish it.
+Use `docs/releases/vX.Y.Z.md` as the public release body when available. Casting must be described as experimental and macOS-only, with Windows/Linux support coming soon. Keep the release a draft until every platform job passes and its assets are present, then publish it.

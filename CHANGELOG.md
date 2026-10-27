@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.1] - 2026-10-28
+
+### Security
+
+- Resolve all 65 unique OSV advisories reported against the 0.7.0 dependency lockfile (77 package/advisory findings). Upgrade Electron to 43.8.4, electron-builder to 26.18.0, electron-updater to 6.8.11, and affected transitive dependencies.
+- Remove the vulnerable `extract-zip` package through Electron's maintained extraction dependency. No vulnerability suppressions or dependency overrides are used.
+- Add OSV scanning to CI and require a passing scan before release builds start.
+- Require Node.js 22.12 or newer for development and install Electron explicitly after dependency installation.
+
+### Casting availability
+
+- Casting remains **experimental and macOS only**. **Windows and Linux casting support is coming soon.** Installers remain available for all three platforms, and macOS 12 support is retained.
+- See [the SCA remediation record](docs/security/2026-10-28-sca.md) for affected packages and verification scope.
+
 ## [0.7.0] - 2026-10-27
 
 ### Experimental casting
