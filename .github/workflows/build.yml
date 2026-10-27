@@ -1,0 +1,66 @@
+name: Package checks
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: mac }
+          - { os: windows-latest, target: win }
+          - { os: ubuntu-22.04, target: linux }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:release
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc make diffutils tar xz
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/dj-scrobbler-media-tools
+          key: media-${{ matrix.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build-*.sh', 'scripts/media-tool-assets.js') }}
+      - name: Check decoders and package (macOS/Linux)
+        if: runner.os != 'Windows'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run test:media
+          npm run build:${{ matrix.target }} -- --publish never
+      - name: Check decoders and package (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export DJ_SCROBBLER_BUILD_BASH="$(cygpath -w /usr/bin/bash)"
+          export DJ_SCROBBLER_TOOLCHAIN_LICENSES="$(cygpath -w "$MINGW_PREFIX/share/licenses")"
+          npm run test:media
+          npm run build:win -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.target }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.yml
+            dist/*.blockmap

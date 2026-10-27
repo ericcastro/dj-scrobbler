@@ -38,7 +38,7 @@ test('HLS URL selection prefers the receiver subnet and private LAN addresses', 
   assert.equal(selectPlaybackUrl(urls, device), urls[1])
 })
 
-test('CASTV2 client launches the default receiver, loads HLS, and stops it', async () => {
+test('CASTV2 client handles coalesced buffering/playing frames, loads HLS, and stops it', async () => {
   class FakeSocket extends EventEmitter {
     constructor() {
       super()
@@ -74,7 +74,6 @@ test('CASTV2 client launches the default receiver, loads HLS, and stops it', asy
           namespace: message.namespace,
           payload,
         })
-        process.nextTick(() => this.emit('data', response))
         if (followup) {
           const playing = encodeCastMessage({
             sourceId: message.destinationId,
@@ -82,8 +81,8 @@ test('CASTV2 client launches the default receiver, loads HLS, and stops it', asy
             namespace: message.namespace,
             payload: followup,
           })
-          setTimeout(() => this.emit('data', playing), 5)
-        }
+          process.nextTick(() => this.emit('data', Buffer.concat([response, playing])))
+        } else process.nextTick(() => this.emit('data', response))
       }
       return true
     }
@@ -107,4 +106,66 @@ test('CASTV2 client launches the default receiver, loads HLS, and stops it', asy
   await client.stop()
   assert.equal(socket.destroyed, true)
   assert.ok(socket.messages.some(message => message.payload.type === 'STOP'))
+})
+
+function pendingSocket() {
+  const socket = new EventEmitter()
+  socket.destroyed = false
+  socket.write = () => true
+  socket.destroy = () => {
+    socket.destroyed = true
+    socket.emit('close')
+  }
+  return socket
+}
+
+test('Chromecast connection timeout destroys its socket and permits a retry', async () => {
+  const sockets = []
+  const client = new CastV2Client({ socketFactory: () => {
+    const socket = pendingSocket()
+    sockets.push(socket)
+    return socket
+  } })
+  await assert.rejects(client.connect('tv', 8009, 10), /Timed out/)
+  assert.equal(sockets[0].destroyed, true)
+  assert.equal(client.heartbeatTimer, null)
+  const retry = client.connect('tv')
+  sockets[1].emit('secureConnect')
+  await retry
+  sockets[0].emit('error', new Error('late error from old socket'))
+  assert.equal(client.socket, sockets[1])
+  client.close()
+})
+
+test('Chromecast disconnect during connection rejects immediately', async () => {
+  const socket = pendingSocket()
+  const client = new CastV2Client({ socketFactory: () => socket })
+  const connecting = client.connect('tv')
+  socket.emit('close')
+  await assert.rejects(connecting, /connection closed/)
+  assert.equal(socket.destroyed, true)
+})
+
+test('Chromecast close cancels pending response waits', async () => {
+  const socket = pendingSocket()
+  const client = new CastV2Client({ socketFactory: () => socket })
+  const connecting = client.connect('tv')
+  socket.emit('secureConnect')
+  await connecting
+  const waiting = client.waitFor(() => false)
+  client.close()
+  await assert.rejects(waiting, /connection closed/)
+  assert.equal(client.waiters.size, 0)
+})
+
+test('Chromecast synchronous write failures cancel the registered response wait', async () => {
+  const socket = pendingSocket()
+  const client = new CastV2Client({ socketFactory: () => socket })
+  const connecting = client.connect('tv')
+  socket.emit('secureConnect')
+  await connecting
+  socket.write = () => { throw new Error('write failed') }
+  await assert.rejects(client.request(NAMESPACE_RECEIVER, 'receiver-0', { type: 'GET_STATUS' }), /write failed/)
+  assert.equal(client.waiters.size, 0)
+  assert.equal(socket.destroyed, true)
 })

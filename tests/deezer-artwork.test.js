@@ -115,6 +115,20 @@ test('ordinary one-dash YouTube comment tracks use their parsed artist and title
   assert.equal(match.artUrl, 'https://cdn-images.dzcdn.net/images/cover/hash/250x250.jpg')
 })
 
+test('persisted manual corrections replace ambiguous comment splits before artwork lookup', async () => {
+  const { manualIdentificationPatch } = require('../lib/recognition-session-policy')
+  const corrected = {
+    ...track({ commentTracklist: true, commentAmbiguousSplits: [{ artist: 'Wrong', title: 'Old split' }] }),
+    ...JSON.parse(JSON.stringify(manualIdentificationPatch({ artist: 'Correct Artist', title: 'Correct Title' }))),
+  }
+  const queries = []
+  await lookupDeezerArtwork(corrected, { requestJson: async url => {
+    queries.push(url.searchParams.get('q'))
+    return { data: [] }
+  } })
+  assert.deepEqual(queries, ['artist:"Correct Artist" track:"Correct Title"', 'Correct Artist Correct Title'])
+})
+
 test('matching is strict on title while allowing Deezer to name only the primary collaborator', () => {
   const wanted = track({ artist: '240 KM/H & RESA UTOPICA', title: 'CORRIDA' })
   const match = chooseDeezerArtwork(wanted, [

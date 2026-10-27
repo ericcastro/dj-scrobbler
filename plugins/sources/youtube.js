@@ -123,7 +123,11 @@ module.exports = {
   },
 
   shouldInjectOn(url) {
-    try { return new URL(url).hostname.includes('youtube.com') } catch { return false }
+    try {
+      const target = new URL(url)
+      return target.protocol === 'https:' &&
+        (target.hostname === 'youtube.com' || target.hostname.endsWith('.youtube.com'))
+    } catch { return false }
   },
 
   // Injected into YouTube pages — intercepts video link clicks in the capture

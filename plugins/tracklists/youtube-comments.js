@@ -106,6 +106,13 @@ module.exports = {
 
   matchUrl() { return false },
 
+  normalizeTracklist(tracks) {
+    // Credibility is assessed in publication order. Once accepted, playback
+    // requires cue order even if the author inserted a late correction.
+    return [...tracks].sort((a, b) => a.cueSeconds - b.cueSeconds)
+      .map((track, index) => ({ ...track, trackNum: index + 1 }))
+  },
+
   async findTracklists(meta) {
     const candidate = await findCommentTracklist(meta)
     if (!candidate) return []

@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('api', {
   setTheme:     (theme) => ipcRenderer.invoke('set-theme', theme),
   getVersion:   ()      => ipcRenderer.invoke('get-version'),
   getPlatform:  ()      => ipcRenderer.invoke('get-platform'),
+  openLicenses: ()      => ipcRenderer.invoke('licenses-open'),
   updatesCheck: ()      => ipcRenderer.invoke('updates-check'),
   updatesDownload: ()   => ipcRenderer.invoke('updates-download'),
   updatesInstall: ()    => ipcRenderer.invoke('updates-install'),

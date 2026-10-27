@@ -94,7 +94,7 @@ test('multi-source lookup returns one earliest event per DJ and keeps source pri
   assert.equal(results.length, 2)
   assert.equal(results[0].event.id, 'ra-cloudy')
   assert.equal(results[1].event.id, 'shotgun-anetha')
-  assert.equal(earliestEvent([results[0].event, results[1].event]).id, 'shotgun-anetha')
+  assert.equal(earliestEvent([results[0].event, results[1].event], '2026-09-07').id, 'shotgun-anetha')
   assert.equal(progress.at(-1).completed, 4)
   assert.equal(progress.at(-1).total, 4)
   assert.ok(progress.some(update => update.artist === 'Cloudy' && update.activeSourceNames.length === 2))

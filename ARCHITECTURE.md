@@ -117,6 +117,7 @@ plugins/
 │   └── soundcloud.js      ← SoundCloud source plugin (dormant)
 ├── tracklists/
 │   ├── 1001tracklists.js  ← 1001Tracklists provider plugin (active)
+│   ├── youtube-comments.js ← timestamped YouTube descriptions/comments
 │   └── set79.js           ← set79 provider plugin (automatic fallback)
 └── events/
     ├── resident-advisor.js ← exact artist/city event lookup
@@ -129,14 +130,19 @@ Source and tracklist plugins are decoupled. The registry maps source → trackli
 
 ```
 ROUTING                     youtube ──► 1001tracklists  primary, exact-ID capable
-AUTOMATIC_FALLBACK_ROUTING  youtube ──► [set79]         starts in parallel
-ALTERNATE_ROUTING           youtube ──► [set79]         remains manually retryable
+AUTOMATIC_FALLBACK_ROUTING  youtube ──► [youtube-comments, set79]  starts in parallel
+ALTERNATE_ROUTING           youtube ──► [youtube-comments, set79]  manually retryable
 ```
 
 `ROUTING` identifies the preferred provider. Automatic fallbacks start beside it, but a
 usable primary result always wins. set79 matches across YouTube and SoundCloud using title
 and duration evidence, so it is selected only when the primary has no usable result.
 `ALTERNATE_ROUTING` keeps unsuccessful providers reachable for an explicit retry.
+
+The YouTube provider shares the source's watch-page fetch, preferring timestamped description
+rows before checking the initial comments batch and at most one ordinary continuation.
+Accepted rows are normalized into cue order while retaining publication-based row identities
+for saved edits. It never follows reply threads or simulates scrolling.
 
 Usable provider results are cached separately and can be switched in the renderer. A saved
 provider preference controls presentation without preventing the primary from being checked.
@@ -215,6 +221,40 @@ Playback does not depend on either provider. Cached provider results can be disp
 a network round trip, while explicit refresh bypasses the caches. Providers that return usable
 results stay available as switchable choices. If none succeeds, the fallback panel offers a
 manual retry and then the 1001Tracklists contribution link.
+
+Hidden provider pages use `lib/background-page.js` to bound their lifetime, deny popups,
+observe navigation rejections, and destroy their windows after extraction, failure, or timeout.
+
+### Background recognition
+
+When published providers have no usable tracklist, the Shazam source downloads temporary audio
+with the bundled yt-dlp runtime and decodes sparse clips with FFmpeg. The sample queue prioritizes
+the current listening position without seeking visible playback. Repeated fingerprints form
+confirmed timeline segments; recognition caches, manual corrections, and rate-limit backoff
+are owned by the main process. Visible playback drives scrobbling and listening statistics.
+
+`lib/child-process-lifecycle.js` shares process completion and bounded termination across audio,
+FFmpeg HLS, and the AirPlay helper. Completion waits for closed output pipes; cancellation
+escalates from SIGTERM to SIGKILL before temporary resources are removed.
+
+### TV casting
+
+Casting is experimental and enabled only on macOS in 0.7.0. Windows/Linux return
+an unsupported capability state, do not start discovery, and reject casting
+preparation over IPC. Their UI states that casting support is coming soon.
+
+The renderer records the focus composition and player audio into WebM chunks. Main passes that
+stream through FFmpeg into a rolling HLS playlist served on tokenized LAN URLs. Chromecast uses
+`lib/castv2.js`; macOS AirPlay uses the universal Swift route-picker helper bundled in Resources.
+Session identity and preparation tokens prevent old startup failures and cleanup from changing
+the active cast. Teardown closes receiver connections, child processes, and HTTP connections.
+
+macOS FFmpeg is compiled from a checksum-pinned upstream source archive with GPL, nonfree,
+version-3 license upgrades, and dependency autodetection disabled. Apple VideoToolbox supplies
+H.264 encoding. The bundle includes the unmodified source, build recipe, and complete LGPL
+text. Configure's generated license is checked for each architecture; native tools also run a
+license-report guard before packaging. Windows/Linux use controlled LGPL source builds with
+only PCM encoding/muxing for recognition. Their complete source and build materials ship too.
 
 ---
 
@@ -365,10 +405,11 @@ DJ_DEBUG_LOAD_URL=https://www.youtube.com/watch?v=... npm start
 Releases are triggered by pushing a version tag:
 
 ```sh
-git tag v0.6.0 && git push origin v0.6.0
+git tag v0.7.0 && git push origin v0.7.0
 ```
 
 GitHub Actions builds macOS, Windows, and Linux packages and publishes them to GitHub Releases.
+`npm run check:release` verifies manifest, lockfile, changelog, and CI tag consistency.
 
 ---
 

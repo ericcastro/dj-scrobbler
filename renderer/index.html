@@ -45,19 +45,20 @@
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="5" y="12" width="6" height="4" rx="1"/></svg>
       </button>
       <div id="casting-menu-wrap">
-        <button class="icon-btn" id="btn-cast" data-tooltip="Send focus view to TV" aria-label="Send focus view to TV" aria-haspopup="menu" aria-expanded="false">
+        <button class="icon-btn" id="btn-cast" data-tooltip="Experimental casting · macOS only" aria-label="Experimental casting · macOS only" aria-haspopup="menu" aria-expanded="false">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 16.1a5 5 0 0 1 5 5"/><path d="M2 12.1a9 9 0 0 1 9 9"/><path d="M2 8.1a13 13 0 0 1 13 13"/><path d="M5 3h14a2 2 0 0 1 2 2v12"/></svg>
           <span id="casting-button-dot" aria-hidden="true"></span>
         </button>
         <div id="casting-menu" class="hidden" role="menu" aria-label="Send to TV">
           <div class="casting-menu-heading">
-            <div><strong>send to TV</strong><small>focus view + your overlays</small></div>
+            <div><strong>send to TV</strong><small>Experimental · macOS only</small></div>
             <button id="btn-casting-refresh" data-tooltip="Look for TVs again" aria-label="Look for TVs again">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
             </button>
           </div>
           <div id="casting-status" aria-live="polite">Looking for TVs…</div>
           <div id="casting-devices"></div>
+          <p id="casting-support-note">Windows and Linux casting support is coming soon.</p>
           <p id="casting-airplay-note" class="hidden">Apple requires its system picker for AirPlay. Choose the display there once; the same TV button stops playback.</p>
         </div>
       </div>
@@ -727,7 +728,13 @@
           <div id="about-credit">
             made by <a class="about-link" id="about-author-link" data-href="https://eric.cast.ro">Eric Castro</a>
           </div>
+          <p id="about-media-notice">
+            Includes <a class="about-link" data-href="https://ffmpeg.org/">FFmpeg</a>
+            (<span id="about-ffmpeg-license">see bundled license</span>).<br>
+            Copyright © 2000–2023 the FFmpeg developers.
+          </p>
           <div class="about-dialog-btns">
+            <button id="btn-about-licenses" class="btn-secondary">Licenses &amp; sources</button>
             <button id="btn-about-changelog" class="btn-secondary">Changelog</button>
             <button id="btn-about-feature" class="btn-secondary">Suggest a feature</button>
             <button id="btn-about-bug" class="btn-secondary">Report a bug</button>

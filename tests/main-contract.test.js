@@ -14,20 +14,11 @@ const preloadJs = readSource('preload.js')
 
 // ── Windows titlebar overlay ───────────────────────────────────────────────────
 
-test('TITLEBAR_OVERLAY_THEMES defines color and symbolColor for all three themes', () => {
+test('THEME_TITLE_BAR defines color and symbolColor for all three themes', () => {
   for (const theme of ['neon-night', 'signal-teal', 'sunset-deck']) {
     assert.match(mainJs, new RegExp(`'${theme}'\\s*:\\s*\\{[^}]*color:`), `${theme} missing color`)
     assert.match(mainJs, new RegExp(`'${theme}'\\s*:\\s*\\{[^}]*symbolColor:`), `${theme} missing symbolColor`)
   }
-})
-
-test('titleBarOverlayForTheme returns height matching --topbar-h (52)', () => {
-  assert.match(mainJs, /function titleBarOverlayForTheme/)
-  assert.match(mainJs, /height:\s*52/)
-})
-
-test('titleBarOverlayForTheme falls back to neon-night for unknown themes', () => {
-  assert.match(mainJs, /TITLEBAR_OVERLAY_THEMES\[theme\]\s*\|\|\s*TITLEBAR_OVERLAY_THEMES\['neon-night'\]/)
 })
 
 test('createWindow uses platform-conditional titlebar style', () => {

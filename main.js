@@ -5,7 +5,10 @@ const https  = require('https')
 const crypto = require('crypto')
 const fs     = require('fs')
 const os     = require('os')
+const { pathToFileURL } = require('node:url')
 const plugins  = require('./plugins')
+const { extractFromBackgroundPage } = require('./lib/background-page')
+const { isAllowedExternalUrl } = require('./lib/external-url')
 const {
   cleanVersion,
   compareVersions,
@@ -30,6 +33,8 @@ const { mergeConfirmedYouTubeArtists } = require('./lib/youtube-page-data')
 const { writeJsonAtomic } = require('./lib/atomic-json')
 const { startFfmpegHls } = require('./lib/hls-encoder')
 const { BackgroundAudioSource } = require('./lib/background-audio')
+const { developmentMediaToolsDirectory } = require('./lib/media-tools')
+const { castingSupportForPlatform } = require('./lib/casting-support')
 const {
   buildBackgroundRecognitionQueue,
   prioritizeBackgroundRecognitionQueue,
@@ -172,6 +177,7 @@ const THEME_TITLE_BAR = {
   'sunset-deck': { color: '#190c1e', symbolColor: '#fff3ea' },
 }
 const MAX_TRACKLIST_CACHE_ENTRIES = 200
+const CASTING_SUPPORT = castingSupportForPlatform()
 const UPDATE_OWNER = 'ericcastro'
 const UPDATE_REPO = 'dj-scrobbler'
 const UPDATE_RELEASES_URL = `https://github.com/${UPDATE_OWNER}/${UPDATE_REPO}/releases`
@@ -190,6 +196,7 @@ let playerAudioCaptureGrant = null
 let castingCaptureGrant = null
 let tvDiscovery = null
 let castingSession = null
+let castingPreparationToken = 0
 let castingStatus = { status: 'idle', error: null }
 let shazamPocRun = null
 let windowPresentation = 'windowed'
@@ -914,9 +921,8 @@ function stopMonitoring({ finalize = true } = {}) {
 }
 
 function normalizeTrack(track, index, providerId) {
-  const cueSeconds = Number(track.cueSeconds)
-  const hasTimestamp = !!track.hasTimestamp ||
-    (!track.noTimestamp && Number.isFinite(cueSeconds) && cueSeconds >= 0)
+  const cueSeconds = track.cueSeconds == null || track.cueSeconds === '' ? NaN : Number(track.cueSeconds)
+  const hasTimestamp = !track.noTimestamp && Number.isFinite(cueSeconds) && cueSeconds >= 0
   const raw = track.raw || [track.artist, track.title].filter(Boolean).join(' - ')
   return {
     ...track,
@@ -2001,7 +2007,10 @@ function queueCurrentTrackArtwork(providerTrackId) {
     providerId: currentTracklistProvider,
     tracklistUrl: currentTracklistUrl,
   }
-  setImmediate(() => enrichArtworkInBackground([{ ...prepared }], artworkJob)
+  // The new generation invalidates the previous queue. Carry its pending rows
+  // forward as well so editing one ID cannot strand other covers on loading.
+  const artworkTracks = currentTracks.map(track => ({ ...track }))
+  setImmediate(() => enrichArtworkInBackground(artworkTracks, artworkJob)
     .catch(error => log(`[artwork] manual recognition failed: ${error?.message || error}`)))
 }
 
@@ -2765,6 +2774,7 @@ function installPlayerAudioCaptureHandler(electronSession) {
 
 async function executeTracklistExtraction(wc, script) {
   for (let i = 0; i < 12; i++) {
+    if (wc.isDestroyed()) return []
     const tracks = await wc.executeJavaScript(script).catch(() => null)
     if (Array.isArray(tracks) && tracks.length) return tracks
     await delay(500)
@@ -2774,6 +2784,7 @@ async function executeTracklistExtraction(wc, script) {
 
 async function executeCandidateInfoExtraction(wc, script) {
   for (let i = 0; i < 24; i++) {
+    if (wc.isDestroyed()) return null
     const info = await wc.executeJavaScript(script).catch(() => null)
     if (info && typeof info === 'object') return info
     await delay(250)
@@ -2785,44 +2796,18 @@ async function executeCandidateInfoExtraction(wc, script) {
 // failed page/widget is deliberately reduced to null so it cannot cancel the
 // provider search, the primary provider, or playback.
 function extractCandidateInfoInBackground(tlPlugin, url) {
-  return new Promise((resolve) => {
-    const win = new BrowserWindow({
-      show: false,
+  return extractFromBackgroundPage({
+    BrowserWindow,
+    url,
+    windowOptions: {
       width: 960,
       height: 700,
       icon: appIcon(),
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        backgroundThrottling: false,
-      },
-    })
-    const wc = win.webContents
-    let settled = false
-
-    const finish = (value) => {
-      if (settled) return
-      settled = true
-      if (!win.isDestroyed()) win.destroy()
-      resolve(value)
-    }
-
-    const timeout = setTimeout(() => finish(null), 10_000)
-    wc.on('did-finish-load', async () => {
-      const info = await executeCandidateInfoExtraction(wc, tlPlugin.candidateInfoExtractScript)
-      clearTimeout(timeout)
-      finish(info)
-    })
-    wc.on('did-fail-load', (_event, _code, _desc, _failedUrl, isMainFrame) => {
-      if (!isMainFrame) return
-      clearTimeout(timeout)
-      finish(null)
-    })
-    wc.on('render-process-gone', () => {
-      clearTimeout(timeout)
-      finish(null)
-    })
-    win.loadURL(url)
+      webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
+    },
+    timeoutMs: 10_000,
+    fallback: null,
+    extract: wc => executeCandidateInfoExtraction(wc, tlPlugin.candidateInfoExtractScript),
   })
 }
 
@@ -2851,76 +2836,38 @@ function automaticLookupServices(sourceUrl, status = 'checking') {
 }
 
 function extractTracklistInBackground(tlPlugin, url) {
-  return new Promise((resolve) => {
-    log(`[extract] background load ${url}`)
-    const win = new BrowserWindow({
-      show: false,
+  log(`[extract] background load ${url}`)
+  return extractFromBackgroundPage({
+    BrowserWindow,
+    url,
+    windowOptions: {
       width: 1280,
       height: 900,
       icon: appIcon(),
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        backgroundThrottling: false,
-      },
-    })
-    const wc = win.webContents
-    let settled = false
-
-    const finish = (value) => {
-      if (settled) return
-      settled = true
-      if (!win.isDestroyed()) win.destroy()
-      resolve(value)
-    }
-
-    const timeout = setTimeout(() => {
-      log('[extract] timed out')
-      finish({ title: null, tracks: [], metadata: null })
-    }, 20000)
-
-    wc.on('did-finish-load', async () => {
-      try {
-        log(`[extract] did-finish-load ${wc.getURL()}`)
-        wc.executeJavaScript(CONSENT_SCRIPT).catch(() => {})
-        const title = await wc.executeJavaScript(
-          `(() => {
-            const h1 = document.querySelector('h1')?.textContent?.trim()
-            if (h1 && !/please wait, you will be forwarded/i.test(h1)) return h1
-            return document.querySelector('meta[property="og:title"]')?.content?.trim() || document.title
-          })()`
-        ).catch(() => null)
-        const tracks = tlPlugin.tracklistExtractScript
-          ? await executeTracklistExtraction(wc, tlPlugin.tracklistExtractScript)
-          : []
-        const metadata = tlPlugin.metadataExtractScript
-          ? await wc.executeJavaScript(tlPlugin.metadataExtractScript).catch(() => null)
-          : null
-        log(`[extract] tracks=${tracks.length} title="${title || ''}"`)
-        clearTimeout(timeout)
-        finish({ title, tracks, metadata })
-      } catch (err) {
-        log('[extract] failed', err?.message || err)
-        clearTimeout(timeout)
-        finish({ title: null, tracks: [], metadata: null })
-      }
-    })
-
-    wc.on('did-fail-load', (_event, code, desc, failedUrl, isMainFrame) => {
-      if (isMainFrame) {
-        log(`[extract] did-fail-load code=${code} desc="${desc}" url=${failedUrl}`)
-        clearTimeout(timeout)
-        finish({ title: null, tracks: [], metadata: null })
-      }
-    })
-
-    wc.on('render-process-gone', (_event, details) => {
-      log(`[extract] render-process-gone reason=${details.reason}`)
-      clearTimeout(timeout)
-      finish({ title: null, tracks: [], metadata: null })
-    })
-
-    win.loadURL(url)
+      webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
+    },
+    timeoutMs: 20_000,
+    fallback: { title: null, tracks: [], metadata: null },
+    onError: error => log('[extract] failed', error?.message || error),
+    async extract(wc) {
+      log(`[extract] did-finish-load ${wc.getURL()}`)
+      wc.executeJavaScript(CONSENT_SCRIPT).catch(() => {})
+      const title = await wc.executeJavaScript(
+        `(() => {
+          const h1 = document.querySelector('h1')?.textContent?.trim()
+          if (h1 && !/please wait, you will be forwarded/i.test(h1)) return h1
+          return document.querySelector('meta[property="og:title"]')?.content?.trim() || document.title
+        })()`
+      ).catch(() => null)
+      const tracks = tlPlugin.tracklistExtractScript
+        ? await executeTracklistExtraction(wc, tlPlugin.tracklistExtractScript)
+        : []
+      const metadata = tlPlugin.metadataExtractScript && !wc.isDestroyed()
+        ? await wc.executeJavaScript(tlPlugin.metadataExtractScript).catch(() => null)
+        : null
+      log(`[extract] tracks=${tracks.length} title="${title || ''}"`)
+      return { title, tracks, metadata }
+    },
   })
 }
 
@@ -3517,12 +3464,7 @@ async function refreshTracklistLookups() {
   })
   mainWindow.webContents.send('set-availability', {
     sourceUrl: currentSourceUrl,
-    services: {
-      youtube: { status: 'available', url: currentSourceUrl },
-      soundcloud: { status: 'checking', url: null },
-      '1001tracklists': { status: 'checking', url: null },
-      set79: { status: 'checking', url: null },
-    },
+    services: automaticLookupServices(currentSourceUrl),
   })
 
   await runAutomaticTracklistLookups(primaryPlugin, currentSourceMeta, lookupToken, {
@@ -3718,60 +3660,45 @@ function wireWebview(wvContents) {
     log('[player-ui] frame styling failed:', error.message)
   })
 
-  // Catch intercept signals from source plugins that use click interception
+  // Navigation events are async EventEmitter listeners: always contain their
+  // failures and release the latch so the next selection remains usable.
+  const loadFromBrowser = async (source, url) => {
+    if (pendingLookup) return
+    pendingLookup = true
+    try {
+      await handleSourceUrl(source, url, wvContents)
+    } catch (error) {
+      log('[wv:browser] source lookup failed', error?.stack || error?.message || error)
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('wv-status', { type: 'hide-overlay' })
+    } finally {
+      pendingLookup = false
+    }
+  }
+
+  // Console output comes from remote pages; validate the intercepted URL again.
   wvContents.on('console-message', async ({ message }) => {
     if (role() === 'player') return
     for (const source of plugins.SOURCES) {
-      const interceptedUrl = source.parseIntercept(message)
-      if (!interceptedUrl) continue
-      log(`[wv:browser] console-message intercept source=${source.id} url=${interceptedUrl} pendingLookup=${pendingLookup}`)
-      if (pendingLookup) {
-        log(`[wv:browser] skipping intercept — pendingLookup already true`)
-        return
-      }
-      pendingLookup = true
-      log(`[wv:browser] → handleSourceUrl source=${source.id}`)
-      await handleSourceUrl(source, interceptedUrl, wvContents)
-      log(`[wv:browser] ← handleSourceUrl returned source=${source.id}`)
-      pendingLookup = false
+      const url = source.parseIntercept(message)
+      if (!url || !source.matchUrl(url)) continue
+      await loadFromBrowser(source, url)
       return
     }
   })
 
-  // Real navigations — sources without an intercept script use this
   wvContents.on('will-navigate', async (event, url) => {
     if (role() === 'player') return
     const source = plugins.sourceForUrl(url)
-    log(`[wv:${role() || 'unknown'}] will-navigate url=${url} source=${source?.id || '(none)'} hasIntercept=${!!source?.interceptScript} pendingLookup=${pendingLookup}`)
     if (!source || source.interceptScript) return
-    if (pendingLookup) {
-      log(`[wv:${role()}] skipping will-navigate — pendingLookup already true`)
-      return
-    }
-    pendingLookup = true
     event.preventDefault()
-    log(`[wv:${role()}] → handleSourceUrl via will-navigate source=${source.id}`)
-    await handleSourceUrl(source, url, wvContents)
-    log(`[wv:${role()}] ← handleSourceUrl returned via will-navigate source=${source.id}`)
-    pendingLookup = false
+    await loadFromBrowser(source, url)
   })
 
-  // SPA pushState navigations (SoundCloud)
   wvContents.on('did-navigate-in-page', async (_event, url, isMainFrame) => {
-    if (role() === 'player') return
-    if (!isMainFrame) return
+    if (role() === 'player' || !isMainFrame) return
     const source = plugins.sourceForUrl(url)
-    log(`[wv:${role() || 'unknown'}] did-navigate-in-page url=${url} source=${source?.id || '(none)'} pendingLookup=${pendingLookup}`)
     if (!source || source.interceptScript) return
-    if (pendingLookup) {
-      log(`[wv:${role()}] skipping did-navigate-in-page — pendingLookup already true`)
-      return
-    }
-    pendingLookup = true
-    log(`[wv:${role()}] → handleSourceUrl via did-navigate-in-page source=${source.id}`)
-    await handleSourceUrl(source, url, wvContents)
-    log(`[wv:${role()}] ← handleSourceUrl returned via did-navigate-in-page source=${source.id}`)
-    pendingLookup = false
+    await loadFromBrowser(source, url)
   })
 
   wvContents.on('did-finish-load', async () => {
@@ -4340,16 +4267,16 @@ function setWindowAlwaysOnTop(enabled) {
 
 // ── Window ────────────────────────────────────────────────────────────────────
 
-// Per-theme topbar colors for the Windows native titlebar overlay (min/max/close buttons).
-// Keeps the native controls visually integrated with the active theme.
-const TITLEBAR_OVERLAY_THEMES = {
-  'neon-night':  { color: '#0f1a30', symbolColor: '#6e88b8' },
-  'signal-teal': { color: '#071f25', symbolColor: '#6ab4aa' },
-  'sunset-deck': { color: '#190c1e', symbolColor: '#9b7e8e' },
-}
-function titleBarOverlayForTheme(theme) {
-  const colors = TITLEBAR_OVERLAY_THEMES[theme] || TITLEBAR_OVERLAY_THEMES['neon-night']
-  return { ...colors, height: 52 }   // 52 matches --topbar-h
+function sessionPermissionAllowed(contents, permission, requestingUrl) {
+  if (permission === 'fullscreen' || permission === 'mediaKeySystem') return true
+  if (permission !== 'media' && permission !== 'display-capture') return false
+  if (!contents || contents.isDestroyed?.()) return false
+  // The YouTube browser, provider pages, and embedded third-party frames do
+  // not need a microphone/camera grant. Only app-owned capture frames qualify;
+  // display capture is additionally restricted by its one-shot grant handler.
+  const appUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href
+  return (contents === mainWindow?.webContents && requestingUrl === appUrl) ||
+    (contents === playerWvContents && isYouTubePlayerUrl(requestingUrl))
 }
 
 function createWindow() {
@@ -4398,6 +4325,8 @@ function createWindow() {
     })
   }
   installPlayerAudioCaptureHandler(mainWindow.webContents.session)
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', event => event.preventDefault())
   mainWindow.loadFile('renderer/index.html')
   mainWindow.webContents.once('did-finish-load', () => {
     if (AUTO_SHAZAM_VALIDATION) {
@@ -4412,7 +4341,12 @@ function createWindow() {
       setTimeout(() => checkForUpdates({ manual: false }), 2500)
     }
   })
-  mainWindow.webContents.session.setPermissionRequestHandler((_wc, _perm, cb) => cb(true))
+  mainWindow.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
+    callback(sessionPermissionAllowed(contents, permission, details.requestingUrl))
+  })
+  mainWindow.webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) =>
+    sessionPermissionAllowed(contents, permission, details.requestingUrl || requestingOrigin)
+  )
   mainWindow.webContents.on('did-attach-webview', (_event, wvContents) => wireWebview(wvContents))
 
   // Spotify-style close: hide instead of quit — unless the user is actually quitting
@@ -4440,6 +4374,7 @@ function airPlayHelperPath() {
 }
 
 function castingDevicesSnapshot() {
+  if (!CASTING_SUPPORT.supported) return []
   const devices = tvDiscovery?.snapshot() || []
   const available = process.platform === 'darwin' && airPlayHelperAvailable(airPlayHelperPath())
   return buildTvTargets(devices, { canAirPlay: available })
@@ -4447,7 +4382,9 @@ function castingDevicesSnapshot() {
 
 function castingStateSnapshot() {
   return {
+    ...CASTING_SUPPORT,
     ...castingStatus,
+    ...(!CASTING_SUPPORT.supported ? { status: 'unsupported' } : {}),
     devices: castingDevicesSnapshot(),
     preferredTarget: preferredCastingTarget(),
     target: castingSession?.target || castingStatus.target || null,
@@ -4465,6 +4402,7 @@ function setCastingStatus(status, detail = {}) {
 }
 
 function initializeTvDiscovery() {
+  if (!CASTING_SUPPORT.supported) return
   if (tvDiscovery) return
   tvDiscovery = new TvDiscovery()
   tvDiscovery.on('devices', () => sendCastingState())
@@ -4490,10 +4428,15 @@ function rememberCastingTarget(target) {
   writeStore(store)
 }
 
-async function disposeCastingSession(finalStatus = { status: 'idle', error: null }) {
+async function disposeCastingSession(finalStatus = { status: 'idle', error: null }, { preservePreparation = false } = {}) {
+  if (!preservePreparation) castingPreparationToken++
   const session = castingSession
   castingSession = null
   castingCaptureGrant = null
+  // Publish teardown before awaiting resources. A late cleanup must never
+  // overwrite the status of a new session started while this one closes.
+  castingStatus = finalStatus
+  sendCastingState()
   if (session) {
     await Promise.all([
       session.client?.stop().catch(() => {}),
@@ -4503,8 +4446,6 @@ async function disposeCastingSession(finalStatus = { status: 'idle', error: null
     ])
     try { fs.rmSync(session.directory, { recursive: true, force: true }) } catch {}
   }
-  castingStatus = finalStatus
-  sendCastingState()
   return castingStateSnapshot()
 }
 
@@ -4516,6 +4457,7 @@ async function failCastingSession(error) {
 }
 
 async function prepareCastingSession(targetId) {
+  if (!CASTING_SUPPORT.supported) throw new Error(CASTING_SUPPORT.availabilityMessage)
   initializeTvDiscovery()
   const target = castingDevicesSnapshot().find(device => device.id === targetId)
   if (!target) throw new Error('That TV is no longer available. Refresh the device list and try again.')
@@ -4524,12 +4466,15 @@ async function prepareCastingSession(targetId) {
     throw new Error('Open a DJ set before sending it to a TV.')
   }
 
-  await disposeCastingSession()
+  const preparationToken = ++castingPreparationToken
+  await disposeCastingSession(undefined, { preservePreparation: true })
+  if (preparationToken !== castingPreparationToken) throw new Error('The casting request was superseded.')
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dj-scrobbler-cast-'))
   let server = null
   let encoder = null
   try {
     server = await startHlsServer({ directory })
+    if (preparationToken !== castingPreparationToken) throw new Error('The casting request was superseded.')
     const hlsUrl = selectPlaybackUrl(server.playbackUrls, target)
     if (!hlsUrl) throw new Error('No LAN address is available for the TV to reach this Mac.')
     encoder = startFfmpegHls({
@@ -4546,7 +4491,16 @@ async function prepareCastingSession(targetId) {
       onLog: chunk => log('[casting:ffmpeg]', chunk.trim()),
     })
     const sessionId = crypto.randomUUID()
-    castingSession = { sessionId, target, directory, server, encoder, hlsUrl, client: null, airplay: null }
+    const session = { sessionId, target, directory, server, encoder, hlsUrl, client: null, airplay: null }
+    castingSession = session
+    // Observe failures even before the renderer starts capture, and failures
+    // after readiness while a receiver is already playing.
+    encoder.ready.catch(error => {
+      if (castingSession === session) return failCastingSession(error)
+    }).catch(error => log('[casting:cleanup]', error?.message || error))
+    encoder.exit.then(result => {
+      if (castingSession === session) return failCastingSession(result.error || new Error(`FFmpeg stopped (${result.code ?? result.signal}): ${result.stderr}`))
+    }).catch(error => log('[casting:cleanup]', error?.message || error))
     castingCaptureGrant = {
       webContentsId: mainWindow.webContents.id,
       expiresAt: Date.now() + 15_000,
@@ -4560,12 +4514,13 @@ async function prepareCastingSession(targetId) {
       server?.stop().catch(() => {}),
     ])
     try { fs.rmSync(directory, { recursive: true, force: true }) } catch {}
-    await failCastingSession(error)
+    if (preparationToken === castingPreparationToken) await failCastingSession(error)
     throw error
   }
 }
 
 async function startPreparedCastingSession(sessionId) {
+  if (!CASTING_SUPPORT.supported) throw new Error(CASTING_SUPPORT.availabilityMessage)
   const session = castingSession
   if (!session || session.sessionId !== sessionId) throw new Error('The casting session has expired.')
   try {
@@ -4617,7 +4572,7 @@ async function startPreparedCastingSession(sessionId) {
     setCastingStatus('casting', { target: session.target })
     return castingStateSnapshot()
   } catch (error) {
-    await failCastingSession(error)
+    if (castingSession === session) await failCastingSession(error)
     throw error
   }
 }
@@ -4838,6 +4793,13 @@ ipcMain.handle('get-sources', () =>
 
 ipcMain.handle('get-version', () => app.getVersion())
 ipcMain.handle('get-platform', () => process.platform)
+ipcMain.handle('licenses-open', async () => {
+  const directory = app.isPackaged
+    ? path.join(process.resourcesPath, 'bin')
+    : developmentMediaToolsDirectory()
+  const error = await shell.openPath(directory)
+  if (error) throw new Error(`Could not open the bundled licenses: ${error}`)
+})
 
 ipcMain.handle('tracklist-cache-clear', () => {
   artworkCacheGeneration++
@@ -4887,7 +4849,7 @@ ipcMain.handle('casting-state-get', () => {
 })
 ipcMain.handle('casting-discovery-refresh', () => {
   initializeTvDiscovery()
-  tvDiscovery.refresh()
+  tvDiscovery?.refresh()
   return castingStateSnapshot()
 })
 ipcMain.handle('casting-session-prepare', (_event, targetId) => prepareCastingSession(String(targetId || '')))
@@ -4930,7 +4892,7 @@ ipcMain.handle('window-drag-end', () => {
 // provider sends the user to its source-specific pages,
 // so deriving the list from the registry keeps a new provider's links from
 // being silently dropped here.
-const APP_EXTERNAL_HOSTS = ['djscrobbler.com', 'github.com', 'cast.ro', 'youtube.com', 'youtu.be', 'soundcloud.com']
+const APP_EXTERNAL_HOSTS = ['djscrobbler.com', 'github.com', 'cast.ro', 'youtube.com', 'youtu.be', 'soundcloud.com', 'ffmpeg.org']
 
 function allowedExternalHosts() {
   return [...new Set([
@@ -4941,15 +4903,8 @@ function allowedExternalHosts() {
 }
 
 ipcMain.handle('open-external', (_event, url) => {
-  try {
-    const { hostname, protocol } = new URL(url)
-    if (protocol === 'mailto:') return shell.openExternal(url)
-    const allowed = allowedExternalHosts()
-    if (allowed.some(d => hostname === d || hostname.endsWith('.' + d))) return shell.openExternal(url)
-    log(`[external] blocked ${hostname} — not in [${allowed.join(', ')}]`)
-  } catch {
-    log(`[external] blocked unparseable url: ${url}`)
-  }
+  if (isAllowedExternalUrl(url, allowedExternalHosts())) return shell.openExternal(url)
+  log(`[external] blocked url: ${url}`)
 })
 
 ipcMain.handle('player-seek', (_event, seconds) => playerSeek(seconds))

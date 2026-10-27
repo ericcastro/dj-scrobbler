@@ -1,7 +1,7 @@
 {
   "name": "dj-scrobbler",
   "productName": "DJ Scrobbler",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Scrobble tracks from DJ sets on YouTube",
   "author": "Eric Castro <errrick@gmail.com>",
   "license": "MIT",
@@ -21,11 +21,14 @@
     "poc:cast:hls": "node scripts/pocs/hls-cast.js",
     "build:airplay": "bash scripts/build-airplay-helper.sh",
     "test": "node --test tests/run-tests.js",
+    "pretest:media": "npm run prepare:media",
+    "test:media": "node scripts/test-media-runtime.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
     "build:linux": "electron-builder --linux",
-    "release": "electron-builder --publish always"
+    "release": "electron-builder --publish always",
+    "check:release": "node scripts/check-release.js"
   },
   "build": {
     "appId": "com.djscrobbler.app",
@@ -36,6 +39,8 @@
       "output": "dist"
     },
     "files": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
       "main.js",
       "preload.js",
       "lib/**/*",
@@ -130,7 +135,8 @@
     "publish": {
       "provider": "github",
       "owner": "ericcastro",
-      "repo": "dj-scrobbler"
+      "repo": "dj-scrobbler",
+      "releaseType": "draft"
     }
   },
   "devDependencies": {

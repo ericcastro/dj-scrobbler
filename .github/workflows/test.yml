@@ -30,3 +30,6 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Check release metadata
+        run: npm run check:release

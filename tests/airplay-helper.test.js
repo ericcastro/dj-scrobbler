@@ -23,7 +23,10 @@ class FakeChild extends EventEmitter {
 
   kill(signal) {
     this.signalCode = signal
-    process.nextTick(() => this.emit('exit', null, signal))
+    process.nextTick(() => {
+      this.emit('exit', null, signal)
+      this.emit('close', null, signal)
+    })
     return true
   }
 }
@@ -66,4 +69,25 @@ test('AirPlay helper exposes route-picker status and stops its native process', 
   ])
   const result = await helper.stop()
   assert.equal(result.signal, 'SIGTERM')
+})
+
+test('AirPlay spawn failure settles both readiness and cleanup', async () => {
+  const child = new FakeChild()
+  const helper = startAirPlayHelper({ helperPath: process.execPath, spawnImpl: () => child })
+  const failure = new Error('spawn failed')
+  child.emit('error', failure)
+  child.emit('close', -2, null)
+  await assert.rejects(helper.ready, /spawn failed/)
+  assert.equal((await helper.stop()).error, failure)
+})
+
+test('AirPlay route-picker startup has a bounded deadline', async () => {
+  const child = new FakeChild()
+  const helper = startAirPlayHelper({
+    helperPath: process.execPath,
+    spawnImpl: () => child,
+    readyTimeoutMs: 10,
+  })
+  await assert.rejects(helper.ready, /timed out/)
+  assert.equal((await helper.exit).signal, 'SIGTERM')
 })

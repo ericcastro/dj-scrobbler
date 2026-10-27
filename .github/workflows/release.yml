@@ -45,6 +45,12 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check release metadata and tag
+        run: npm run check:release
+
+      - name: Check media decoder runtime
+        run: npm run test:media
+
       - name: Build & publish (macOS)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,15 +83,29 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check release metadata and tag
+        run: npm run check:release
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit
+          install: mingw-w64-ucrt-x86_64-gcc make diffutils tar xz
+
       - name: Build & publish (Windows)
+        shell: msys2 {0}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build:win -- --publish always
+        run: |
+          export DJ_SCROBBLER_BUILD_BASH="$(cygpath -w /usr/bin/bash)"
+          export DJ_SCROBBLER_TOOLCHAIN_LICENSES="$(cygpath -w "$MINGW_PREFIX/share/licenses")"
+          npm run test:media
+          npm run build:win -- --publish always
 
   # ── Linux ─────────────────────────────────────────────────────────────────────
   build-linux:
     needs: delete-draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
@@ -98,6 +118,12 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Check release metadata and tag
+        run: npm run check:release
+
+      - name: Check media decoder runtime
+        run: npm run test:media
 
       - name: Build & publish (Linux)
         env:

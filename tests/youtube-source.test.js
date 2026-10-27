@@ -18,6 +18,14 @@ test('YouTube search URL encodes user query', () => {
   )
 })
 
+test('YouTube interception is injected only on HTTPS YouTube hosts', () => {
+  assert.equal(youtube.shouldInjectOn('https://www.youtube.com/results?search_query=sets'), true)
+  assert.equal(youtube.shouldInjectOn('https://youtube.com'), true)
+  assert.equal(youtube.shouldInjectOn('https://notyoutube.com'), false)
+  assert.equal(youtube.shouldInjectOn('https://youtube.com.example.org'), false)
+  assert.equal(youtube.shouldInjectOn('file://youtube.com/tmp/page.html'), false)
+})
+
 test('YouTube intercept parser only accepts its source prefix', () => {
   const url = 'https://www.youtube.com/watch?v=abcdefghijk'
   assert.equal(youtube.parseIntercept(`__INTERCEPT__youtube__${url}`), url)

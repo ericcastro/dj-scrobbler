@@ -4,7 +4,8 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { buildHlsOutputArgs, waitForHlsReady } = require('../lib/hls-encoder')
+const { buildHlsOutputArgs, startFfmpegHls, waitForHlsReady } = require('../lib/hls-encoder')
+const { FakeChild } = require('./helpers/child-process')
 
 test('HLS encoder uses short aligned segments and a bounded rolling playlist', () => {
   const directory = path.join(os.tmpdir(), 'hls-output')
@@ -50,6 +51,39 @@ test('HLS readiness times out with an actionable error', async () => {
       waitForHlsReady(directory, { timeoutMs: 30, pollMs: 10 }),
       /did not become ready within 30ms/
     )
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('HLS readiness is cancellable without waiting for its deadline', async () => {
+  const controller = new AbortController()
+  const pending = waitForHlsReady(os.tmpdir(), { signal: controller.signal, pollMs: 10_000 })
+  controller.abort()
+  await assert.rejects(pending, { name: 'AbortError' })
+})
+
+test('HLS process failures retain stderr and stop readiness polling', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dj-hls-failure-'))
+  try {
+    const child = new FakeChild()
+    const encoder = startFfmpegHls({ directory, executable: 'ffmpeg', spawnImpl: () => child })
+    child.exit(1)
+    child.stderr.write('codec failed')
+    child.close()
+    await assert.rejects(encoder.ready, /codec failed/)
+    assert.equal((await encoder.stop()).code, 1)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('missing FFmpeg rejects readiness and still allows cleanup', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dj-hls-spawn-'))
+  try {
+    const encoder = startFfmpegHls({ directory, executable: path.join(directory, 'missing-ffmpeg') })
+    await assert.rejects(encoder.ready, /ENOENT/)
+    assert.equal((await encoder.stop()).error.code, 'ENOENT')
   } finally {
     fs.rmSync(directory, { recursive: true, force: true })
   }

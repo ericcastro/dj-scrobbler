@@ -14,7 +14,8 @@ It searches for a matching tracklist, follows the currently playing track, and s
 
 - Search YouTube for DJ sets directly inside the app.
 - Save favorite sets and browse listening history across sessions.
-- Search 1001Tracklists and set79 in parallel, preferring an exact 1001Tracklists match.
+- Search 1001Tracklists, YouTube descriptions/comments, and set79 in parallel, preferring an exact 1001Tracklists match.
+- Build an editable Shazam tracklist in the background when published tracklists are unavailable.
 - Show the active tracklist in sync with playback, highlighting the current track.
 - Enrich identified tracks with artwork when a provider has none.
 - Connect a Last.fm account and scrobble each individual track as it plays.
@@ -22,6 +23,8 @@ It searches for a matching tracklist, follows the currently playing track, and s
 - Resume interrupted sets from where you left off.
 - Edit set metadata and browse favorites by DJ, event, or venue.
 - Track local listening totals and show upcoming DJ events near a saved location.
+- Send the focus view and audio to Chromecast or AirPlay on macOS (**experimental, macOS only**). Windows and Linux casting support is coming soon.
+- Use focus mode, always-on-top playback, keyboard seeking, and YouTube quality controls.
 - Three visual themes: Neon Night, Signal Teal, Sunset Deck.
 
 ## Why
@@ -42,6 +45,8 @@ DJ Scrobbler is built for:
 - Windows
 - Linux
 
+Casting is **experimental and available on macOS only** in 0.7.0. Windows and Linux casting support is coming soon; their apps continue to support playback, tracklists, recognition, and scrobbling. Linux packages require Ubuntu 22.04 or a compatible system with glibc 2.35 or newer.
+
 ### macOS
 
 DJ Scrobbler isn't notarized with Apple yet, so a copy downloaded through the browser is
@@ -60,10 +65,14 @@ and installs it in place with one click.
 DJ Scrobbler has three plugin layers:
 
 - **Source plugins** understand playable set URLs (currently YouTube).
-- **Tracklist plugins** find and extract tracklists (currently 1001Tracklists and set79).
+- **Tracklist plugins** find and extract tracklists (currently 1001Tracklists, YouTube descriptions/comments, and set79).
 - **Event plugins** find upcoming appearances for tagged DJs (currently Resident Advisor and Shotgun).
 
-When you open a DJ set, the app starts its own YouTube player immediately and searches both tracklist providers. An exact 1001Tracklists match wins; set79 is a best-effort fallback based on title and duration. If neither has a usable tracklist, the Shazam source sparsely samples the app's own player audio and builds a timestamped recognition timeline as the set plays. Repeated matches may update Last.fm's now-playing state; a track is added and scrobbled only after the confidence threshold is met.
+When you open a DJ set, the app starts its own YouTube player and searches the published tracklist providers in parallel. An exact 1001Tracklists match wins, followed by timestamped YouTube descriptions/comments, then set79's title and duration match. If none has a usable tracklist, Shazam analyzes sparse samples from a temporary audio download in the background without seeking the visible player. Repeated matches build a timestamped recognition timeline; confirmed tracks are scrobbled only when visible playback reaches them. You can correct IDs and switch between available providers.
+
+Recognition and casting use bundled FFmpeg and yt-dlp binaries. Development commands prepare the same pinned, checksum-verified tools used in release builds; no separate system installation is required. macOS AirPlay also uses a small native helper (`npm run build:airplay` during development), included automatically in packaged apps.
+
+The first media preparation builds FFmpeg from pinned upstream source; subsequent runs reuse the cached build. macOS requires Xcode Command Line Tools. Linux requires gcc, make, binutils, tar, and xz. Windows builds use MSYS2 UCRT64; the package workflow configures its compiler and license paths. Packages include the FFmpeg source archive, build script, and full LGPL text. Windows/Linux use decoder-only builds for recognition while casting support is developed.
 
 Tracklists, provider preferences, set metadata, and artwork results are cached locally. User-facing history, favorites, edits, settings, and listening statistics remain local to the machine.
 
@@ -78,6 +87,7 @@ npm install   # install dependencies
 npm start     # run the app
 npm run dev   # run with developer extras enabled
 npm test      # run the test suite
+npm run check:release # verify version and changelog consistency
 ```
 
 Enable verbose logging:
@@ -99,3 +109,5 @@ DJ Scrobbler is in active early development, working toward a stable 1.0 release
 ## License
 
 MIT
+
+Bundled components keep their own licenses. Each platform includes a separate FFmpeg executable under LGPL 2.1-or-later, with its complete source, license, and build instructions supplied in the same download. Use **About → Licenses & sources** to find them. See [third-party notices](./THIRD_PARTY_NOTICES.md) and [the scoped FFmpeg compliance check](./docs/ffmpeg-compliance.md) for details.

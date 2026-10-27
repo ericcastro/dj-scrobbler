@@ -5259,6 +5259,18 @@ input[type="checkbox"]:checked {
   flex-wrap: wrap;
 }
 
+#about-media-notice {
+  color: var(--text2);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+#casting-support-note {
+  color: var(--text2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .about-sep { opacity: 0.4; }
 
 .about-link {

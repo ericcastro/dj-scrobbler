@@ -262,6 +262,8 @@ const btnAboutChangelog   = document.getElementById('btn-about-changelog')
 const btnAboutFeature     = document.getElementById('btn-about-feature')
 const btnAboutBug         = document.getElementById('btn-about-bug')
 const btnAboutWebsite     = document.getElementById('btn-about-website')
+const btnAboutLicenses    = document.getElementById('btn-about-licenses')
+const aboutFfmpegLicense  = document.getElementById('about-ffmpeg-license')
 const supportDialog       = document.getElementById('support-dialog')
 const supportDialogTitle  = document.getElementById('support-dialog-title')
 const supportDialogSub    = document.getElementById('support-dialog-sub')
@@ -1580,7 +1582,9 @@ async function init() {
   setLibraryViewMode(state.store.settings?.libraryViewMode || 'grid', false)
   setEventVenueLibraryType(state.store.settings?.eventVenueLibraryType || 'event', false)
   setEventVenueLibraryViewMode(state.store.settings?.eventVenueLibraryViewMode || 'grid', false)
-  document.body.classList.add(`platform-${await window.api.getPlatform()}`)
+  const platform = await window.api.getPlatform()
+  document.body.classList.add(`platform-${platform}`)
+  aboutFfmpegLicense.textContent = 'LGPL 2.1 or later'
   if (await window.api.isDeveloper()) btnDevtools.classList.remove('hidden')
 
   applyTheme(state.store.settings?.theme || 'neon-night', false)
@@ -2211,6 +2215,7 @@ function toggleCastingMenu() {
   btnCast.setAttribute('aria-expanded', String(willOpen))
   if (willOpen) {
     closeDisplayMenu()
+    if (currentCastingState.supported === false) return
     window.api.castingDiscoveryRefresh()
       .then(renderCastingState)
       .catch(error => renderCastingState({ ...currentCastingState, status: 'error', error: error?.message || String(error) }))
@@ -2218,6 +2223,7 @@ function toggleCastingMenu() {
 }
 
 function castingStatusText(casting) {
+  if (casting.supported === false) return casting.availabilityMessage || 'Casting is experimental and available on macOS only. Windows and Linux support is coming soon.'
   const name = casting.target?.name || 'TV'
   if (casting.status === 'preparing') return 'Preparing the focus view…'
   if (casting.status === 'buffering') return 'Building the live stream…'
@@ -2243,8 +2249,11 @@ function castingStartupCopy(casting) {
 
 function renderCastingState(next = {}) {
   currentCastingState = {
+    supported: next.supported !== false,
+    experimental: true,
+    availabilityMessage: next.availabilityMessage || null,
     status: next.status || 'idle',
-    devices: Array.isArray(next.devices) ? next.devices : [],
+    devices: next.supported !== false && Array.isArray(next.devices) ? next.devices : [],
     preferredTarget: next.preferredTarget || null,
     target: next.target || null,
     error: next.error || null,
@@ -2258,8 +2267,9 @@ function renderCastingState(next = {}) {
   btnCast.classList.toggle('casting', currentCastingState.status === 'casting')
   const castLabel = active
     ? `TV devices · ${currentCastingState.status === 'casting' ? 'playing' : 'starting'} on ${currentCastingState.target?.name || 'TV'}`
-    : 'TV devices'
+    : 'Experimental casting · macOS only'
   setControlTooltip(btnCast, castLabel)
+  btnCastingRefresh.classList.toggle('hidden', !currentCastingState.supported)
   castingStatus.textContent = castingStatusText(currentCastingState)
   castingStatus.classList.toggle('error', currentCastingState.status === 'error')
   const startupCopy = castingStartupCopy(currentCastingState)
@@ -2301,7 +2311,7 @@ function renderCastingState(next = {}) {
     castingDevices.appendChild(button)
   }
 
-  if (!currentCastingState.devices.length) {
+  if (currentCastingState.supported && !currentCastingState.devices.length) {
     const empty = document.createElement('div')
     empty.className = 'casting-device-empty'
     empty.textContent = 'Make sure the TV is awake and on the same network.'
@@ -2343,6 +2353,7 @@ async function settleFocusComposition() {
 }
 
 async function startCasting(targetId) {
+  if (currentCastingState.supported === false) throw new Error(castingStatusText(currentCastingState))
   closeCastingMenu()
   await settleFocusComposition()
   const prepared = await window.api.castingSessionPrepare(targetId)
@@ -2683,17 +2694,6 @@ function seekFromProgressEvent(e) {
   state.playbackCurrentTime = seconds
   updatePlaybackProgress(seconds, state.playbackDuration)
   playerSeek(seconds)
-}
-
-function seekRelativeSeconds(deltaSeconds) {
-  const current = Math.max(0, Number(state.playbackCurrentTime) || 0)
-  const duration = Math.max(0, Number(state.playbackDuration) || 0)
-  const target = Math.max(0, duration
-    ? Math.min(duration, current + deltaSeconds)
-    : current + deltaSeconds)
-  state.playbackCurrentTime = target
-  updatePlaybackProgress(target, state.playbackDuration)
-  playerSeek(target)
 }
 
 function previewRelativeSeek(deltaSeconds) {
@@ -5723,6 +5723,9 @@ function wireEvents() {
   btnAboutFeature.addEventListener('click', () => { closeAboutDialog(); openSupportDialog('feature') })
   btnAboutBug.addEventListener('click', () => { closeAboutDialog(); openSupportDialog('bug') })
   btnAboutWebsite.addEventListener('click', () => window.api.openExternal('https://www.djscrobbler.com'))
+  btnAboutLicenses.addEventListener('click', () => {
+    window.api.openLicenses().catch(error => window.alert(error?.message || 'The bundled licenses could not be opened.'))
+  })
   document.querySelectorAll('.about-link').forEach(a => {
     a.addEventListener('click', () => window.api.openExternal(a.dataset.href))
   })

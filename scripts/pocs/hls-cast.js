@@ -18,6 +18,7 @@ async function main() {
   const server = await startHlsServer({ directory })
   const encoder = startFfmpegHls({
     directory,
+    videoCodec: process.platform === 'darwin' ? 'h264_videotoolbox' : 'libx264',
     inputArgs: [
       '-re',
       '-f', 'lavfi',

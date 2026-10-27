@@ -62,6 +62,16 @@ test('comment parser treats em dashes like hyphens and keeps no-dash text as a m
   assert.deepEqual([tracks[2].artist, tracks[2].title], ['ID', 'Untitled ID'])
 })
 
+test('accepted YouTube tracklists are ordered for playback without changing edit identities', () => {
+  const tracks = comments.parseTimestampedTracks('0:00 A - One\n3:00 C - Three\n2:00 B - Two\n4:00 D - Four', 'ordered')
+  assert.equal(comments.isCredibleTimestampTracklist(tracks), true)
+  const normalized = provider.normalizeTracklist(tracks)
+  assert.deepEqual(normalized.map(track => track.cueSeconds), [0, 120, 180, 240])
+  assert.deepEqual(normalized.map(track => track.trackNum), [1, 2, 3, 4])
+  assert.equal(normalized[1].providerTrackId, tracks[2].providerTrackId)
+  assert.deepEqual(tracks.map(track => track.cueSeconds), [0, 180, 120, 240])
+})
+
 test('malformed comment timestamps and non-track prose are ignored', () => {
   const tracks = comments.parseTimestampedTracks(`hello 12:99 nope\n00:01\n99:00 okay\n01:02 actual one\n01:02 duplicate\n1:61:00 invalid`, 'bad')
   assert.deepEqual(tracks.map(track => [track.cueSeconds, track.title]), [[5940, 'okay'], [62, 'actual one']])

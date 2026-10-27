@@ -3,6 +3,8 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
+const net = require('node:net')
+const { once } = require('node:events')
 
 const {
   collectLanIpv4Addresses,
@@ -84,4 +86,25 @@ test('HLS server requires an explicit existing output directory', async () => {
     startHlsServer({ directory: path.join(os.tmpdir(), 'missing-dj-scrobbler-hls-output') }),
     /does not exist/
   )
+})
+
+test('HLS shutdown closes incomplete receiver requests before awaiting server close', async () => {
+  const directory = fixture()
+  const server = await startHlsServer({ directory, host: '127.0.0.1' })
+  const socket = net.connect(server.port, '127.0.0.1')
+  let timer
+  try {
+    await once(socket, 'connect')
+    socket.write('GET / HTTP/1.1\r\nHost: localhost\r\n')
+    await new Promise(resolve => setImmediate(resolve))
+    await Promise.race([
+      server.stop(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('HLS shutdown hung')), 1000) }),
+    ])
+  } finally {
+    clearTimeout(timer)
+    socket.destroy()
+    await server.stop()
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
 })
