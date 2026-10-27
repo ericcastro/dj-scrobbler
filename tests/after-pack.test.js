@@ -13,7 +13,7 @@ test('macOS packaging builds the universal AirPlay helper into app resources', (
   assert.equal(destination, path.join(appPath, 'Contents', 'Resources', 'bin', 'dj-scrobbler-airplay'))
   assert.deepEqual(calls, [[
     '/bin/bash',
-    ['/project/scripts/build-airplay-helper.sh', destination, '--universal'],
+    [path.join('/project', 'scripts', 'build-airplay-helper.sh'), destination, '--universal'],
     { stdio: 'inherit' },
   ]])
 })
